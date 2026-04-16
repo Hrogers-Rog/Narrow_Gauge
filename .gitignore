@@ -1,0 +1,21 @@
+# Build output
+bin/
+obj/
+
+# IDE and local tooling
+.vs/
+.vscode/
+.idea/
+.claude/
+.dotnet-home/
+.appdata/
+.nuget/
+*.user
+*.suo
+
+# Local build overrides
+Directory.Build.props
+
+# OS noise
+Thumbs.db
+Desktop.ini

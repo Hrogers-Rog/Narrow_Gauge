@@ -1,0 +1,82 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <NoWarn>MSB3274;MSB3275</NoWarn>
+    <AssemblyName>NarrowGaugeMod</AssemblyName>
+    <RootNamespace>NarrowGaugeMod</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>9.0</LangVersion>
+    <Optimize>false</Optimize>
+
+    <!--
+      Override RailroaderDir in a local Directory.Build.props file or by passing
+      /p:RailroaderDir=<path>. The default below matches a standard Steam install.
+    -->
+    <RailroaderDir Condition="'$(RailroaderDir)' == '' and '$(RAILROADER_DIR)' != ''">$(RAILROADER_DIR)</RailroaderDir>
+    <RailroaderDir Condition="'$(RailroaderDir)' == ''">C:\Steam\steamapps\common\Railroader</RailroaderDir>
+    <ManagedDir>$(RailroaderDir)\Railroader_Data\Managed</ManagedDir>
+    <UnityModManagerManagedDir>$(ManagedDir)\UnityModManager</UnityModManagerManagedDir>
+    <EnableModDeploy Condition="'$(EnableModDeploy)' == ''">false</EnableModDeploy>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="0Harmony">
+      <HintPath>$(UnityModManagerManagedDir)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(ManagedDir)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Core">
+      <HintPath>$(ManagedDir)\Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(ManagedDir)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(ManagedDir)\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Serilog">
+      <HintPath>$(ManagedDir)\Serilog.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="netstandard">
+      <HintPath>$(ManagedDir)\netstandard.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(ManagedDir)\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityModManager">
+      <HintPath>$(UnityModManagerManagedDir)\UnityModManager.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="ValidateRailroaderReferences" BeforeTargets="ResolveReferences">
+    <Error
+      Condition="!Exists('$(ManagedDir)\Assembly-CSharp.dll')"
+      Text="Railroader assemblies were not found. Set RailroaderDir, set the RAILROADER_DIR environment variable, or create a local Directory.Build.props file from Directory.Build.props.example." />
+  </Target>
+
+  <Target Name="DeployToMods" AfterTargets="Build" Condition="'$(EnableModDeploy)' == 'true'">
+    <PropertyGroup>
+      <ModDeployDir>$(RailroaderDir)\Mods\NarrowGaugeMod</ModDeployDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(ModDeployDir)" />
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="$(ModDeployDir)" />
+    <Copy SourceFiles="Info.json" DestinationFolder="$(ModDeployDir)" />
+    <Message Text="Deployed NarrowGaugeMod to $(ModDeployDir)" Importance="High" />
+  </Target>
+
+</Project>

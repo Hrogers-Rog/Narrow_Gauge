@@ -1,0 +1,9 @@
+{
+  "Id": "NarrowGaugeMod",
+  "DisplayName": "Narrow Gauge Track",
+  "Author": "HunterR",
+  "Version": "0.1.0",
+  "ManagerVersion": "0.27.0",
+  "AssemblyName": "NarrowGaugeMod.dll",
+  "EntryMethod": "NarrowGaugeMod.Main.Load"
+}

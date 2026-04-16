@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <!-- Copy this file to Directory.Build.props and adjust the values for your machine. -->
+    <RailroaderDir>C:\Steam\steamapps\common\Railroader</RailroaderDir>
+
+    <!-- Optional: deploy the built DLL directly into the game's Mods folder. -->
+    <EnableModDeploy>true</EnableModDeploy>
+  </PropertyGroup>
+</Project>
+
