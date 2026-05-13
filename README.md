@@ -43,6 +43,7 @@ dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true
 
 ## Notes
 
+- Gauge metadata can come from legacy StrangeCustoms graph JSON or FUSE data files. In FUSE, set `"gauge": "Narrow"` or `"gauge": "DualGauge"` on `tracks.segments` entries.
 - Game-managed DLLs are not included in this repository.
 - Local cache, IDE, and build output folders are excluded via `.gitignore`.
 - This repository is set up for source upload to GitHub, not for shipping compiled releases.

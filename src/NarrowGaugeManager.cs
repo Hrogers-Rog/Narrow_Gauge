@@ -176,13 +176,22 @@ namespace NarrowGaugeMod
                 scannedFiles += LoadGaugeMetadataFromDefinition(definitionPath);
             }
 
+            foreach (string modDirectory in Directory.GetDirectories(modsRoot))
+            {
+                string infoPath = Path.Combine(modDirectory, "Info.json");
+                if (!File.Exists(infoPath))
+                    continue;
+
+                scannedFiles += LoadGaugeMetadataFromFuseInfo(infoPath);
+            }
+
             if (scannedFiles == 0)
             {
-                Main.Log("Gauge metadata scan found no game-graph mixinto files.");
+                Main.Log("Gauge metadata scan found no game-graph or FUSE files.");
             }
             else
             {
-                Main.Log($"Gauge metadata scan checked {scannedFiles} game-graph file(s).");
+                Main.Log($"Gauge metadata scan checked {scannedFiles} game-graph/FUSE file(s).");
             }
 
             GaugeMetadataLoadedFromInstalledMods = true;
@@ -255,7 +264,8 @@ namespace NarrowGaugeMod
 
         public static bool IsNarrowGauge(TrackSegment? segment)
         {
-            return HasExplicitNarrowGauge(segment);
+            return HasExplicitNarrowGauge(segment)
+                || IsNarrowTurntableBridge(segment);
         }
 
         public static bool IsDualGauge(TrackSegment? segment)
@@ -265,6 +275,38 @@ namespace NarrowGaugeMod
             return segment != null
                 && !string.IsNullOrEmpty(segment.id)
                 && ExplicitDualGaugeSegmentIds.Contains(segment.id);
+        }
+
+        private static bool IsNarrowTurntableBridge(TrackSegment? segment)
+        {
+            if (segment == null
+                || segment.turntable == null
+                || segment.style != TrackSegment.Style.Bridge)
+            {
+                return false;
+            }
+
+            return TurntableBridgeEndTouchesExplicitNarrowGauge(segment, segment.a)
+                || TurntableBridgeEndTouchesExplicitNarrowGauge(segment, segment.b);
+        }
+
+        private static bool TurntableBridgeEndTouchesExplicitNarrowGauge(
+            TrackSegment bridgeSegment,
+            TrackNode? node)
+        {
+            if (node == null || Graph.Shared == null)
+                return false;
+
+            foreach (TrackSegment connected in Graph.Shared.SegmentsConnectedTo(node))
+            {
+                if (connected == null || connected == bridgeSegment)
+                    continue;
+
+                if (HasExplicitNarrowGauge(connected))
+                    return true;
+            }
+
+            return false;
         }
 
         internal static ShadowNarrowGaugeGraph? GetShadowGraph()
@@ -408,6 +450,54 @@ namespace NarrowGaugeMod
                 Main.Warn(
                     $"Gauge metadata scan failed for '{definitionPath}': {ex.Message}");
                 return 0;
+            }
+        }
+
+        private static int LoadGaugeMetadataFromFuseInfo(string infoPath)
+        {
+            try
+            {
+                JObject info = JObject.Parse(File.ReadAllText(infoPath));
+                string modDirectory = Path.GetDirectoryName(infoPath) ?? string.Empty;
+                int scannedFiles = 0;
+
+                foreach (string fileName in GetFuseDataFiles(info))
+                {
+                    string dataPath = Path.Combine(modDirectory, fileName);
+                    if (!File.Exists(dataPath))
+                    {
+                        Main.Warn($"Gauge metadata scan skipped missing FUSE file '{dataPath}'.");
+                        continue;
+                    }
+
+                    JObject fuseRoot = JObject.Parse(File.ReadAllText(dataPath));
+                    RecordGaugeMetadata(fuseRoot, dataPath);
+                    scannedFiles++;
+                }
+
+                return scannedFiles;
+            }
+            catch (Exception ex)
+            {
+                Main.Warn($"Gauge metadata scan failed for FUSE info '{infoPath}': {ex.Message}");
+                return 0;
+            }
+        }
+
+        private static IEnumerable<string> GetFuseDataFiles(JObject info)
+        {
+            string? single = info["FuseDataFile"]?.Value<string>();
+            if (!string.IsNullOrWhiteSpace(single))
+                yield return single!;
+
+            if (info["FuseDataFiles"] is not JArray files)
+                yield break;
+
+            foreach (JToken token in files)
+            {
+                string? value = token.Value<string>();
+                if (!string.IsNullOrWhiteSpace(value))
+                    yield return value!;
             }
         }
 
