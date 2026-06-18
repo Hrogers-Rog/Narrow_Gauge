@@ -1,19 +1,22 @@
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.IO;
+using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
-using System.Reflection;
+using System.Text;
 using Core;
+using FUSE.Authoring.Data;
+using FUSE.Runtime.API;
+using FUSE.Runtime.Events;
 using Track;
 using UnityEngine;
 
 namespace NarrowGaugeMod
 {
     /// <summary>
-    /// Keeps track of which segments should be treated as narrow gauge.
-    /// Uses explicit JSON gauge metadata loaded from installed game-graph files.
+    /// Fuse companion lifecycle, gauge metadata cache, and generated ghost graph
+    /// synchronization coordinator.
     /// </summary>
     public class NarrowGaugeManager : MonoBehaviour
     {
@@ -23,35 +26,67 @@ namespace NarrowGaugeMod
         private static readonly HashSet<string> ExplicitDualGaugeSegmentIds =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        private static ShadowNarrowGaugeGraph? CurrentShadowGraph;
-        private static bool GaugeMetadataLoadedFromInstalledMods;
+        private static readonly HashSet<string> GeneratedGhostSegmentIds =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        void Awake()
+        private static ShadowNarrowGaugeGraph? CurrentShadowGraph;
+        private static string LastValidationSignature = string.Empty;
+        private static string LastAuthoringIssueSignature = string.Empty;
+        private static string LastSpecialWorkAnalysisSignature = string.Empty;
+        private static bool HasSpecialWorkAnalysisSnapshot;
+
+        private bool _synchronizing;
+        private bool _syncRequested;
+
+        private void Awake()
         {
             DontDestroyOnLoad(gameObject);
-            Main.Log("NarrowGaugeManager awake.");
+            FuseEvents.TrackGraphApplying += HandleTrackGraphApplying;
+            FuseEvents.GraphRebuilt += HandleFuseGraphRebuilt;
+            FuseEvents.FuseUnloaded += HandleFuseUnloaded;
+            Main.Log("FUSE Narrow Gauge manager awake.");
         }
 
-        void Start()
+        private void Start()
         {
-            StartCoroutine(WaitForGraphAndScan());
+            StartCoroutine(WaitForGraphAndSynchronize());
         }
 
-        IEnumerator WaitForGraphAndScan()
+        private void LateUpdate()
+        {
+            if (!_syncRequested || _synchronizing)
+            {
+                return;
+            }
+
+            Graph graph = Graph.Shared;
+            if (graph == null || !graph.HasPopulatedCollections)
+            {
+                return;
+            }
+
+            _syncRequested = false;
+            SynchronizeOutsideFuseRebuild(graph, "deferred graph synchronization");
+        }
+
+        private void OnDestroy()
+        {
+            FuseEvents.TrackGraphApplying -= HandleTrackGraphApplying;
+            FuseEvents.GraphRebuilt -= HandleFuseGraphRebuilt;
+            FuseEvents.FuseUnloaded -= HandleFuseUnloaded;
+            DualGaugeLinkRegistry.Clear();
+            SpecialWorkRuntimeRegistry.Clear();
+        }
+
+        private IEnumerator WaitForGraphAndSynchronize()
         {
             var wait = new WaitForSeconds(0.5f);
-
-            Main.Log("Waiting for Graph.Shared to be ready...");
-
             while (true)
             {
                 Graph graph = Graph.Shared;
-
                 if (graph != null && graph.HasPopulatedCollections)
                 {
-                    ReloadGaugeMetadataFromInstalledMods();
-                    Main.Log("Graph ready; scanning for narrow gauge segments.");
-                    ScanGraph(graph);
+                    SynchronizeOutsideFuseRebuild(graph, "initial module synchronization");
                     yield break;
                 }
 
@@ -59,204 +94,199 @@ namespace NarrowGaugeMod
             }
         }
 
+        private void HandleTrackGraphApplying(FuseTrackGraphApplyingContext context)
+        {
+            if (_synchronizing || context?.Graph == null)
+            {
+                return;
+            }
+
+            _synchronizing = true;
+            try
+            {
+                GhostGraphSynchronizationResult result = GhostGraphSynchronizer.Synchronize(context.Graph);
+                SpecialWorkTopologySynchronizationResult specialWork =
+                    Main.Settings?.EnableSpecialWorkTopology == false
+                        ? new SpecialWorkTopologySynchronizationResult()
+                        : SpecialWorkTopologySynchronizer.Synchronize(context.Graph);
+                RefreshGaugeMetadata(context.Graph);
+                _syncRequested = false;
+                LogSynchronization(result, "Fuse pre-rebuild");
+                LogSpecialWorkSynchronization(specialWork, "Fuse pre-rebuild");
+            }
+            finally
+            {
+                _synchronizing = false;
+            }
+        }
+
+        private void HandleFuseGraphRebuilt()
+        {
+            // Graph.RebuildCollections is patched so the measured plans exist
+            // before TrackObjectManager renders the rebuilt graph. Running the
+            // same full scan again here, after rendering, only duplicates the
+            // most expensive startup work.
+            _syncRequested = true;
+        }
+
+        private void HandleFuseUnloaded()
+        {
+            ExplicitNarrowSegmentIds.Clear();
+            ExplicitDualGaugeSegmentIds.Clear();
+            GeneratedGhostSegmentIds.Clear();
+            CurrentShadowGraph = null;
+            LastAuthoringIssueSignature = string.Empty;
+            LastSpecialWorkAnalysisSignature = string.Empty;
+            HasSpecialWorkAnalysisSnapshot = false;
+            DualGaugeSharedRailRegistry.Clear();
+            DualGaugeLinkRegistry.Clear();
+            SpecialWorkRuntimeRegistry.Clear();
+        }
+
+        private void SynchronizeOutsideFuseRebuild(Graph graph, string reason)
+        {
+            if (_synchronizing)
+            {
+                return;
+            }
+
+            _synchronizing = true;
+            GhostGraphSynchronizationResult result;
+            SpecialWorkTopologySynchronizationResult specialWork;
+            TrackAPI.BeginBatch();
+            try
+            {
+                result = GhostGraphSynchronizer.Synchronize(graph);
+                specialWork = Main.Settings?.EnableSpecialWorkTopology == false
+                    ? new SpecialWorkTopologySynchronizationResult()
+                    : SpecialWorkTopologySynchronizer.Synchronize(graph);
+                RefreshGaugeMetadata(graph);
+            }
+            finally
+            {
+                TrackAPI.EndBatch(true);
+                _synchronizing = false;
+            }
+
+            LogSynchronization(result, reason);
+            LogSpecialWorkSynchronization(specialWork, reason);
+        }
+
+        private static void LogSynchronization(GhostGraphSynchronizationResult result, string reason)
+        {
+            if (result.HasChanges || result.DualGaugeSources > 0)
+            {
+                Main.Log($"Ghost graph synchronization ({reason}): {result}");
+            }
+        }
+
+        private static void LogSpecialWorkSynchronization(
+            SpecialWorkTopologySynchronizationResult result,
+            string reason)
+        {
+            if (result.HasChanges
+                || result.NarrowBranchTransitions > 0
+                || result.DualToNarrowContinuations > 0
+                || result.Issues.Count > 0)
+            {
+                Main.Log($"Special-work topology synchronization ({reason}): {result}");
+            }
+
+            foreach (string issue in result.Issues.Take(8))
+            {
+                Main.Warn("  " + issue);
+            }
+        }
+
+        public static void RequestSynchronization()
+        {
+            HasSpecialWorkAnalysisSnapshot = false;
+            NarrowGaugeManager manager = FindObjectOfType<NarrowGaugeManager>();
+            if (manager != null)
+            {
+                manager._syncRequested = true;
+            }
+        }
+
         public static void ScanGraph(Graph graph)
         {
             if (graph == null)
             {
-                Main.Warn("ScanGraph called with null graph.");
                 return;
             }
 
-            var narrowSegments = graph.Segments.Where(IsNarrowGauge).ToList();
-            var dualSegments   = graph.Segments.Where(IsDualGauge).ToList();
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            RefreshGaugeMetadata(graph);
+            long metadataElapsed = stopwatch.ElapsedMilliseconds;
+            RebuildShadowGraph(graph);
+            long shadowElapsed = stopwatch.ElapsedMilliseconds;
+            DualGaugeSwitchSynchronizer.SynchronizeAll(graph);
+            long switchesElapsed = stopwatch.ElapsedMilliseconds;
+            RebuildSpecialWorkAnalyses(graph);
+            long specialWorkElapsed = stopwatch.ElapsedMilliseconds;
 
-            if (narrowSegments.Count == 0 && dualSegments.Count == 0)
+            int visibleNarrow = graph.Segments.Count(segment =>
+                IsNarrowGauge(segment) && !IsGeneratedGhost(segment));
+            int dual = graph.Segments.Count(IsDualGauge);
+            int ghosts = graph.Segments.Count(IsGeneratedGhost);
+
+            if (visibleNarrow > 0 || dual > 0 || ghosts > 0)
             {
                 Main.Log(
-                    "No narrow or dual gauge segments found. " +
-                    "Use Gauge='Narrow' or Gauge='DualGauge' in StrangeCustoms graph JSON.");
-                return;
+                    $"Gauge graph: narrow={visibleNarrow}, dual={dual}, " +
+                    $"generatedGhosts={ghosts}, links={DualGaugeLinkRegistry.Links.Count}.");
             }
 
-            if (narrowSegments.Count > 0)
-            {
-                Main.Log($"Found {narrowSegments.Count} narrow gauge segment(s):");
-                foreach (TrackSegment seg in narrowSegments)
-                {
-                    Main.Log(
-                        $"  [{seg.id}]  gauge=Narrow" +
-                        $"  class={seg.trackClass}" +
-                        $"  style={seg.style}" +
-                        $"  speed={seg.speedLimit}" +
-                        $"  a={seg.a?.id ?? "null"}  b={seg.b?.id ?? "null"}");
-                }
-            }
-
-            if (dualSegments.Count > 0)
-            {
-                Main.Log($"Found {dualSegments.Count} dual gauge segment(s):");
-                foreach (TrackSegment seg in dualSegments)
-                {
-                    Main.Log(
-                        $"  [{seg.id}]  gauge=DualGauge" +
-                        $"  class={seg.trackClass}" +
-                        $"  style={seg.style}" +
-                        $"  speed={seg.speedLimit}" +
-                        $"  a={seg.a?.id ?? "null"}  b={seg.b?.id ?? "null"}");
-                }
-            }
-
-            RebuildShadowGraph(graph);
+            LogValidationChanges(GaugeGraphValidator.Validate(graph));
+            stopwatch.Stop();
+            Main.Log(
+                $"Gauge graph scan timing: metadataMs={metadataElapsed}, " +
+                $"shadowMs={shadowElapsed - metadataElapsed}, " +
+                $"switchesMs={switchesElapsed - shadowElapsed}, " +
+                $"specialWorkMs={specialWorkElapsed - switchesElapsed}, " +
+                $"validationMs={stopwatch.ElapsedMilliseconds - specialWorkElapsed}, " +
+                $"totalMs={stopwatch.ElapsedMilliseconds}.");
         }
 
-        public static void ClearExplicitGaugeTags(string? reason = null)
+        public static void RefreshGaugeMetadata(Graph graph)
         {
-            if (ExplicitNarrowSegmentIds.Count == 0 && ExplicitDualGaugeSegmentIds.Count == 0)
-            {
-                CurrentShadowGraph = null;
-                GaugeMetadataLoadedFromInstalledMods = false;
-
-                if (!string.IsNullOrWhiteSpace(reason))
-                    Main.Log($"Gauge metadata already empty: {reason}");
-
-                return;
-            }
-
             ExplicitNarrowSegmentIds.Clear();
             ExplicitDualGaugeSegmentIds.Clear();
-            CurrentShadowGraph = null;
-            GaugeMetadataLoadedFromInstalledMods = false;
+            GeneratedGhostSegmentIds.Clear();
 
-            if (!string.IsNullOrWhiteSpace(reason))
-                Main.Log($"Cleared explicit gauge metadata: {reason}");
-        }
-
-        public static void EnsureGaugeMetadataLoaded()
-        {
-            if (GaugeMetadataLoadedFromInstalledMods)
-                return;
-
-            LoadGaugeMetadataFromInstalledMods();
-        }
-
-        public static void ReloadGaugeMetadataFromInstalledMods()
-        {
-            ClearExplicitGaugeTags("reloading installed mod gauge metadata");
-            LoadGaugeMetadataFromInstalledMods();
-        }
-
-        public static void LoadGaugeMetadataFromInstalledMods()
-        {
-            if (GaugeMetadataLoadedFromInstalledMods)
-                return;
-
-            string? modsRoot = GetModsRoot();
-            if (string.IsNullOrEmpty(modsRoot) || !Directory.Exists(modsRoot))
+            if (graph == null)
             {
-                Main.Warn("Could not locate Railroader Mods folder for gauge metadata scan.");
                 return;
             }
 
-            int scannedFiles = 0;
-
-            foreach (string definitionPath in Directory.GetFiles(
-                modsRoot,
-                "Definition.json",
-                SearchOption.TopDirectoryOnly))
+            foreach (TrackSegment segment in graph.Segments)
             {
-                scannedFiles += LoadGaugeMetadataFromDefinition(definitionPath);
-            }
-
-            foreach (string modDirectory in Directory.GetDirectories(modsRoot))
-            {
-                string definitionPath = Path.Combine(modDirectory, "Definition.json");
-                if (!File.Exists(definitionPath))
-                    continue;
-
-                scannedFiles += LoadGaugeMetadataFromDefinition(definitionPath);
-            }
-
-            foreach (string modDirectory in Directory.GetDirectories(modsRoot))
-            {
-                string infoPath = Path.Combine(modDirectory, "Info.json");
-                if (!File.Exists(infoPath))
-                    continue;
-
-                scannedFiles += LoadGaugeMetadataFromFuseInfo(infoPath);
-            }
-
-            if (scannedFiles == 0)
-            {
-                Main.Log("Gauge metadata scan found no game-graph or FUSE files.");
-            }
-            else
-            {
-                Main.Log($"Gauge metadata scan checked {scannedFiles} game-graph/FUSE file(s).");
-            }
-
-            GaugeMetadataLoadedFromInstalledMods = true;
-        }
-
-        public static void RecordGaugeMetadata(JObject? patchRoot, string source)
-        {
-            JObject? segments = patchRoot?["tracks"]?["segments"] as JObject;
-            if (segments == null)
-                return;
-
-            int added = 0;
-            int removed = 0;
-
-            foreach (JProperty property in segments.Properties())
-            {
-                string segmentId = property.Name;
-                JToken value = property.Value;
-
-                if (value.Type == JTokenType.Null)
+                if (segment == null || string.IsNullOrWhiteSpace(segment.id))
                 {
-                    if (ExplicitNarrowSegmentIds.Remove(segmentId))
-                        removed++;
-
                     continue;
                 }
 
-                if (value is not JObject segmentObject)
+                if (GhostGraphSynchronizer.IsGeneratedGhostSegmentId(segment.id))
+                {
+                    GeneratedGhostSegmentIds.Add(segment.id);
+                    ExplicitNarrowSegmentIds.Add(segment.id);
                     continue;
-
-                string? gauge = GetGaugeValue(segmentObject);
-                if (gauge == null)
-                    continue;
-
-                if (IsNarrowGaugeValue(gauge))
-                {
-                    ExplicitDualGaugeSegmentIds.Remove(segmentId);
-                    if (ExplicitNarrowSegmentIds.Add(segmentId))
-                        added++;
                 }
-                else if (IsDualGaugeValue(gauge))
-                {
-                    ExplicitNarrowSegmentIds.Remove(segmentId);
-                    if (ExplicitDualGaugeSegmentIds.Add(segmentId))
-                        added++;
-                }
-                else if (ExplicitNarrowSegmentIds.Remove(segmentId)
-                       | ExplicitDualGaugeSegmentIds.Remove(segmentId))
-                {
-                    removed++;
-                }
-            }
 
-            if (added > 0 || removed > 0)
-            {
-                Main.Log(
-                    $"Loaded gauge metadata from '{source}': " +
-                    $"{added} narrow, {removed} cleared.");
+                FuseSegment definition = TrackAPI.GetSegmentDefinition(segment.id);
+                if (GhostGraphSynchronizer.IsDualGaugeDefinition(definition))
+                {
+                    ExplicitDualGaugeSegmentIds.Add(segment.id);
+                }
+                else if (GhostGraphSynchronizer.IsNarrowGaugeDefinition(definition))
+                {
+                    ExplicitNarrowSegmentIds.Add(segment.id);
+                }
             }
         }
 
         public static bool HasExplicitNarrowGauge(TrackSegment? segment)
         {
-            EnsureGaugeMetadataLoaded();
-
             return segment != null
                 && !string.IsNullOrEmpty(segment.id)
                 && ExplicitNarrowSegmentIds.Contains(segment.id);
@@ -270,11 +300,21 @@ namespace NarrowGaugeMod
 
         public static bool IsDualGauge(TrackSegment? segment)
         {
-            EnsureGaugeMetadataLoaded();
-
             return segment != null
                 && !string.IsNullOrEmpty(segment.id)
                 && ExplicitDualGaugeSegmentIds.Contains(segment.id);
+        }
+
+        public static bool IsGeneratedGhost(TrackSegment? segment)
+        {
+            return segment != null
+                && !string.IsNullOrEmpty(segment.id)
+                && GeneratedGhostSegmentIds.Contains(segment.id);
+        }
+
+        public static bool IsGeneratedGhostNode(TrackNode? node)
+        {
+            return node != null && GhostGraphSynchronizer.IsGeneratedGhostNodeId(node.id);
         }
 
         private static bool IsNarrowTurntableBridge(TrackSegment? segment)
@@ -295,18 +335,14 @@ namespace NarrowGaugeMod
             TrackNode? node)
         {
             if (node == null || Graph.Shared == null)
-                return false;
-
-            foreach (TrackSegment connected in Graph.Shared.SegmentsConnectedTo(node))
             {
-                if (connected == null || connected == bridgeSegment)
-                    continue;
-
-                if (HasExplicitNarrowGauge(connected))
-                    return true;
+                return false;
             }
 
-            return false;
+            return Graph.Shared.SegmentsConnectedTo(node)
+                .Any(connected => connected != null
+                    && connected != bridgeSegment
+                    && HasExplicitNarrowGauge(connected));
         }
 
         internal static ShadowNarrowGaugeGraph? GetShadowGraph()
@@ -333,203 +369,247 @@ namespace NarrowGaugeMod
             try
             {
                 CurrentShadowGraph = ShadowNarrowGaugeGraphBuilder.Build(graph);
-
-                Main.Log(
-                    $"Shadow NG graph built: " +
-                    $"{CurrentShadowGraph.Nodes.Count} node(s), " +
-                    $"{CurrentShadowGraph.Segments.Count} segment(s), " +
-                    $"{CurrentShadowGraph.DualSegmentCount} dual, " +
-                    $"{CurrentShadowGraph.NarrowOnlySegmentCount} narrow-only, " +
-                    $"{CurrentShadowGraph.TransitionNodeCount} transition node(s).");
-
-                foreach (ShadowNarrowGaugeNode transitionNode in CurrentShadowGraph.Nodes.Values
-                    .Where(n => n.RequiresTransition)
-                    .Take(8))
-                {
-                    Main.Log(
-                        $"  [ShadowNG] transition node {transitionNode.Id} " +
-                        $"pos=({transitionNode.Position.x:F3}, {transitionNode.Position.y:F3}, {transitionNode.Position.z:F3}) " +
-                        $"dual={transitionNode.HasDualGaugeConnection} narrow={transitionNode.HasNarrowOnlyConnection}");
-                }
-
-                foreach (ShadowNarrowGaugeTransition transition in CurrentShadowGraph.Transitions.Values.Take(8))
-                {
-                    var samples = transition.SampledCurve.Points.ToList();
-                    if (samples.Count == 0)
-                        continue;
-
-                    LinePoint start = samples[0];
-                    LinePoint mid = samples[samples.Count / 2];
-                    LinePoint end = samples[samples.Count - 1];
-
-                    Main.Log(
-                        $"  [ShadowNG] transition curve {transition.Id} " +
-                        $"start=({start.point.x:F3}, {start.point.y:F3}, {start.point.z:F3}) " +
-                        $"mid=({mid.point.x:F3}, {mid.point.y:F3}, {mid.point.z:F3}) " +
-                        $"end=({end.point.x:F3}, {end.point.y:F3}, {end.point.z:F3})");
-                }
             }
             catch (Exception ex)
             {
                 CurrentShadowGraph = null;
-                Main.Warn($"Failed to build shadow NG graph: {ex.Message}");
+                Main.Warn($"Failed to build narrow-gauge geometry shadow graph: {ex.Message}");
             }
         }
 
-        private static string? GetGaugeValue(JObject segmentObject)
-        {
-            JProperty? gaugeProperty = segmentObject.Properties()
-                .FirstOrDefault(p => string.Equals(
-                    p.Name,
-                    "Gauge",
-                    StringComparison.OrdinalIgnoreCase));
-
-            if (gaugeProperty == null)
-                return null;
-
-            if (gaugeProperty.Value.Type == JTokenType.Null)
-                return string.Empty;
-
-            return gaugeProperty.Value.Type == JTokenType.String
-                ? gaugeProperty.Value.Value<string>()
-                : gaugeProperty.Value.ToString();
-        }
-
-        private static bool IsNarrowGaugeValue(string gauge)
-        {
-            return gauge.Equals("Narrow", StringComparison.OrdinalIgnoreCase)
-                || gauge.Equals("3ft", StringComparison.OrdinalIgnoreCase)
-                || gauge.Equals("3 ft", StringComparison.OrdinalIgnoreCase)
-                || gauge.Equals("ThreeFoot", StringComparison.OrdinalIgnoreCase)
-                || gauge.Equals("Three Foot", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool IsDualGaugeValue(string gauge)
-        {
-            return gauge.Equals("DualGauge", StringComparison.OrdinalIgnoreCase)
-                || gauge.Equals("Dual", StringComparison.OrdinalIgnoreCase)
-                || gauge.Equals("Mixed", StringComparison.OrdinalIgnoreCase)
-                || gauge.Equals("MixedGauge", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static int LoadGaugeMetadataFromDefinition(string definitionPath)
+        private static void RebuildSpecialWorkAnalyses(Graph graph)
         {
             try
             {
-                JObject definition = JObject.Parse(File.ReadAllText(definitionPath));
-                JArray? mixintos = definition["mixintos"]?["game-graph"] as JArray;
-                if (mixintos == null || mixintos.Count == 0)
-                    return 0;
+                Stopwatch stopwatch = Stopwatch.StartNew();
+                IReadOnlyList<SpecialWorkDefinition> definitions =
+                    SpecialWorkRuntimeDiscovery.Discover(graph);
+                SpecialWorkAuthoringSnapshot authoring = SpecialWorkAuthoring.Load();
+                definitions = SpecialWorkAuthoring.Apply(
+                    definitions,
+                    authoring,
+                    out IReadOnlyList<string> authoringIssues);
+                LogAuthoringIssues(authoring, authoringIssues);
 
-                string modDirectory = Path.GetDirectoryName(definitionPath) ?? string.Empty;
-                int scannedFiles = 0;
-
-                foreach (JToken mixinto in mixintos)
+                string analysisSignature = BuildSpecialWorkAnalysisSignature(
+                    definitions,
+                    authoringIssues);
+                if (HasSpecialWorkAnalysisSnapshot
+                    && string.Equals(
+                        analysisSignature,
+                        LastSpecialWorkAnalysisSignature,
+                        StringComparison.Ordinal))
                 {
-                    string? fileReference = mixinto.Value<string>();
-                    string? fileName = ParseFileMixinto(fileReference);
-                    if (string.IsNullOrEmpty(fileName))
-                        continue;
-
-                    string patchPath = Path.Combine(modDirectory, fileName);
-                    if (!File.Exists(patchPath))
-                    {
-                        Main.Warn($"Gauge metadata scan skipped missing file '{patchPath}'.");
-                        continue;
-                    }
-
-                    JObject patchRoot = JObject.Parse(File.ReadAllText(patchPath));
-                    RecordGaugeMetadata(patchRoot, patchPath);
-                    scannedFiles++;
+                    return;
                 }
 
-                return scannedFiles;
+                var completedAnalyses = new List<SpecialWorkAnalysis>();
+                foreach (SpecialWorkDefinition definition in definitions)
+                {
+                    try
+                    {
+                        completedAnalyses.Add(
+                            SpecialWorkGeometryAnalyzer.Analyze(graph, definition));
+                    }
+                    catch (Exception ex)
+                    {
+                        Main.Warn(
+                            $"Failed to analyze special-work '{definition.Id}' " +
+                            $"({definition.Preset.Id}): {ex.Message}");
+                    }
+                }
+
+                SpecialWorkAnalysis[] analyses = completedAnalyses.ToArray();
+                SpecialWorkRuntimeRegistry.Replace(analyses);
+                LastSpecialWorkAnalysisSignature = analysisSignature;
+                HasSpecialWorkAnalysisSnapshot = true;
+                stopwatch.Stop();
+
+                int invalid = analyses.Count(analysis => analysis.ValidationIssues.Count > 0);
+                if (analyses.Length > 0)
+                {
+                    Main.Log(
+                        $"Special-work analysis: objects={analyses.Length}, invalid={invalid}, " +
+                        $"elapsedMs={stopwatch.ElapsedMilliseconds}.");
+                }
+
+                foreach (SpecialWorkAnalysis analysis in analyses
+                    .Where(item => item.MeshPlan != null))
+                {
+                    SpecialWorkMeshPlan plan = analysis.MeshPlan!;
+                    Main.Log(
+                        $"Special-work plan '{analysis.Definition.Id}' ({analysis.Definition.Preset.Id}): " +
+                        $"valid={plan.IsValid}, rails={analysis.Rails.Count}, " +
+                        $"shared={analysis.SharedRailIntervals.Count}, " +
+                        $"intersections={analysis.Intersections.Count}, cuts={plan.Cuts.Count}, " +
+                        $"fixed={plan.FixedRunningRails.Count}, frogs={plan.Frogs.Count}, " +
+                        $"wings={plan.WingRails.Count}, guards={plan.GuardRails.Count}, " +
+                        $"blades={plan.SwitchBlades.Count}.");
+                }
+
+                foreach (SpecialWorkAnalysis analysis in analyses
+                    .Where(item => item.ValidationIssues.Count > 0)
+                    .Take(6))
+                {
+                    Main.Warn(
+                        $"Special-work FIRST FAILURE '{analysis.Definition.Id}': " +
+                        analysis.ValidationIssues.First());
+                    Main.Warn(
+                        $"Special-work '{analysis.Definition.Id}' ({analysis.Definition.Preset.Id}) " +
+                        $"has {analysis.ValidationIssues.Count} validation issue(s).");
+                    foreach (string issue in analysis.ValidationIssues.Take(4))
+                    {
+                        Main.Warn("  " + issue);
+                    }
+                }
             }
             catch (Exception ex)
             {
-                Main.Warn(
-                    $"Gauge metadata scan failed for '{definitionPath}': {ex.Message}");
-                return 0;
+                SpecialWorkRuntimeRegistry.Clear();
+                HasSpecialWorkAnalysisSnapshot = false;
+                Main.Warn($"Failed to rebuild special-work analysis: {ex.Message}");
             }
         }
 
-        private static int LoadGaugeMetadataFromFuseInfo(string infoPath)
+        private static string BuildSpecialWorkAnalysisSignature(
+            IEnumerable<SpecialWorkDefinition> definitions,
+            IEnumerable<string> authoringIssues)
         {
-            try
+            var signature = new StringBuilder();
+            foreach (SpecialWorkDefinition definition in definitions
+                .OrderBy(item => item.Id, StringComparer.OrdinalIgnoreCase))
             {
-                JObject info = JObject.Parse(File.ReadAllText(infoPath));
-                string modDirectory = Path.GetDirectoryName(infoPath) ?? string.Empty;
-                int scannedFiles = 0;
+                AppendSignatureValue(signature, definition.Id);
+                AppendSignatureValue(signature, definition.Preset.Id);
 
-                foreach (string fileName in GetFuseDataFiles(info))
+                foreach (SpecialWorkPort port in definition.Ports
+                    .OrderBy(item => item.Id, StringComparer.OrdinalIgnoreCase))
                 {
-                    string dataPath = Path.Combine(modDirectory, fileName);
-                    if (!File.Exists(dataPath))
-                    {
-                        Main.Warn($"Gauge metadata scan skipped missing FUSE file '{dataPath}'.");
-                        continue;
-                    }
-
-                    JObject fuseRoot = JObject.Parse(File.ReadAllText(dataPath));
-                    RecordGaugeMetadata(fuseRoot, dataPath);
-                    scannedFiles++;
+                    AppendSignatureValue(signature, port.Id);
+                    AppendSignatureValue(signature, port.AvailableFamilies.ToString());
+                    AppendSignatureVector(signature, port.Position);
                 }
 
-                return scannedFiles;
+                foreach (LogicalRoute route in definition.Routes
+                    .OrderBy(item => item.Id, StringComparer.OrdinalIgnoreCase))
+                {
+                    AppendSignatureValue(signature, route.Id);
+                    AppendSignatureValue(signature, route.Family.ToString());
+                    AppendSignatureValue(signature, route.SwitchGroupId);
+                    AppendSignatureValue(signature, route.RequiredStateId);
+                    foreach (string segmentId in route.SourceSegmentIds)
+                    {
+                        AppendSignatureValue(signature, segmentId);
+                    }
+
+                    foreach (LinePoint point in route.Centerline.Points)
+                    {
+                        AppendSignatureVector(signature, point.point);
+                    }
+                }
+
+                foreach (SpecialWorkSwitchGroup group in definition.SwitchGroups
+                    .OrderBy(item => item.Id, StringComparer.OrdinalIgnoreCase))
+                {
+                    AppendSignatureValue(signature, group.Id);
+                    foreach (string nodeId in group.NativeNodeIds)
+                    {
+                        AppendSignatureValue(signature, nodeId);
+                    }
+
+                    foreach (string stateId in group.LegalStateIds)
+                    {
+                        AppendSignatureValue(signature, stateId);
+                    }
+                }
+
+                SpecialWorkAuthoringBinding? authored = definition.Authoring;
+                if (authored != null)
+                {
+                    AppendSignatureValue(signature, authored.PackageId);
+                    AppendSignatureValue(signature, authored.Id);
+                    AppendSignatureValue(signature, authored.PresetId);
+                    AppendSignatureValue(signature, authored.AnchorNodeId);
+                    foreach (KeyValuePair<string, Newtonsoft.Json.Linq.JToken> parameter in
+                        authored.Parameters.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+                    {
+                        AppendSignatureValue(signature, parameter.Key);
+                        AppendSignatureValue(signature, parameter.Value?.ToString());
+                    }
+                }
             }
-            catch (Exception ex)
+
+            foreach (string issue in (authoringIssues ?? Array.Empty<string>())
+                .OrderBy(item => item, StringComparer.Ordinal))
             {
-                Main.Warn($"Gauge metadata scan failed for FUSE info '{infoPath}': {ex.Message}");
-                return 0;
+                AppendSignatureValue(signature, issue);
+            }
+
+            return signature.ToString();
+        }
+
+        private static void AppendSignatureVector(StringBuilder signature, Vector3 value)
+        {
+            AppendSignatureValue(signature, value.x.ToString("R", CultureInfo.InvariantCulture));
+            AppendSignatureValue(signature, value.y.ToString("R", CultureInfo.InvariantCulture));
+            AppendSignatureValue(signature, value.z.ToString("R", CultureInfo.InvariantCulture));
+        }
+
+        private static void AppendSignatureValue(StringBuilder signature, string? value)
+        {
+            string safeValue = value ?? string.Empty;
+            signature.Append(safeValue.Length);
+            signature.Append(':');
+            signature.Append(safeValue);
+            signature.Append('|');
+        }
+
+        private static void LogAuthoringIssues(
+            SpecialWorkAuthoringSnapshot authoring,
+            IReadOnlyList<string> issues)
+        {
+            IReadOnlyList<string> safeIssues = issues ?? Array.Empty<string>();
+            string signature = string.Join(
+                "\n",
+                safeIssues.OrderBy(issue => issue, StringComparer.Ordinal));
+            if (string.Equals(signature, LastAuthoringIssueSignature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            LastAuthoringIssueSignature = signature;
+            if (authoring.Bindings.Count > 0)
+            {
+                Main.Log(
+                    $"Special-work authoring: bindings={authoring.Bindings.Count}, issues={safeIssues.Count}.");
+            }
+
+            foreach (string issue in safeIssues.Take(12))
+            {
+                Main.Warn("Special-work authoring: " + issue);
             }
         }
 
-        private static IEnumerable<string> GetFuseDataFiles(JObject info)
+        private static void LogValidationChanges(GaugeGraphValidationReport report)
         {
-            string? single = info["FuseDataFile"]?.Value<string>();
-            if (!string.IsNullOrWhiteSpace(single))
-                yield return single!;
-
-            if (info["FuseDataFiles"] is not JArray files)
-                yield break;
-
-            foreach (JToken token in files)
+            string signature = string.Join("\n", report.Issues.OrderBy(issue => issue, StringComparer.Ordinal));
+            if (string.Equals(signature, LastValidationSignature, StringComparison.Ordinal))
             {
-                string? value = token.Value<string>();
-                if (!string.IsNullOrWhiteSpace(value))
-                    yield return value!;
-            }
-        }
-
-        private static string? ParseFileMixinto(string? mixintoReference)
-        {
-            if (mixintoReference == null || string.IsNullOrWhiteSpace(mixintoReference))
-                return null;
-
-            const string prefix = "file(";
-            if (!mixintoReference.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                || !mixintoReference.EndsWith(")", StringComparison.Ordinal))
-            {
-                return null;
+                return;
             }
 
-            return mixintoReference.Substring(
-                prefix.Length,
-                mixintoReference.Length - prefix.Length - 1);
-        }
+            LastValidationSignature = signature;
+            if (report.IsValid)
+            {
+                Main.Log("Gauge graph validation passed.");
+                return;
+            }
 
-        private static string? GetModsRoot()
-        {
-            string assemblyLocation = Assembly.GetExecutingAssembly().Location;
-            if (string.IsNullOrEmpty(assemblyLocation))
-                return null;
-
-            string? modDirectory = Path.GetDirectoryName(assemblyLocation);
-            if (string.IsNullOrEmpty(modDirectory))
-                return null;
-
-            DirectoryInfo? parent = Directory.GetParent(modDirectory);
-            return parent?.FullName;
+            Main.Warn($"Gauge graph validation found {report.Issues.Count} issue(s).");
+            foreach (string issue in report.Issues.Take(12))
+            {
+                Main.Warn("  " + issue);
+            }
         }
     }
 }

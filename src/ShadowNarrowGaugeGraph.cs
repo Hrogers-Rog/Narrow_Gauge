@@ -178,9 +178,19 @@ namespace NarrowGaugeMod
                     ? ShadowSegmentKind.DualGauge
                     : ShadowSegmentKind.NarrowOnly;
 
-                float offset = kind == ShadowSegmentKind.DualGauge
-                    ? GetDualGaugeNarrowCenterOffset()
+                float startOffset = kind == ShadowSegmentKind.DualGauge
+                    ? DualGaugeSharedRailRegistry.GetAtoBNarrowCenterOffset(segment)
                     : 0f;
+                float endOffset = startOffset;
+                if (kind == ShadowSegmentKind.DualGauge)
+                {
+                    startOffset = DualGaugeSharedRailRegistry.GetAtoBNarrowCenterOffsetAtNode(
+                        segment,
+                        segment.a);
+                    endOffset = DualGaugeSharedRailRegistry.GetAtoBNarrowCenterOffsetAtNode(
+                        segment,
+                        segment.b);
+                }
 
                 var shadowSegment = new ShadowNarrowGaugeSegment(
                     segment.id,
@@ -188,8 +198,8 @@ namespace NarrowGaugeMod
                     aNode,
                     bNode,
                     kind,
-                    offset,
-                    offset);
+                    startOffset,
+                    endOffset);
 
                 segmentsById[shadowSegment.Id] = shadowSegment;
                 aNode.ConnectedSegments.Add(shadowSegment);
@@ -214,8 +224,9 @@ namespace NarrowGaugeMod
 
         private static bool ShouldIncludeInShadowGraph(TrackSegment segment)
         {
-            return NarrowGaugeManager.IsNarrowGauge(segment)
-                || NarrowGaugeManager.IsDualGauge(segment);
+            return !NarrowGaugeManager.IsGeneratedGhost(segment)
+                && (NarrowGaugeManager.IsNarrowGauge(segment)
+                    || NarrowGaugeManager.IsDualGauge(segment));
         }
 
         private static ShadowNarrowGaugeNode GetOrCreateNode(
@@ -366,11 +377,18 @@ namespace NarrowGaugeMod
                 float offset = GetSegmentOffsetForNode(segment, node);
                 if (!Mathf.Approximately(offset, 0f))
                 {
-                    baseCurve = baseCurve.Parallel(offset);
+                    float curveRelativeOffset =
+                        DualGaugeSharedRailRegistry.CurveRunsAtoB(segment.SourceSegment)
+                            ? offset
+                            : -offset;
+                    baseCurve = baseCurve.Parallel(curveRelativeOffset);
                 }
 
                 atStart = segment.SourceSegment.a == node;
-                bool naturalDirectionMatchesTowardNode = !atStart;
+                bool nodeAtCurveStart = atStart
+                    ? DualGaugeSharedRailRegistry.CurveRunsAtoB(segment.SourceSegment)
+                    : !DualGaugeSharedRailRegistry.CurveRunsAtoB(segment.SourceSegment);
+                bool naturalDirectionMatchesTowardNode = !nodeAtCurveStart;
                 bool shouldReverse = towardNode != naturalDirectionMatchesTowardNode;
                 orientedCurve = shouldReverse ? baseCurve.Reverse() : baseCurve;
                 return true;
@@ -399,12 +417,11 @@ namespace NarrowGaugeMod
         {
             try
             {
-                LineCurve lineCurve = new LineCurve(
-                    segment.SourceSegment.Curve.Approximate(1.000005f, 0.5f, 16, 40f),
-                    Hand.Left);
-
-                List<LinePoint> points = lineCurve.Points.ToList();
-                if (points.Count < 2)
+                if (!DualGaugeSharedRailRegistry.TryGetAtoBFrameAtNode(
+                    segment.SourceSegment,
+                    sourceNode,
+                    out Vector3 anchor,
+                    out Vector3 directionAtoB))
                 {
                     position = sourceNode.transform.position;
                     forward = sourceNode.transform.forward;
@@ -412,19 +429,10 @@ namespace NarrowGaugeMod
                 }
 
                 bool atStart = segment.SourceSegment.a == sourceNode;
-                LinePoint anchor = atStart ? points[0] : points[points.Count - 1];
-                LinePoint neighbor = atStart ? points[1] : points[points.Count - 2];
-
-                forward = atStart
-                    ? (neighbor.point - anchor.point).normalized
-                    : (neighbor.point - anchor.point).normalized;
-
-                if (forward.sqrMagnitude <= 0.0001f)
-                    forward = sourceNode.transform.forward;
-
-                Vector3 right = Vector3.Cross(Vector3.up, forward).normalized;
+                forward = atStart ? directionAtoB : -directionAtoB;
+                Vector3 right = Vector3.Cross(Vector3.up, directionAtoB).normalized;
                 float offset = atStart ? segment.StartOffset : segment.EndOffset;
-                position = anchor.point + right * offset;
+                position = anchor + right * offset;
                 return true;
             }
             catch
@@ -435,9 +443,5 @@ namespace NarrowGaugeMod
             }
         }
 
-        private static float GetDualGaugeNarrowCenterOffset()
-        {
-            return -(Gauge.Standard.Inside - NarrowGaugeTrackBuilder.ThreeFootGauge.Inside) * 0.5f;
-        }
     }
 }

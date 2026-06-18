@@ -1,5 +1,6 @@
 using HarmonyLib;
 using System.Linq;
+using Model;
 using Track;
 using UnityEngine;
 
@@ -10,13 +11,41 @@ namespace NarrowGaugeMod
     {
         static void Postfix(Graph __instance)
         {
-            int segCount = __instance.Segments.Count();
-            int nodeCount = __instance.Nodes.Count();
-            Main.Log(
-                $"[Patch] Graph.RebuildCollections fired. " +
-                $"Segments={segCount}  Nodes={nodeCount}");
-
             NarrowGaugeManager.ScanGraph(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(TrackNode), "set_isThrown")]
+    static class Patch_TrackNode_SetIsThrown
+    {
+        static void Postfix(TrackNode __instance)
+        {
+            DualGaugeSwitchSynchronizer.SynchronizeFrom(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(TrainController), nameof(TrainController.CanSetSwitch))]
+    static class Patch_TrainController_CanSetSwitch
+    {
+        static void Postfix(
+            TrainController __instance,
+            TrackNode node,
+            bool thrown,
+            ref Car foundCar,
+            ref bool __result)
+        {
+            if (!__result
+                || DualGaugeSwitchSynchronizer.CanSetLinkedSwitch(
+                    __instance,
+                    node,
+                    thrown,
+                    out Car linkedFoundCar))
+            {
+                return;
+            }
+
+            foundCar = linkedFoundCar;
+            __result = false;
         }
     }
 
@@ -58,6 +87,22 @@ namespace NarrowGaugeMod
             ref GameObject __result)
         {
             if (!NarrowGaugeTrackBuilder.TryBuild(__instance, descriptor, out GameObject replacement))
+                return true;
+
+            __result = replacement;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(TrackObjectManager), "BuildMaskObject")]
+    static class Patch_TrackObjectManager_BuildMaskObject
+    {
+        static bool Prefix(
+            TrackObjectManager __instance,
+            TrackObjectManager.ITrackDescriptor descriptor,
+            ref GameObject __result)
+        {
+            if (!NarrowGaugeTrackBuilder.TryBuildMask(__instance, descriptor, out GameObject replacement))
                 return true;
 
             __result = replacement;

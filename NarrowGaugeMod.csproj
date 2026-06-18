@@ -18,9 +18,18 @@
     <ManagedDir>$(RailroaderDir)\Railroader_Data\Managed</ManagedDir>
     <UnityModManagerManagedDir>$(ManagedDir)\UnityModManager</UnityModManagerManagedDir>
     <EnableModDeploy Condition="'$(EnableModDeploy)' == ''">false</EnableModDeploy>
+    <FuseProject>$(MSBuildProjectDirectory)\..\FUSE\FUSE\FUSE.csproj</FuseProject>
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="truth\SpecialWorkTruthTables.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(FuseProject)">
+      <Private>false</Private>
+      <AdditionalProperties>GameDir=$(RailroaderDir);UnityManagedDir=$(ManagedDir);UnityModManagerDir=$(UnityModManagerManagedDir)</AdditionalProperties>
+    </ProjectReference>
     <Reference Include="0Harmony">
       <HintPath>$(UnityModManagerManagedDir)\0Harmony.dll</HintPath>
       <Private>false</Private>
@@ -67,11 +76,14 @@
     <Error
       Condition="!Exists('$(ManagedDir)\Assembly-CSharp.dll')"
       Text="Railroader assemblies were not found. Set RailroaderDir, set the RAILROADER_DIR environment variable, or create a local Directory.Build.props file from Directory.Build.props.example." />
+    <Error
+      Condition="!Exists('$(FuseProject)')"
+      Text="The FUSE source project was not found at '$(FuseProject)'." />
   </Target>
 
   <Target Name="DeployToMods" AfterTargets="Build" Condition="'$(EnableModDeploy)' == 'true'">
     <PropertyGroup>
-      <ModDeployDir>$(RailroaderDir)\Mods\NarrowGaugeMod</ModDeployDir>
+      <ModDeployDir>$(RailroaderDir)\Mods\FUSE.NarrowGauge</ModDeployDir>
     </PropertyGroup>
     <MakeDir Directories="$(ModDeployDir)" />
     <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="$(ModDeployDir)" />

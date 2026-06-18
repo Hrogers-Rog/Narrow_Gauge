@@ -1,0 +1,716 @@
+{
+  "version": 1,
+  "turnouts": [
+    {
+      "id": "DualGauge_NarrowBranch_Right",
+      "presetId": "dual.narrow-branch-joins-main",
+      "description": "Dual gauge main with standard through route and narrow right-hand branch joining/leaving the dual-gauge main.",
+      "selectorFrogPair": {
+        "railA": {
+          "routeId": "standard-through",
+          "side": "Right"
+        },
+        "railB": {
+          "routeId": "narrow-reversed",
+          "side": "Left"
+        }
+      },
+      "criticalRules": [
+        "The diverging narrow closure rail is one continuous curved rail from blade root to frog cut.",
+        "The diverging narrow closure rail is sourced from the diverging narrow route curve.",
+        "A fixed stock or through rail must not render through a point blade.",
+        "Shared rail intervals render once.",
+        "Physical rail crossings do not create graph route connections."
+      ],
+      "routes": [
+        {
+          "id": "standard-through",
+          "family": "Standard",
+          "kind": "Through",
+          "state": "fixed"
+        },
+        {
+          "id": "narrow-normal",
+          "family": "Narrow",
+          "kind": "Through",
+          "state": "normal"
+        },
+        {
+          "id": "narrow-reversed",
+          "family": "Narrow",
+          "kind": "Diverging",
+          "state": "reversed"
+        }
+      ],
+      "rails": [
+        {
+          "label": "StandardStockRail_Left",
+          "routeId": "standard-through",
+          "family": "Standard",
+          "side": "Left",
+          "sourceCurve": "ThroughRoute",
+          "allowedRoles": [ "SharedRail", "StockRail", "FixedRunningRail", "FrogApproachRail", "FrogRail" ],
+          "renderedOnce": true
+        },
+        {
+          "label": "StandardStockRail_Right",
+          "routeId": "standard-through",
+          "family": "Standard",
+          "side": "Right",
+          "sourceCurve": "ThroughRoute",
+          "allowedRoles": [ "StockRail", "FixedRunningRail", "FrogApproachRail", "FrogRail" ],
+          "requiredPieceKinds": [ "FixedRunning" ]
+        },
+        {
+          "label": "SharedStockRail",
+          "routeId": "standard-through",
+          "family": "Standard",
+          "side": "Left",
+          "sourceCurve": "ThroughRoute",
+          "allowedRoles": [ "SharedRail" ],
+          "renderedOnce": true
+        },
+        {
+          "label": "NarrowStockRail",
+          "routeId": "narrow-reversed",
+          "family": "Narrow",
+          "side": "Right",
+          "sourceCurve": "DivergingRoute",
+          "allowedRoles": [ "StockRail", "FixedRunningRail", "FrogApproachRail", "FrogRail" ],
+          "requiredPieceKinds": [ "FixedRunning" ]
+        },
+        {
+          "label": "NarrowStraightPointBlade",
+          "routeId": "narrow-normal",
+          "family": "Narrow",
+          "side": "Right",
+          "sourceCurve": "ThroughRoute",
+          "allowedRoles": [ "PointBlade", "MovablePointBlade", "ClosureRail", "FrogApproachRail", "SharedRail", "FixedRunningRail" ],
+          "mustHaveBlade": true
+        },
+        {
+          "label": "NarrowPointBlade",
+          "routeId": "narrow-reversed",
+          "family": "Narrow",
+          "side": "Left",
+          "sourceCurve": "DivergingRoute",
+          "allowedRoles": [ "PointBlade", "MovablePointBlade", "ClosureRail", "FrogApproachRail", "FixedRunningRail" ],
+          "mustHaveBlade": true
+        },
+        {
+          "label": "NarrowClosureRail",
+          "routeId": "narrow-reversed",
+          "family": "Narrow",
+          "side": "Left",
+          "sourceCurve": "DivergingRoute",
+          "allowedRoles": [ "PointBlade", "MovablePointBlade", "ClosureRail", "FrogApproachRail", "FixedRunningRail" ],
+          "requiredPieceKinds": [ "ClosureRail" ],
+          "continuousFromBladeRootToFrog": true
+        },
+        {
+          "label": "NarrowFrogRail",
+          "routeId": "narrow-reversed",
+          "family": "Narrow",
+          "side": "Left",
+          "sourceCurve": "DivergingRoute",
+          "allowedRoles": [ "PointBlade", "MovablePointBlade", "ClosureRail", "FrogApproachRail", "FrogRail", "FixedRunningRail" ],
+          "mustEnterFrog": true
+        }
+      ],
+      "suppressedIntervals": [
+        {
+          "label": "SuppressedInterval",
+          "routeId": "narrow-normal",
+          "side": "Left",
+          "kind": "SharedDuplicate"
+        },
+        {
+          "label": "SuppressedInterval",
+          "routeId": "narrow-reversed",
+          "side": "Left",
+          "kind": "SwitchBlade"
+        },
+        {
+          "label": "SuppressedInterval",
+          "routeId": "narrow-normal",
+          "side": "Right",
+          "kind": "SwitchBlade"
+        }
+      ],
+      "frogs": {
+        "minimumCount": 3,
+        "requireCuts": true,
+        "requireWingRails": true,
+        "requireGuardRails": true
+      },
+      "guards": {
+        "minimumCount": 6
+      },
+      "wingRails": {
+        "minimumCount": 8
+      },
+      "blades": [
+        {
+          "label": "NarrowPointBlade",
+          "movableRouteId": "narrow-reversed",
+          "movableSide": "Left",
+          "stockRouteId": "narrow-normal",
+          "stockSide": "Left"
+        },
+        {
+          "label": "NarrowStraightPointBlade",
+          "movableRouteId": "narrow-normal",
+          "movableSide": "Right",
+          "stockRouteId": "narrow-reversed",
+          "stockSide": "Right"
+        }
+      ],
+      "meshRules": {
+        "rejectUnexpectedBlades": true,
+        "rejectFixedRailsUnderBlades": true,
+        "rejectDuplicateSharedRailRendering": true
+      }
+    },
+    {
+      "id": "DualGauge_NarrowBranch_Left",
+      "presetId": "dual.narrow-branch-joins-main",
+      "description": "Dual gauge main with standard through route and narrow left-hand branch joining/leaving toward the shared rail.",
+      "selectorFrogPair": {
+        "railA": {
+          "routeId": "standard-through",
+          "side": "Left"
+        },
+        "railB": {
+          "routeId": "narrow-reversed",
+          "side": "Right"
+        }
+      },
+      "criticalRules": [
+        "The shared-rail-side branch has one physical vee frog.",
+        "The outside diverging narrow rail enters the shared standard rail frog.",
+        "A fixed stock or through rail must not render through a point blade.",
+        "Shared rail intervals render once.",
+        "Physical rail crossings do not create graph route connections."
+      ],
+      "routes": [
+        {
+          "id": "standard-through",
+          "family": "Standard",
+          "kind": "Through",
+          "state": "fixed"
+        },
+        {
+          "id": "narrow-normal",
+          "family": "Narrow",
+          "kind": "Through",
+          "state": "normal"
+        },
+        {
+          "id": "narrow-reversed",
+          "family": "Narrow",
+          "kind": "Diverging",
+          "state": "reversed"
+        }
+      ],
+      "rails": [
+        {
+          "label": "SharedStandardFrogRail",
+          "routeId": "standard-through",
+          "family": "Standard",
+          "side": "Left",
+          "sourceCurve": "ThroughRoute",
+          "allowedRoles": [ "SharedRail", "FrogApproachRail", "FrogRail" ],
+          "mustEnterFrog": true,
+          "renderedOnce": true
+        },
+        {
+          "label": "StandardOutsideRail",
+          "routeId": "standard-through",
+          "family": "Standard",
+          "side": "Right",
+          "sourceCurve": "ThroughRoute",
+          "allowedRoles": [ "StockRail", "FixedRunningRail", "FrogApproachRail", "FrogRail" ],
+          "requiredPieceKinds": [ "FixedRunning" ]
+        },
+        {
+          "label": "NarrowStockRail",
+          "routeId": "narrow-reversed",
+          "family": "Narrow",
+          "side": "Left",
+          "sourceCurve": "DivergingRoute",
+          "allowedRoles": [ "SharedRail", "StockRail", "FixedRunningRail", "FrogApproachRail" ],
+          "requiredPieceKinds": [ "FixedRunning" ]
+        },
+        {
+          "label": "NarrowPointBlade",
+          "routeId": "narrow-reversed",
+          "family": "Narrow",
+          "side": "Right",
+          "sourceCurve": "DivergingRoute",
+          "allowedRoles": [ "PointBlade", "MovablePointBlade", "ClosureRail", "FrogApproachRail", "FrogRail", "FixedRunningRail" ],
+          "mustHaveBlade": true,
+          "requiredPieceKinds": [ "ClosureRail" ],
+          "continuousFromBladeRootToFrog": true,
+          "mustEnterFrog": true
+        },
+        {
+          "label": "NarrowStraightPointBlade",
+          "routeId": "narrow-normal",
+          "family": "Narrow",
+          "side": "Left",
+          "sourceCurve": "ThroughRoute",
+          "allowedRoles": [ "PointBlade", "MovablePointBlade", "ClosureRail", "FrogApproachRail", "SharedRail", "FixedRunningRail" ],
+          "mustHaveBlade": true
+        },
+        {
+          "label": "NarrowThroughStockRail",
+          "routeId": "narrow-normal",
+          "family": "Narrow",
+          "side": "Right",
+          "sourceCurve": "ThroughRoute",
+          "allowedRoles": [ "SharedRail", "StockRail", "FixedRunningRail", "ClosureRail", "FrogApproachRail" ],
+          "requiredPieceKinds": [ "FixedRunning" ]
+        }
+      ],
+      "suppressedIntervals": [
+        {
+          "label": "SharedDuplicate",
+          "routeId": "narrow-normal",
+          "side": "Left",
+          "kind": "SharedDuplicate"
+        },
+        {
+          "label": "DivergingBlade",
+          "routeId": "narrow-reversed",
+          "side": "Right",
+          "kind": "SwitchBlade"
+        },
+        {
+          "label": "StraightBlade",
+          "routeId": "narrow-normal",
+          "side": "Left",
+          "kind": "SwitchBlade"
+        }
+      ],
+      "frogs": {
+        "minimumCount": 1,
+        "requireCuts": true,
+        "requireWingRails": true,
+        "requireGuardRails": true
+      },
+      "guards": {
+        "minimumCount": 2
+      },
+      "wingRails": {
+        "minimumCount": 2
+      },
+      "blades": [
+        {
+          "label": "NarrowPointBlade",
+          "movableRouteId": "narrow-reversed",
+          "movableSide": "Right",
+          "stockRouteId": "narrow-normal",
+          "stockSide": "Right"
+        },
+        {
+          "label": "NarrowStraightPointBlade",
+          "movableRouteId": "narrow-normal",
+          "movableSide": "Left",
+          "stockRouteId": "narrow-reversed",
+          "stockSide": "Left"
+        }
+      ],
+      "meshRules": {
+        "rejectUnexpectedBlades": true,
+        "rejectFixedRailsUnderBlades": true,
+        "rejectDuplicateSharedRailRendering": true
+      }
+    },
+    {
+      "id": "DualGauge_SplitStandardNarrow_OutsideFrogs",
+      "presetId": "dual.split-standard-narrow",
+      "description": "Dual-gauge approach splitting to standard through and narrow diverging, with the narrow blade feeding the outside vee and crossing frogs.",
+      "selectorFrogPair": {
+        "railA": {
+          "routeId": "standard-through",
+          "side": "Right"
+        },
+        "railB": {
+          "routeId": "narrow-diverge",
+          "side": "Left"
+        }
+      },
+      "criticalRules": [
+        "Blade ownership is selected from measured frog participation, not a node ID.",
+        "The shared physical rail renders once.",
+        "All frog candidates receive cuts, wings, and guards."
+      ],
+      "routes": [
+        {
+          "id": "standard-through",
+          "family": "Standard",
+          "kind": "Through",
+          "state": "fixed"
+        },
+        {
+          "id": "narrow-diverge",
+          "family": "Narrow",
+          "kind": "Diverging",
+          "state": "reversed"
+        }
+      ],
+      "suppressedIntervals": [
+        {
+          "label": "NarrowBlade",
+          "routeId": "narrow-diverge",
+          "side": "Left",
+          "kind": "SwitchBlade"
+        },
+        {
+          "label": "SharedDuplicate",
+          "routeId": "narrow-diverge",
+          "side": "Left",
+          "kind": "SharedDuplicate"
+        }
+      ],
+      "frogs": {
+        "minimumCount": 2,
+        "requireCuts": true,
+        "requireWingRails": true,
+        "requireGuardRails": true
+      },
+      "guards": {
+        "minimumCount": 4
+      },
+      "wingRails": {
+        "minimumCount": 6
+      },
+      "blades": [
+        {
+          "label": "GaugeSeparationBlade",
+          "movableRouteId": "narrow-diverge",
+          "movableSide": "Left",
+          "stockRouteId": "standard-through",
+          "stockSide": "Left"
+        }
+      ],
+      "meshRules": {
+        "rejectUnexpectedBlades": true,
+        "rejectFixedRailsUnderBlades": true,
+        "rejectDuplicateSharedRailRendering": true
+      }
+    },
+    {
+      "id": "DualGauge_SplitStandardNarrow_SharedSideFrog",
+      "presetId": "dual.split-standard-narrow",
+      "description": "Mirrored dual-gauge split where the standard-through rail is the movable blade and continues toward the shared-side vee frog.",
+      "selectorFrogPair": {
+        "railA": {
+          "routeId": "standard-through",
+          "side": "Left"
+        },
+        "railB": {
+          "routeId": "narrow-diverge",
+          "side": "Right"
+        }
+      },
+      "criticalRules": [
+        "The standard-through blade root attaches to its closure rail toward the vee frog.",
+        "Blade direction is measured from the control node toward the frog.",
+        "The narrow stock rail owns the shared physical rail."
+      ],
+      "routes": [
+        {
+          "id": "standard-through",
+          "family": "Standard",
+          "kind": "Through",
+          "state": "fixed"
+        },
+        {
+          "id": "narrow-diverge",
+          "family": "Narrow",
+          "kind": "Diverging",
+          "state": "reversed"
+        }
+      ],
+      "suppressedIntervals": [
+        {
+          "label": "StandardBlade",
+          "routeId": "standard-through",
+          "side": "Left",
+          "kind": "SwitchBlade"
+        },
+        {
+          "label": "SharedDuplicate",
+          "routeId": "standard-through",
+          "side": "Left",
+          "kind": "SharedDuplicate"
+        }
+      ],
+      "frogs": {
+        "minimumCount": 1,
+        "requireCuts": true,
+        "requireWingRails": true,
+        "requireGuardRails": true
+      },
+      "guards": {
+        "minimumCount": 2
+      },
+      "wingRails": {
+        "minimumCount": 2
+      },
+      "blades": [
+        {
+          "label": "GaugeSeparationBlade",
+          "movableRouteId": "standard-through",
+          "movableSide": "Left",
+          "stockRouteId": "narrow-diverge",
+          "stockSide": "Left"
+        }
+      ],
+      "meshRules": {
+        "rejectUnexpectedBlades": true,
+        "rejectFixedRailsUnderBlades": true,
+        "rejectDuplicateSharedRailRendering": true
+      }
+    },
+    {
+      "id": "DualGauge_BothDiverge_LeftHand",
+      "presetId": "dual.both-diverge",
+      "description": "Dual-gauge turnout where both gauge families diverge through the left-hand mirror blade and frog arrangement.",
+      "selectorFrogPair": {
+        "railA": {
+          "routeId": "standard-normal",
+          "side": "Left"
+        },
+        "railB": {
+          "routeId": "standard-reversed",
+          "side": "Right"
+        }
+      },
+      "criticalRules": [
+        "The mirror variant is selected from an accepted measured frog pair, not a node ID.",
+        "The standard family has two opposed point blades and the narrow family has one point blade.",
+        "All three accepted frogs receive cuts, type-specific wings, and guards.",
+        "Shared physical rails render once and fixed rails do not render through point blades."
+      ],
+      "routes": [
+        {
+          "id": "standard-normal",
+          "family": "Standard",
+          "kind": "Through",
+          "state": "normal"
+        },
+        {
+          "id": "standard-reversed",
+          "family": "Standard",
+          "kind": "Diverging",
+          "state": "reversed"
+        },
+        {
+          "id": "narrow-normal",
+          "family": "Narrow",
+          "kind": "Through",
+          "state": "normal"
+        },
+        {
+          "id": "narrow-reversed",
+          "family": "Narrow",
+          "kind": "Diverging",
+          "state": "reversed"
+        }
+      ],
+      "suppressedIntervals": [
+        {
+          "label": "StandardNormalBlade",
+          "routeId": "standard-normal",
+          "side": "Left",
+          "kind": "SwitchBlade"
+        },
+        {
+          "label": "StandardReversedBlade",
+          "routeId": "standard-reversed",
+          "side": "Right",
+          "kind": "SwitchBlade"
+        },
+        {
+          "label": "NarrowReversedBlade",
+          "routeId": "narrow-reversed",
+          "side": "Right",
+          "kind": "SwitchBlade"
+        },
+        {
+          "label": "NarrowNormalSharedDuplicate",
+          "routeId": "narrow-normal",
+          "side": "Left",
+          "kind": "SharedDuplicate"
+        },
+        {
+          "label": "NarrowReversedSharedDuplicate",
+          "routeId": "narrow-reversed",
+          "side": "Left",
+          "kind": "SharedDuplicate"
+        }
+      ],
+      "frogs": {
+        "minimumCount": 3,
+        "requireCuts": true,
+        "requireWingRails": true,
+        "requireGuardRails": true
+      },
+      "guards": {
+        "minimumCount": 9
+      },
+      "wingRails": {
+        "minimumCount": 8
+      },
+      "blades": [
+        {
+          "label": "StandardNormalLeft",
+          "movableRouteId": "standard-normal",
+          "movableSide": "Left",
+          "stockRouteId": "standard-reversed",
+          "stockSide": "Left"
+        },
+        {
+          "label": "StandardReversedRight",
+          "movableRouteId": "standard-reversed",
+          "movableSide": "Right",
+          "stockRouteId": "standard-normal",
+          "stockSide": "Right"
+        },
+        {
+          "label": "NarrowReversedRight",
+          "movableRouteId": "narrow-reversed",
+          "movableSide": "Right",
+          "stockRouteId": "narrow-normal",
+          "stockSide": "Right"
+        }
+      ],
+      "meshRules": {
+        "rejectUnexpectedBlades": true,
+        "rejectFixedRailsUnderBlades": true,
+        "rejectDuplicateSharedRailRendering": true
+      }
+    },
+    {
+      "id": "DualGauge_BothDiverge_RightHand",
+      "presetId": "dual.both-diverge",
+      "description": "Dual-gauge turnout where both gauge families diverge through the right-hand mirror blade and frog arrangement.",
+      "selectorFrogPair": {
+        "railA": {
+          "routeId": "narrow-normal",
+          "side": "Right"
+        },
+        "railB": {
+          "routeId": "narrow-reversed",
+          "side": "Left"
+        }
+      },
+      "criticalRules": [
+        "The mirror variant is selected from an accepted measured frog pair, not a node ID.",
+        "The standard family has two opposed point blades and the narrow family has one point blade.",
+        "All three accepted frogs receive cuts, type-specific wings, and guards.",
+        "Shared physical rails render once and fixed rails do not render through point blades."
+      ],
+      "routes": [
+        {
+          "id": "standard-normal",
+          "family": "Standard",
+          "kind": "Through",
+          "state": "normal"
+        },
+        {
+          "id": "standard-reversed",
+          "family": "Standard",
+          "kind": "Diverging",
+          "state": "reversed"
+        },
+        {
+          "id": "narrow-normal",
+          "family": "Narrow",
+          "kind": "Through",
+          "state": "normal"
+        },
+        {
+          "id": "narrow-reversed",
+          "family": "Narrow",
+          "kind": "Diverging",
+          "state": "reversed"
+        }
+      ],
+      "suppressedIntervals": [
+        {
+          "label": "StandardReversedBlade",
+          "routeId": "standard-reversed",
+          "side": "Left",
+          "kind": "SwitchBlade"
+        },
+        {
+          "label": "StandardNormalBlade",
+          "routeId": "standard-normal",
+          "side": "Right",
+          "kind": "SwitchBlade"
+        },
+        {
+          "label": "NarrowNormalBlade",
+          "routeId": "narrow-normal",
+          "side": "Right",
+          "kind": "SwitchBlade"
+        },
+        {
+          "label": "StandardReversedSharedDuplicate",
+          "routeId": "standard-reversed",
+          "side": "Left",
+          "kind": "SharedDuplicate"
+        },
+        {
+          "label": "NarrowNormalSharedDuplicate",
+          "routeId": "narrow-normal",
+          "side": "Left",
+          "kind": "SharedDuplicate"
+        }
+      ],
+      "frogs": {
+        "minimumCount": 3,
+        "requireCuts": true,
+        "requireWingRails": true,
+        "requireGuardRails": true
+      },
+      "guards": {
+        "minimumCount": 9
+      },
+      "wingRails": {
+        "minimumCount": 8
+      },
+      "blades": [
+        {
+          "label": "StandardReversedLeft",
+          "movableRouteId": "standard-reversed",
+          "movableSide": "Left",
+          "stockRouteId": "standard-normal",
+          "stockSide": "Left"
+        },
+        {
+          "label": "StandardNormalRight",
+          "movableRouteId": "standard-normal",
+          "movableSide": "Right",
+          "stockRouteId": "standard-reversed",
+          "stockSide": "Right"
+        },
+        {
+          "label": "NarrowNormalRight",
+          "movableRouteId": "narrow-normal",
+          "movableSide": "Right",
+          "stockRouteId": "narrow-reversed",
+          "stockSide": "Right"
+        }
+      ],
+      "meshRules": {
+        "rejectUnexpectedBlades": true,
+        "rejectFixedRailsUnderBlades": true,
+        "rejectDuplicateSharedRailRendering": true
+      }
+    }
+  ]
+}

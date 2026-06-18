@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1.0",
+  "id": "example.special-work-package",
+  "name": "Special Work Authoring Example",
+  "tracks": {
+    "nodes": {},
+    "segments": {},
+    "spans": {}
+  },
+  "extensions": {
+    "narrowGauge.specialWork": {
+      "version": 1,
+      "objects": {
+        "yard-narrow-lead": {
+          "preset": "dual.narrow-branch-joins-main",
+          "anchorNode": "NCustom_0ifg",
+          "enabled": true,
+          "parameters": {
+            "sharedRailSide": "auto",
+            "frogNumber": 8,
+            "guardRailLength": 3.6,
+            "bladeLength": 6.0
+          }
+        }
+      }
+    }
+  }
+}
