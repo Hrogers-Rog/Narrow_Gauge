@@ -199,6 +199,7 @@ namespace NarrowGaugeMod
             ?? throw new MissingMethodException("TrackObjectBuilder.CreateInstancedMeshDrawer not found.");
 
         private static readonly HashSet<string> WarnedMixedGaugeSwitches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static readonly HashSet<string> WarnedSourceNodeNarrowBranchSwitches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public static bool TryBuild(
             TrackObjectManager manager,
@@ -290,6 +291,13 @@ namespace NarrowGaugeMod
                         SwitchGeometry geometry = GetFieldValue<SwitchGeometry>(descriptor, "geometry");
                         BezierCurve aRoadbedCurve = GetFieldValue<BezierCurve>(descriptor, "aRoadbedCurve");
                         BezierCurve bRoadbedCurve = GetFieldValue<BezierCurve>(descriptor, "bRoadbedCurve");
+
+                        if (!hasMeasuredSpecialWork
+                            && IsInvalidSourceNodeNarrowBranchSwitch(node, out TrackSegment narrowBranch))
+                        {
+                            WarnSourceNodeNarrowBranchSwitch(node, narrowBranch);
+                            return false;
+                        }
 
                         if ((aDual && bDual)
                             || (aDual && bNarrow)
@@ -2298,28 +2306,7 @@ namespace NarrowGaugeMod
             out TrackSegment other)
         {
             other = null!;
-            if (sourceSegment == null || node == null || Graph.Shared == null)
-            {
-                return false;
-            }
-
-            TrackSegment[] connected = Graph.Shared.SegmentsConnectedTo(node)
-                .Where(segment =>
-                    segment != null
-                    && !NarrowGaugeManager.IsGeneratedGhost(segment)
-                    && !SpecialWorkTopologySynchronizer.IsHiddenControlSegment(segment))
-                .ToArray();
-            if (connected.Length != 2
-                || !connected.All(NarrowGaugeManager.IsDualGauge)
-                || connected.Any(DualGaugeSharedRailRegistry.IsSharedRailTransition)
-                || !connected.Contains(sourceSegment))
-            {
-                return false;
-            }
-
-            other = connected.First(segment => segment != sourceSegment);
-            return DualGaugeSharedRailRegistry.SharesRightRail(sourceSegment)
-                != DualGaugeSharedRailRegistry.SharesRightRail(other);
+            return false;
         }
 
         private static IEnumerable<(float Start, float End)> SharedRailFlipMiddleCuts(
@@ -4446,6 +4433,52 @@ namespace NarrowGaugeMod
             return node != null
                 && Graph.Shared != null
                 && Graph.Shared.SegmentsConnectedTo(node).Any(NarrowGaugeManager.IsNarrowGauge);
+        }
+
+        private static bool IsInvalidSourceNodeNarrowBranchSwitch(
+            TrackNode node,
+            out TrackSegment narrowBranch)
+        {
+            narrowBranch = null!;
+            if (node == null
+                || Graph.Shared == null
+                || NarrowGaugeManager.IsGeneratedGhostNode(node))
+            {
+                return false;
+            }
+
+            TrackSegment[] connected = Graph.Shared.SegmentsConnectedTo(node)
+                .Where(segment =>
+                    segment != null
+                    && !NarrowGaugeManager.IsGeneratedGhost(segment)
+                    && !SpecialWorkTopologySynchronizer.IsHiddenControlSegment(segment))
+                .ToArray();
+
+            if (!connected.Any(NarrowGaugeManager.IsDualGauge))
+            {
+                return false;
+            }
+
+            narrowBranch = connected.FirstOrDefault(segment =>
+                NarrowGaugeManager.IsNarrowGauge(segment)
+                && !NarrowGaugeManager.IsDualGauge(segment));
+            return narrowBranch != null;
+        }
+
+        private static void WarnSourceNodeNarrowBranchSwitch(TrackNode node, TrackSegment narrowBranch)
+        {
+            string nodeId = node?.id ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(nodeId)
+                || !WarnedSourceNodeNarrowBranchSwitches.Add(nodeId))
+            {
+                return;
+            }
+
+            Main.Warn(
+                $"[Build] Switch '{nodeId}' has narrow-only segment '{narrowBranch?.id ?? "<null>"}' " +
+                $"attached to the source node. Expected that branch to touch " +
+                $"'{GhostGraphSynchronizer.GetGhostNodeId(nodeId)}' or an explicit transition segment. " +
+                "Refusing generated dual-gauge switch build for this invalid topology.");
         }
 
         private static void WarnMixedGaugeSwitch(TrackNode node)

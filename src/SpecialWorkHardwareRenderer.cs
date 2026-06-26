@@ -95,15 +95,12 @@ namespace NarrowGaugeMod
             }
 
             // A validated custom object owns the complete turnout visual.
-            // Native point, closure, frog, guard, and tie hardware must never
-            // render underneath it. Use vanilla-only mode to inspect native
-            // hardware deliberately.
+            // Invalid measured plans must leave the original switch visible;
+            // otherwise bad authored topology gets hidden instead of being
+            // obvious in-game.
             return settings?.EnableSpecialWorkHardware != false
                 && settings?.DebugHideCustomRails != true
-                && (analysis.MeshPlan?.IsValid == true
-                    || SpecialWorkTruthTableCatalog.TryGet(
-                        analysis.Definition.Preset.Id,
-                        out _));
+                && analysis.MeshPlan?.IsValid == true;
         }
 
         public static bool CanRenderLegacyPointHardware(TrackNode? node)

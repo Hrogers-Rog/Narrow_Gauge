@@ -146,7 +146,6 @@ namespace NarrowGaugeMod
 
                 if (SegmentTouchesNode(branch, ghostNodeId))
                 {
-                    EnsureTransitionTags(branch, sourceNodeId, presetId);
                     continue;
                 }
 
@@ -618,125 +617,14 @@ namespace NarrowGaugeMod
             bool transitionActive,
             out string issue)
         {
-            issue = string.Empty;
-            if (IsSegmentOccupied(segment))
-            {
-                issue =
-                    $"Deferred special-work topology update for narrow branch '{segment.id}' " +
-                    "because rolling stock currently occupies it.";
-                return false;
-            }
-
-            FuseSegment current = TrackAPI.GetSegmentDefinition(segment.id);
-            if (current == null)
-            {
-                issue = $"Cannot rewire narrow branch '{segment.id}' because its FUSE definition is unavailable.";
-                return false;
-            }
-
-            var replacement = Clone(current);
-            if (string.Equals(replacement.StartNodeId, oldNodeId, StringComparison.OrdinalIgnoreCase))
-            {
-                replacement.StartNodeId = newNodeId;
-            }
-            else if (string.Equals(replacement.EndNodeId, oldNodeId, StringComparison.OrdinalIgnoreCase))
-            {
-                replacement.EndNodeId = newNodeId;
-            }
-            else
-            {
-                issue = $"Cannot rewire narrow branch '{segment.id}'; definition does not reference '{oldNodeId}'.";
-                return false;
-            }
-
-            replacement.Tags = transitionActive
-                ? MergeTags(
-                    replacement.Tags,
-                    SourceNodeTagPrefix + sourceNodeId,
-                    PresetTagPrefix + presetId)
-                : RemoveTransitionTags(replacement.Tags);
-
-            TrackAPI.RemoveSegment(segment.id);
-            TrackAPI.AddSegment(segment.id, replacement);
-            return true;
-        }
-
-        private static void EnsureTransitionTags(
-            TrackSegment segment,
-            string sourceNodeId,
-            string presetId)
-        {
-            FuseSegment current = TrackAPI.GetSegmentDefinition(segment.id);
-            if (current == null)
-            {
-                return;
-            }
-
-            string[] expectedTags = MergeTags(
-                current.Tags,
-                SourceNodeTagPrefix + sourceNodeId,
-                PresetTagPrefix + presetId);
-
-            if ((current.Tags ?? Array.Empty<string>()).SequenceEqual(expectedTags, StringComparer.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            var replacement = Clone(current);
-            replacement.Tags = expectedTags;
-            TrackAPI.UpdateSegment(segment.id, replacement);
-        }
-
-        private static string[] MergeTags(IEnumerable<string> tags, params string[] required)
-        {
-            var values = new HashSet<string>(
-                (tags ?? Enumerable.Empty<string>()).Where(value => !string.IsNullOrWhiteSpace(value)),
-                StringComparer.OrdinalIgnoreCase);
-
-            foreach (string value in required.Where(value => !string.IsNullOrWhiteSpace(value)))
-            {
-                values.RemoveWhere(existing =>
-                    existing.StartsWith(SourceNodeTagPrefix, StringComparison.OrdinalIgnoreCase)
-                    && value.StartsWith(SourceNodeTagPrefix, StringComparison.OrdinalIgnoreCase)
-                    || existing.StartsWith(PresetTagPrefix, StringComparison.OrdinalIgnoreCase)
-                    && value.StartsWith(PresetTagPrefix, StringComparison.OrdinalIgnoreCase));
-                values.Add(value);
-            }
-
-            return values.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
-        }
-
-        private static string[] RemoveTransitionTags(IEnumerable<string> tags)
-        {
-            return (tags ?? Enumerable.Empty<string>())
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Where(value =>
-                    !value.StartsWith(SourceNodeTagPrefix, StringComparison.OrdinalIgnoreCase)
-                    && !value.StartsWith(PresetTagPrefix, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-        }
-
-        private static FuseSegment Clone(FuseSegment source)
-        {
-            return new FuseSegment
-            {
-                StartNodeId = source.StartNodeId,
-                EndNodeId = source.EndNodeId,
-                Style = source.Style,
-                TrackClass = source.TrackClass,
-                SpeedLimit = source.SpeedLimit,
-                Priority = source.Priority,
-                GroupId = source.GroupId,
-                Tags = source.Tags?.ToArray(),
-                Gauge = source.Gauge,
-                Partial = source.Partial,
-                PreserveStyle = source.PreserveStyle,
-                PreserveTrackClass = source.PreserveTrackClass,
-                PreserveSpeedLimit = source.PreserveSpeedLimit,
-                PreservePriority = source.PreservePriority,
-                PreserveGroupId = source.PreserveGroupId
-            };
+            string startId = segment?.a?.id ?? "<none>";
+            string endId = segment?.b?.id ?? "<none>";
+            issue =
+                $"Skipped special-work topology rewrite for authored segment '{segment?.id ?? "<null>"}' " +
+                $"endpoints {startId}->{endId}. Expected '{newNodeId}' instead of '{oldNodeId}' " +
+                "for this generated narrow switch. Segment gauges and endpoints are treated as authored data; " +
+                "fix that segment or add an explicit transition segment.";
+            return false;
         }
 
         private static bool IsSegmentOccupied(TrackSegment segment)
