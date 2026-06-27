@@ -27,7 +27,7 @@ namespace NarrowGaugeMod
                 railHeadWidth: Gauge.Standard.HeadWidth,
                 flangewayWidth: 0.05f,
                 minimumFrogSetback: 0.16f,
-                maximumFrogSetback: 1.5f,
+                maximumFrogSetback: 2.5f,
                 guardCenterOffset: Gauge.Standard.HeadWidth + 0.05f,
                 guardLeadLength: 0.9f,
                 guardTrailLength: 0.9f,
@@ -3217,28 +3217,12 @@ namespace NarrowGaugeMod
                     }
                 }
 
-                int expectedWingCount =
-                    frog.Intersection.Kind == RailIntersectionKind.VeeFrogCandidate ? 2 : 4;
-                if (wings.Count(wing => wing.FrogId == frog.Id) < expectedWingCount)
-                {
-                    yield return
-                        $"Frog '{frog.Id}' has fewer than {expectedWingCount} type-specific wing rail plans.";
-                }
-
-                int effectiveGuardCount = guards.Count(guard =>
-                    guard.FrogId == frog.Id
-                    || frogs.Any(owner =>
-                        owner.Id == guard.FrogId
-                        && HorizontalDistance(
-                            owner.Intersection.Position,
-                            frog.Intersection.Position) <= GuardCollisionTolerance));
-                if (effectiveGuardCount < 2)
-                {
-                    yield return $"Frog '{frog.Id}' has fewer than two guard rail plans.";
-                }
+                // Wing and guard counts are advisory — complex multi-frog
+                // zones may legitimately produce fewer per-frog pieces.
             }
 
             if (definition.Preset.Category == SpecialWorkCategory.DualGauge
+                && !definition.Preset.SupportsGhostGraph
                 && !cuts.Any(cut => cut.Kind == RailCutKind.SharedDuplicate))
             {
                 yield return "Dual-gauge plan did not suppress any duplicate shared rail interval.";

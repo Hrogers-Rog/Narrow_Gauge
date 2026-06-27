@@ -61,6 +61,26 @@ namespace NarrowGaugeMod
             ref System.Collections.Generic.List<SegmentProxy> remainder,
             ref SwitchGeometry __result)
         {
+            bool aHiddenControl = SpecialWorkTopologySynchronizer.IsHiddenControlSegment(a.Segment);
+            bool bHiddenControl = SpecialWorkTopologySynchronizer.IsHiddenControlSegment(b.Segment);
+            bool aVisibleGhost =
+                NarrowGaugeManager.IsGeneratedGhost(a.Segment) && !aHiddenControl;
+            bool bVisibleGhost =
+                NarrowGaugeManager.IsGeneratedGhost(b.Segment) && !bHiddenControl;
+            if (SpecialWorkTopologySynchronizer.IsGaugeSeparationControlNode(node)
+                && (aHiddenControl && bVisibleGhost
+                    || bHiddenControl && aVisibleGhost))
+            {
+                __result = NarrowGaugeSwitchGeometry.CalculateControlShell(
+                    node,
+                    a,
+                    b,
+                    out sliceA,
+                    out sliceB,
+                    out remainder);
+                return false;
+            }
+
             if (!NarrowGaugeManager.IsNarrowGauge(a.Segment)
                 || !NarrowGaugeManager.IsNarrowGauge(b.Segment))
                 return true;

@@ -38,7 +38,7 @@ namespace NarrowGaugeMod
         internal const string GhostControlTag = "fuse-ng:ghost-ng-control";
         internal const string GaugeSeparationNodeTag = "fuse-ng:gauge-separation=narrow-controlled";
 
-        private const float GhostControlLength = 30f;
+        private const float GhostControlLength = 5f;
 
         private static readonly HashSet<string> HiddenControlSegmentIds =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -271,6 +271,26 @@ namespace NarrowGaugeMod
                     StringComparison.OrdinalIgnoreCase));
         }
 
+        internal static bool IsGaugeSeparationControlNode(TrackNode? node)
+        {
+            if (node == null
+                || Graph.Shared == null
+                || !GhostGraphSynchronizer.IsGeneratedGhostNodeId(node.id))
+            {
+                return false;
+            }
+
+            TrackSegment[] connected = Graph.Shared.SegmentsConnectedTo(node)
+                .Where(segment => segment != null)
+                .ToArray();
+            return connected.Length == 3
+                && connected.Count(IsHiddenControlSegment) == 1
+                && connected.Count(segment =>
+                    GhostGraphSynchronizer.IsGeneratedGhostSegmentId(segment.id)
+                    && !IsHiddenControlSegment(segment)) == 1
+                && connected.Count(IsRealNarrowOnly) == 1;
+        }
+
         private static bool HasGaugeSeparationNodeTag(TrackNode node)
         {
             FuseNode? definition = node != null
@@ -349,20 +369,28 @@ namespace NarrowGaugeMod
                     + ghostNode.transform.localRotation * Vector3.forward * GhostControlLength;
                 Vector3 controlRotation = ghostNode.transform.localRotation.eulerAngles;
 
-                if (TrackAPI.GetNode(controlNodeId) == null)
+                var controlNodeDef = new FuseNode
                 {
-                    TrackAPI.AddNode(
-                        controlNodeId,
-                        new FuseNode
-                        {
-                            Position = controlPosition,
-                            Rotation = controlRotation,
-                            FlipSwitchStand = ghostNode.flipSwitchStand,
-                            Tags = new[] { HiddenControlTag, GhostControlTag }
-                        });
+                    Position = controlPosition,
+                    Rotation = controlRotation,
+                    FlipSwitchStand = ghostNode.flipSwitchStand,
+                    Tags = new[] { HiddenControlTag, GhostControlTag }
+                };
+
+                TrackNode existingControl = TrackAPI.GetNode(controlNodeId);
+                if (existingControl == null)
+                {
+                    TrackAPI.AddNode(controlNodeId, controlNodeDef);
                     Main.Log(
                         $"Created runtime-only gauge-separation control node '{controlNodeId}' " +
                         $"for '{sourceNodeId}'.");
+                }
+                else if (Vector3.Distance(existingControl.transform.localPosition, controlPosition) > 0.01f)
+                {
+                    TrackAPI.UpdateNode(controlNodeId, controlNodeDef);
+                    Main.Log(
+                        $"Updated runtime-only gauge-separation control node '{controlNodeId}' " +
+                        $"position for '{sourceNodeId}'.");
                 }
 
                 var definition = new FuseSegment
@@ -619,12 +647,109 @@ namespace NarrowGaugeMod
         {
             string startId = segment?.a?.id ?? "<none>";
             string endId = segment?.b?.id ?? "<none>";
-            issue =
-                $"Skipped special-work topology rewrite for authored segment '{segment?.id ?? "<null>"}' " +
-                $"endpoints {startId}->{endId}. Expected '{newNodeId}' instead of '{oldNodeId}' " +
-                "for this generated narrow switch. Segment gauges and endpoints are treated as authored data; " +
-                "fix that segment or add an explicit transition segment.";
-            return false;
+            string segmentId = segment?.id ?? string.Empty;
+            issue = string.Empty;
+
+            if (segment == null || string.IsNullOrWhiteSpace(segmentId))
+            {
+                issue =
+                    $"Skipped special-work topology rewrite for authored segment '{segmentId ?? "<null>"}' " +
+                    "because the runtime segment was not available.";
+                return false;
+            }
+
+            if (IsSegmentOccupied(segment))
+            {
+                issue =
+                    $"Deferred special-work topology rewrite for authored segment '{segmentId}' " +
+                    $"endpoints {startId}->{endId} because rolling stock currently occupies it.";
+                return false;
+            }
+
+            if (TrackAPI.GetNode(newNodeId) == null)
+            {
+                issue =
+                    $"Skipped special-work topology rewrite for authored segment '{segmentId}' " +
+                    $"endpoints {startId}->{endId}. Expected node '{newNodeId}' was not found.";
+                return false;
+            }
+
+            bool replaceStart = string.Equals(startId, oldNodeId, StringComparison.OrdinalIgnoreCase);
+            bool replaceEnd = string.Equals(endId, oldNodeId, StringComparison.OrdinalIgnoreCase);
+            if (replaceStart == replaceEnd)
+            {
+                issue =
+                    $"Skipped special-work topology rewrite for authored segment '{segmentId}' " +
+                    $"endpoints {startId}->{endId}. Expected exactly one endpoint to be '{oldNodeId}'.";
+                return false;
+            }
+
+            FuseSegment definition = CloneSegmentDefinition(TrackAPI.GetSegmentDefinition(segmentId));
+            definition.StartNodeId = replaceStart ? newNodeId : startId;
+            definition.EndNodeId = replaceEnd ? newNodeId : endId;
+            if (string.Equals(definition.StartNodeId, definition.EndNodeId, StringComparison.OrdinalIgnoreCase))
+            {
+                issue =
+                    $"Skipped special-work topology rewrite for authored segment '{segmentId}' " +
+                    $"because it would collapse both endpoints onto '{newNodeId}'.";
+                return false;
+            }
+
+            if (transitionActive)
+            {
+                definition.Tags = UpsertSpecialWorkTags(definition.Tags, sourceNodeId, presetId);
+            }
+
+            TrackAPI.RemoveSegment(segmentId);
+            TrackAPI.AddSegment(segmentId, definition);
+            Main.Log(
+                $"Rewired special-work narrow segment '{segmentId}' " +
+                $"{startId}->{endId} to {definition.StartNodeId}->{definition.EndNodeId} " +
+                $"for source '{sourceNodeId}' ({presetId}).");
+            return true;
+        }
+
+        private static FuseSegment CloneSegmentDefinition(FuseSegment? source)
+        {
+            return new FuseSegment
+            {
+                StartNodeId = source?.StartNodeId,
+                EndNodeId = source?.EndNodeId,
+                Style = source?.Style ?? "standard",
+                TrackClass = source?.TrackClass ?? "main",
+                SpeedLimit = source?.SpeedLimit ?? 45,
+                Priority = source?.Priority ?? 0,
+                GroupId = source?.GroupId,
+                Tags = source?.Tags?.ToArray(),
+                Gauge = source?.Gauge,
+                Partial = source?.Partial ?? false,
+                PreserveStyle = source?.PreserveStyle ?? false,
+                PreserveTrackClass = source?.PreserveTrackClass ?? false,
+                PreserveSpeedLimit = source?.PreserveSpeedLimit ?? false,
+                PreservePriority = source?.PreservePriority ?? false,
+                PreserveGroupId = source?.PreserveGroupId ?? false
+            };
+        }
+
+        private static string[] UpsertSpecialWorkTags(
+            IEnumerable<string>? tags,
+            string sourceNodeId,
+            string presetId)
+        {
+            var result = (tags ?? Enumerable.Empty<string>())
+                .Where(tag =>
+                    !string.IsNullOrWhiteSpace(tag)
+                    && !tag.StartsWith(SourceNodeTagPrefix, StringComparison.OrdinalIgnoreCase)
+                    && !tag.StartsWith(PresetTagPrefix, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            result.Add(SourceNodeTagPrefix + sourceNodeId);
+            if (!string.IsNullOrWhiteSpace(presetId))
+            {
+                result.Add(PresetTagPrefix + presetId);
+            }
+
+            return result.ToArray();
         }
 
         private static bool IsSegmentOccupied(TrackSegment segment)

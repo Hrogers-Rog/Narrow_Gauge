@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Core;
+using FUSE.Runtime.API;
 using Track;
 using UnityEngine;
 
@@ -9,15 +10,17 @@ namespace NarrowGaugeMod
 {
     internal static class SectionedSpecialWorkBuilder
     {
-        private const float MinimumPieceLength = 0.06f;
+        private const float MinimumPieceLength = 0.35f;
         private const float WorkEnvelopeMargin = 1.5f;
         private const float BladeSampleSpacing = 0.1f;
         private const float BladeRootSeparation = 0.18f;
-        private const float MaximumBladeLength = 4f;
+        private const float MaximumBladeLength = 7f;
+        private const float BaseGamePointRailFrogCutoff = 0.45f;
+        private const float BaseGamePointClosureSplitRatio = 0.5f;
         private const float RailHeadWidth = 0.076f;
         private const float FlangewayWidth = 0.05f;
         private const float MinimumFrogSetback = 0.16f;
-        private const float MaximumFrogSetback = 1.5f;
+        private const float MaximumFrogSetback = 2.5f;
         private const float CorridorTolerance = 0.085f;
         private const float MinimumFrogAngle = 3f;
 
@@ -50,14 +53,30 @@ namespace NarrowGaugeMod
                 StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsDualSplitPreset(SpecialWorkDefinition definition)
+        {
+            return string.Equals(
+                definition.Preset.Id,
+                SpecialWorkPresetIds.DualSplit,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsDualStandardBranchPreset(SpecialWorkDefinition definition)
+        {
+            return string.Equals(
+                definition.Preset.Id,
+                SpecialWorkPresetIds.DualStandardBranch,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
         public static bool TryAnalyze(
             Graph graph,
             SpecialWorkDefinition definition,
             out SpecialWorkAnalysis analysis)
         {
             analysis = null!;
-            if (!IsDualNarrowBranchPreset(definition)
-                && !IsDualBothDivergePreset(definition))
+            if (definition.Preset.Category != SpecialWorkCategory.DualGauge
+                || !definition.Preset.SupportsGhostGraph)
             {
                 return false;
             }
@@ -93,15 +112,15 @@ namespace NarrowGaugeMod
 
             var cuts = new List<RailCut>();
             var suppressions = new List<RailSuppressionInterval>();
-            SwitchBladePlan[] blades = BuildDualNarrowBranchBlades(
-                graph,
-                definition,
-                wheelPaths,
-                rails,
-                shared,
-                prototype.Intersections,
-                cuts,
-                suppressions).ToArray();
+            SwitchBladePlan[] blades = DeduplicateBlades(
+                BuildDualNarrowBranchBlades(
+                    graph,
+                    definition,
+                    wheelPaths,
+                    rails,
+                    shared,
+                    prototype.Intersections));
+            AddBladeCutsAndSuppressions(blades, cuts, suppressions);
 
             FrogCandidate[] frogs =
                 BuildAcceptedFrogs(
@@ -113,6 +132,7 @@ namespace NarrowGaugeMod
                     blades).ToArray();
 
             AddSharedSuppressions(definition, rails, shared, blades, frogs, cuts, suppressions);
+            AddCrossFamilySharedSuppressions(definition, rails, blades, frogs, cuts, suppressions);
             AddBladeCorridorSuppressions(definition, rails, blades, cuts, suppressions);
             AddFrogSuppressions(rails, frogs, cuts, suppressions);
 
@@ -245,8 +265,31 @@ namespace NarrowGaugeMod
             SpecialWorkDefinition definition,
             IEnumerable<WheelPath> wheelPaths)
         {
-            foreach (WheelPath path in wheelPaths)
+            WheelPath[] paths = wheelPaths.ToArray();
+            bool isDualBothDiverge = IsDualBothDivergePreset(definition);
+            RailSide? sharedSide = isDualBothDiverge
+                ? DetectSharedSide(definition)
+                : null;
+
+            foreach (WheelPath path in paths)
             {
+                if (isDualBothDiverge
+                    && path.Family == GaugeGraphFamily.Narrow
+                    && sharedSide.HasValue)
+                {
+                    WheelPath? standardPair = FindMatchingStandardRoute(path, paths);
+                    if (standardPair != null)
+                    {
+                        foreach (RailCenterline rail in BuildNarrowRailsFromStandardCenterline(
+                            path, standardPair.Centerline, sharedSide.Value))
+                        {
+                            yield return rail;
+                        }
+
+                        continue;
+                    }
+                }
+
                 Gauge gauge = path.Family == GaugeGraphFamily.Narrow
                     ? NarrowGaugeTrackBuilder.ThreeFootGauge
                     : Gauge.Standard;
@@ -273,17 +316,83 @@ namespace NarrowGaugeMod
             }
         }
 
+        private static RailSide? DetectSharedSide(SpecialWorkDefinition definition)
+        {
+            foreach (LogicalRoute route in definition.Routes)
+            {
+                foreach (string segmentId in route.SourceSegmentIds)
+                {
+                    TrackSegment? segment = TrackAPI.GetSegment(segmentId);
+                    if (segment != null && NarrowGaugeManager.IsDualGauge(segment))
+                    {
+                        return DualGaugeSharedRailRegistry.SharesRightRail(segment)
+                            ? RailSide.Right
+                            : RailSide.Left;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static WheelPath? FindMatchingStandardRoute(
+            WheelPath narrowPath,
+            IReadOnlyList<WheelPath> allPaths)
+        {
+            string narrowRouteId = narrowPath.RouteId ?? string.Empty;
+            string suffix = narrowRouteId.IndexOf('-') >= 0
+                ? narrowRouteId.Substring(narrowRouteId.IndexOf('-'))
+                : string.Empty;
+            string standardRouteId = "standard" + suffix;
+            return allPaths.FirstOrDefault(path =>
+                path.Family == GaugeGraphFamily.Standard
+                && string.Equals(path.RouteId, standardRouteId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static IEnumerable<RailCenterline> BuildNarrowRailsFromStandardCenterline(
+            WheelPath narrowPath,
+            LineCurve standardCenterline,
+            RailSide sharedSide)
+        {
+            float stdHalf = Gauge.Standard.Inside / 2f;
+            float thirdRailHalf = NarrowGaugeTrackBuilder.ThirdRailGaugeInside / 2f;
+
+            LineCurve sharedCurve = sharedSide == RailSide.Right
+                ? standardCenterline.Parallel(stdHalf, Hand.Right)
+                : standardCenterline.Parallel(-stdHalf, Hand.Left);
+            LineCurve thirdCurve = sharedSide == RailSide.Right
+                ? standardCenterline.Parallel(-thirdRailHalf, Hand.Left)
+                : standardCenterline.Parallel(thirdRailHalf, Hand.Right);
+
+            yield return new RailCenterline(
+                narrowPath.LeftRailId,
+                narrowPath.Family,
+                RailSide.Left,
+                sharedSide == RailSide.Right ? thirdCurve : sharedCurve,
+                new[] { narrowPath.RouteId },
+                wheelPathId: narrowPath.Id,
+                startPortId: narrowPath.StartPortId,
+                endPortId: narrowPath.EndPortId);
+            yield return new RailCenterline(
+                narrowPath.RightRailId,
+                narrowPath.Family,
+                RailSide.Right,
+                sharedSide == RailSide.Right ? sharedCurve : thirdCurve,
+                new[] { narrowPath.RouteId },
+                wheelPathId: narrowPath.Id,
+                startPortId: narrowPath.StartPortId,
+                endPortId: narrowPath.EndPortId);
+        }
+
         private static IEnumerable<SwitchBladePlan> BuildDualNarrowBranchBlades(
             Graph graph,
             SpecialWorkDefinition definition,
             IReadOnlyList<WheelPath> wheelPaths,
             IReadOnlyList<RailCenterline> rails,
             IReadOnlyList<SharedRailInterval> shared,
-            IReadOnlyList<RailIntersection> intersections,
-            ICollection<RailCut> cuts,
-            ICollection<RailSuppressionInterval> suppressions)
+            IReadOnlyList<RailIntersection> intersections)
         {
-            foreach (BladeSpec spec in BuildBladeSpecs(definition, rails, intersections))
+            foreach (BladeSpec spec in BuildBladeSpecs(graph, definition, rails, intersections))
             {
                 RailCenterline? movable = FindRail(rails, spec.MovableRouteId, spec.MovableSide);
                 RailCenterline? stock = FindRail(rails, spec.StockRouteId, spec.StockSide);
@@ -315,9 +424,10 @@ namespace NarrowGaugeMod
                     ? switchNode.transform.localPosition
                     : movable.Curve.Head.point;
                 bool foundBlade = TryFindBladeDistances(
-                    stock.Curve,
-                    movable.Curve,
+                    stock,
+                    movable,
                     switchPoint,
+                    intersections,
                     out float tip,
                     out float root);
                 if (!foundBlade)
@@ -325,13 +435,12 @@ namespace NarrowGaugeMod
                     continue;
                 }
 
-                AddCut(cuts, movable, tip, root, RailCutKind.SwitchBlade, "v2-blade:" + spec.Label);
-                AddSuppression(
-                    suppressions,
-                    movable,
-                    tip,
-                    root,
-                    "movable blade rendered separately");
+                float switchDist = movable.Curve.DistanceTo(switchPoint);
+                bool bladeExtendsForward = root > switchDist;
+                LineCurve closureCurve = bladeExtendsForward
+                    ? Slice(movable.Curve, root, movable.Curve.Length)
+                    : Slice(movable.Curve, 0f, tip);
+
                 yield return new SwitchBladePlan(
                     "v2-blade:" + spec.Label,
                     switchNode?.id,
@@ -341,130 +450,133 @@ namespace NarrowGaugeMod
                     tip,
                     root,
                     Slice(movable.Curve, tip, root),
-                    Slice(movable.Curve, root, movable.Curve.Length));
+                    closureCurve);
             }
         }
 
+        private static void AddBladeCutsAndSuppressions(
+            IReadOnlyList<SwitchBladePlan> blades,
+            ICollection<RailCut> cuts,
+            ICollection<RailSuppressionInterval> suppressions)
+        {
+            foreach (SwitchBladePlan blade in blades)
+            {
+                AddCut(cuts, blade.MovableRail, blade.TipDistance, blade.RootDistance,
+                    RailCutKind.SwitchBlade, blade.Id);
+                AddSuppression(suppressions, blade.MovableRail, blade.TipDistance,
+                    blade.RootDistance, "movable blade rendered separately");
+            }
+        }
+
+        private static SwitchBladePlan[] DeduplicateBlades(
+            IEnumerable<SwitchBladePlan> blades)
+        {
+            var deduped = new List<SwitchBladePlan>();
+            foreach (SwitchBladePlan blade in blades)
+            {
+                if (!deduped.Any(existing =>
+                    CurveOverlapLength(existing.BladeCurve, blade.BladeCurve) > 0.2f))
+                {
+                    deduped.Add(blade);
+                }
+            }
+
+            return deduped.ToArray();
+        }
+
         private static IEnumerable<BladeSpec> BuildBladeSpecs(
+            Graph graph,
             SpecialWorkDefinition definition,
             IReadOnlyList<RailCenterline> rails,
             IReadOnlyList<RailIntersection> intersections)
         {
-            if (IsDualBothDivergePreset(definition))
+            foreach (SpecialWorkSwitchGroup group in definition.SwitchGroups)
             {
-                if (DualBothDivergeUsesLeftHandBladeSet(rails, intersections))
+                LogicalRoute? normalRoute = definition.Routes.FirstOrDefault(route =>
+                    string.Equals(route.SwitchGroupId, group.Id, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(route.RequiredStateId, "normal", StringComparison.OrdinalIgnoreCase));
+                LogicalRoute? reversedRoute = definition.Routes.FirstOrDefault(route =>
+                    string.Equals(route.SwitchGroupId, group.Id, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(route.RequiredStateId, "reversed", StringComparison.OrdinalIgnoreCase));
+
+                if (normalRoute == null || reversedRoute == null)
                 {
-                    yield return new BladeSpec(
-                        "StandardReversedLeft",
-                        "standard-reversed",
-                        RailSide.Left,
-                        "standard-normal",
-                        RailSide.Left);
-                    yield return new BladeSpec(
-                        "StandardNormalRight",
-                        "standard-normal",
-                        RailSide.Right,
-                        "standard-reversed",
-                        RailSide.Right);
-                    yield return new BladeSpec(
-                        "NarrowNormalRight",
-                        "narrow-normal",
-                        RailSide.Right,
-                        "narrow-reversed",
-                        RailSide.Right);
-                }
-                else
-                {
-                    yield return new BladeSpec(
-                        "StandardNormalLeft",
-                        "standard-normal",
-                        RailSide.Left,
-                        "standard-reversed",
-                        RailSide.Left);
-                    yield return new BladeSpec(
-                        "StandardReversedRight",
-                        "standard-reversed",
-                        RailSide.Right,
-                        "standard-normal",
-                        RailSide.Right);
-                    yield return new BladeSpec(
-                        "NarrowReversedRight",
-                        "narrow-reversed",
-                        RailSide.Right,
-                        "narrow-normal",
-                        RailSide.Right);
+                    continue;
                 }
 
-                yield break;
-            }
+                TrackNode? switchNode = group.NativeNodeIds
+                    .Select(graph.GetNode)
+                    .FirstOrDefault(node => node != null);
+                Vector3 switchPoint = switchNode != null
+                    ? switchNode.transform.localPosition
+                    : Vector3.zero;
 
-            if (SpecialWorkTruthTableCatalog.TryGet(
-                    definition.Preset.Id,
-                    rails,
-                    intersections,
-                    out TurnoutTruthTable truth)
-                && truth.Blades.Length > 0)
-            {
-                foreach (TruthBlade blade in truth.Blades)
+                RailCenterline? normalLeft = FindRail(rails, normalRoute.Id, RailSide.Left);
+                RailCenterline? reversedLeft = FindRail(rails, reversedRoute.Id, RailSide.Left);
+                bool leftHandTurnout = false;
+                if (normalLeft != null && reversedLeft != null)
                 {
-                    if (!TryParseRailSide(blade.MovableSide, out RailSide movableSide)
-                        || !TryParseRailSide(blade.StockSide, out RailSide stockSide))
+                    float normalDist = normalLeft.Curve.DistanceTo(switchPoint);
+                    float reversedDist = reversedLeft.Curve.DistanceTo(switchPoint);
+                    Vector3 normalDir = normalLeft.Curve.LinePointAtDistance(
+                        Mathf.Min(normalLeft.Curve.Length, normalDist + 2f)).point
+                        - normalLeft.Curve.LinePointAtDistance(normalDist).point;
+                    Vector3 reversedDir = reversedLeft.Curve.LinePointAtDistance(
+                        Mathf.Min(reversedLeft.Curve.Length, reversedDist + 2f)).point
+                        - reversedLeft.Curve.LinePointAtDistance(reversedDist).point;
+                    normalDir.y = 0f;
+                    reversedDir.y = 0f;
+                    leftHandTurnout = Vector3.Cross(normalDir, reversedDir).y > 0f;
+                }
+
+                foreach (RailSide side in new[] { RailSide.Left, RailSide.Right })
+                {
+                    RailCenterline? normalRail = FindRail(rails, normalRoute.Id, side);
+                    RailCenterline? reversedRail = FindRail(rails, reversedRoute.Id, side);
+                    if (normalRail == null || reversedRail == null)
                     {
                         continue;
                     }
 
+                    bool normalIsMovable = (side == RailSide.Left) != leftHandTurnout;
+
                     yield return new BladeSpec(
-                        blade.Label,
-                        blade.MovableRouteId,
-                        movableSide,
-                        blade.StockRouteId,
-                        stockSide);
+                        group.Id + ":" + side,
+                        normalIsMovable ? normalRoute.Id : reversedRoute.Id,
+                        side,
+                        normalIsMovable ? reversedRoute.Id : normalRoute.Id,
+                        side);
                 }
-
-                yield break;
             }
+        }
 
-            string? normalRouteId = definition.Routes.FirstOrDefault(route =>
-                route.Family == GaugeGraphFamily.Narrow
-                && string.Equals(
-                    route.RequiredStateId,
-                    "normal",
-                    StringComparison.OrdinalIgnoreCase))?.Id;
-            string? reversedRouteId = definition.Routes.FirstOrDefault(route =>
-                route.Family == GaugeGraphFamily.Narrow
-                && string.Equals(
-                    route.RequiredStateId,
-                    "reversed",
-                    StringComparison.OrdinalIgnoreCase))?.Id;
-            if (normalRouteId == null || reversedRouteId == null)
+        private static float MeasureBladeDivergence(
+            LineCurve movable,
+            LineCurve stock,
+            Vector3 switchPoint)
+        {
+            float tipDist = movable.DistanceTo(switchPoint);
+            Vector3 tipPoint = movable.LinePointAtDistance(tipDist).point;
+            float stockAtTip = stock.DistanceTo(tipPoint);
+            float tipSeparation = Vector3.Distance(
+                tipPoint,
+                stock.LinePointAtDistance(stockAtTip).point);
+            if (tipSeparation > 0.2f)
             {
-                yield break;
+                return -1f;
             }
 
-            foreach (RailSide side in new[] { RailSide.Left, RailSide.Right })
-            {
-                RailCenterline? normalRail = FindRail(rails, normalRouteId, side);
-                RailCenterline? reversedRail = FindRail(rails, reversedRouteId, side);
-                if (normalRail == null || reversedRail == null)
-                {
-                    continue;
-                }
-
-                int normalFrogs = CountAcceptedFrogIntersections(normalRail, intersections);
-                int reversedFrogs = CountAcceptedFrogIntersections(reversedRail, intersections);
-                if (normalFrogs == reversedFrogs)
-                {
-                    continue;
-                }
-
-                bool normalIsMovable = normalFrogs > reversedFrogs;
-                yield return new BladeSpec(
-                    "MeasuredNarrowBlade" + side,
-                    normalIsMovable ? normalRouteId : reversedRouteId,
-                    side,
-                    normalIsMovable ? reversedRouteId : normalRouteId,
-                    side);
-            }
+            float forwardDist = Mathf.Min(movable.Length, tipDist + MaximumBladeLength);
+            float backwardDist = Mathf.Max(0f, tipDist - MaximumBladeLength);
+            Vector3 forwardPoint = movable.LinePointAtDistance(forwardDist).point;
+            Vector3 backwardPoint = movable.LinePointAtDistance(backwardDist).point;
+            float forwardSeparation = Vector3.Distance(
+                forwardPoint,
+                stock.LinePointAtDistance(stock.DistanceTo(forwardPoint)).point);
+            float backwardSeparation = Vector3.Distance(
+                backwardPoint,
+                stock.LinePointAtDistance(stock.DistanceTo(backwardPoint)).point);
+            return Mathf.Max(forwardSeparation, backwardSeparation) - tipSeparation;
         }
 
         private static int CountAcceptedFrogIntersections(
@@ -510,6 +622,10 @@ namespace NarrowGaugeMod
                     && item.AcuteAngleDegrees >= MinimumFrogAngle
                     && !InsideBladeZone(item, blades))
                 .ToArray();
+            if (IsDualBothDivergePreset(definition))
+            {
+                accepted = CollapseDualBothDivergeDuplicateVees(accepted, blades).ToArray();
+            }
 
             foreach (RailIntersection intersection in accepted)
             {
@@ -569,6 +685,148 @@ namespace NarrowGaugeMod
                     crossingRoute,
                     protectedRoute);
             }
+        }
+
+        private static IEnumerable<RailIntersection> CollapseDualBothDivergeDuplicateVees(
+            IReadOnlyList<RailIntersection> intersections,
+            IReadOnlyList<SwitchBladePlan> blades)
+        {
+            var grouped = new HashSet<RailIntersection>();
+            for (int i = 0; i < intersections.Count; i++)
+            {
+                if (grouped.Contains(intersections[i]))
+                {
+                    continue;
+                }
+
+                var group = new List<RailIntersection> { intersections[i] };
+                bool changed;
+                do
+                {
+                    changed = false;
+                    for (int j = 0; j < intersections.Count; j++)
+                    {
+                        RailIntersection candidate = intersections[j];
+                        if (group.Contains(candidate)
+                            || candidate.Kind != RailIntersectionKind.VeeFrogCandidate
+                            || !group.Any(item => IsDuplicateSharedVee(item, candidate)))
+                        {
+                            continue;
+                        }
+
+                        group.Add(candidate);
+                        changed = true;
+                    }
+                }
+                while (changed);
+
+                foreach (RailIntersection item in group)
+                {
+                    grouped.Add(item);
+                }
+
+                yield return group
+                    .OrderByDescending(item => DualBothDivergeVeePreference(item, group, blades))
+                    .ThenBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+                    .First();
+            }
+        }
+
+        private static bool IsDuplicateSharedVee(
+            RailIntersection first,
+            RailIntersection second)
+        {
+            if (first.Kind != RailIntersectionKind.VeeFrogCandidate
+                || second.Kind != RailIntersectionKind.VeeFrogCandidate
+                || Vector3.Distance(first.Position, second.Position) > CorridorTolerance * 2f
+                || !TryResolveSharedVeeRails(
+                    first,
+                    second,
+                    out _,
+                    out RailCenterline firstOuter,
+                    out RailCenterline secondOuter)
+                || firstOuter.Side != secondOuter.Side)
+            {
+                return false;
+            }
+
+            float overlapTolerance = Parameters.RailHeadWidth + Parameters.FlangewayWidth;
+            return DistancePointToCurve(first.Position, secondOuter.Curve) <= overlapTolerance
+                && DistancePointToCurve(second.Position, firstOuter.Curve) <= overlapTolerance;
+        }
+
+        private static bool TryResolveSharedVeeRails(
+            RailIntersection first,
+            RailIntersection second,
+            out RailCenterline common,
+            out RailCenterline firstOuter,
+            out RailCenterline secondOuter)
+        {
+            common = null!;
+            firstOuter = null!;
+            secondOuter = null!;
+
+            if (first.RailA == second.RailA || first.RailA == second.RailB)
+            {
+                common = first.RailA;
+                firstOuter = first.RailB;
+                secondOuter = second.RailA == common ? second.RailB : second.RailA;
+                return true;
+            }
+
+            if (first.RailB == second.RailA || first.RailB == second.RailB)
+            {
+                common = first.RailB;
+                firstOuter = first.RailA;
+                secondOuter = second.RailA == common ? second.RailB : second.RailA;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static int DualBothDivergeVeePreference(
+            RailIntersection intersection,
+            IReadOnlyList<RailIntersection> duplicateGroup,
+            IReadOnlyList<SwitchBladePlan> blades)
+        {
+            int score = DualBothDivergeFamilyVeePreference(intersection);
+            foreach (RailIntersection other in duplicateGroup)
+            {
+                if (other == intersection
+                    || !TryResolveSharedVeeRails(
+                        intersection,
+                        other,
+                        out _,
+                        out RailCenterline candidateOuter,
+                        out RailCenterline otherOuter))
+                {
+                    continue;
+                }
+
+                RailCenterline owner = ChooseSharedOwner(candidateOuter, otherOuter, blades);
+                if (owner == candidateOuter)
+                {
+                    score += 1000;
+                }
+                else if (owner == otherOuter)
+                {
+                    score -= 1000;
+                }
+            }
+
+            return score;
+        }
+
+        private static int DualBothDivergeFamilyVeePreference(RailIntersection intersection)
+        {
+            bool sameFamily = intersection.RailA.Family == intersection.RailB.Family;
+            if (!sameFamily)
+            {
+                return 0;
+            }
+
+            return intersection.RailA.Family == GaugeGraphFamily.Standard ? 120 : 110;
         }
 
         private static Vector3 OrientVeeNoseTowardBlades(
@@ -722,6 +980,75 @@ namespace NarrowGaugeMod
                 float end = loser.Curve.DistanceTo(interval.End);
                 AddCut(cuts, loser, start, end, RailCutKind.SharedDuplicate, "shared duplicate");
                 AddSuppression(suppressions, loser, start, end, "shared duplicate");
+            }
+        }
+
+        private static void AddCrossFamilySharedSuppressions(
+            SpecialWorkDefinition definition,
+            IReadOnlyList<RailCenterline> rails,
+            IReadOnlyList<SwitchBladePlan> blades,
+            IReadOnlyList<FrogCandidate> frogs,
+            ICollection<RailCut> cuts,
+            ICollection<RailSuppressionInterval> suppressions)
+        {
+            RailSide? sharedSide = null;
+            foreach (LogicalRoute route in definition.Routes)
+            {
+                foreach (string segmentId in route.SourceSegmentIds)
+                {
+                    TrackSegment? segment = TrackAPI.GetSegment(segmentId);
+                    if (segment == null || !NarrowGaugeManager.IsDualGauge(segment))
+                    {
+                        continue;
+                    }
+
+                    sharedSide = DualGaugeSharedRailRegistry.SharesRightRail(segment)
+                        ? RailSide.Right
+                        : RailSide.Left;
+                    break;
+                }
+
+                if (sharedSide.HasValue)
+                {
+                    break;
+                }
+            }
+
+            if (!sharedSide.HasValue)
+            {
+                return;
+            }
+
+            RailCenterline[] standardShared = rails
+                .Where(rail => rail.Family == GaugeGraphFamily.Standard && rail.Side == sharedSide.Value)
+                .ToArray();
+            RailCenterline[] narrowShared = rails
+                .Where(rail => rail.Family == GaugeGraphFamily.Narrow && rail.Side == sharedSide.Value)
+                .ToArray();
+            foreach (RailCenterline narrowRail in narrowShared)
+            {
+                foreach (RailCenterline standardRail in standardShared)
+                {
+                    float overlapLength = CurveOverlapLength(narrowRail.Curve, standardRail.Curve);
+                    if (overlapLength < MinimumPieceLength)
+                    {
+                        continue;
+                    }
+
+                    RailCenterline loser = ChooseSharedOwner(standardRail, narrowRail, blades) == standardRail
+                        ? narrowRail
+                        : standardRail;
+                    if (RailParticipatesInAcceptedFrog(loser, frogs))
+                    {
+                        continue;
+                    }
+
+                    foreach ((float start, float end) in FindCurveOverlaps(loser.Curve, standardRail == loser ? narrowRail.Curve : standardRail.Curve))
+                    {
+                        AddCut(cuts, loser, start, end, RailCutKind.SharedDuplicate, "cross-family shared duplicate");
+                        AddSuppression(suppressions, loser, start, end, "shared duplicate");
+                    }
+                }
             }
         }
 
@@ -989,12 +1316,6 @@ namespace NarrowGaugeMod
                 return RailRole.StockRail;
             }
 
-            if (IsNarrowDivergingRightRail(rail)
-                && blades.Any(blade => blade.StockRail == rail))
-            {
-                return RailRole.FixedRunningRail;
-            }
-
             if (IsSharedOwnerAt(rail, shared, middle))
             {
                 return RailRole.SharedRail;
@@ -1020,30 +1341,7 @@ namespace NarrowGaugeMod
                 return RailRole.FixedRunningRail;
             }
 
-            if (rail.Family == GaugeGraphFamily.Standard
-                && rail.SourceRouteIds.Contains("standard-through", StringComparer.OrdinalIgnoreCase))
-            {
-                return RailRole.FixedRunningRail;
-            }
-
-            if (rail.Family == GaugeGraphFamily.Narrow
-                && rail.SourceRouteIds.Contains("narrow-reversed", StringComparer.OrdinalIgnoreCase))
-            {
-                return RailRole.FixedRunningRail;
-            }
-
-            if (rail.Family == GaugeGraphFamily.Narrow
-                && rail.SourceRouteIds.Contains("narrow-normal", StringComparer.OrdinalIgnoreCase))
-            {
-                return RailRole.FixedRunningRail;
-            }
-
-            if (IsDualBothDivergePreset(definition))
-            {
-                return RailRole.FixedRunningRail;
-            }
-
-            return RailRole.Unknown;
+            return RailRole.FixedRunningRail;
         }
 
         private static IEnumerable<RailPiece> BuildFixedPieces(IEnumerable<RailRoleSection> sections)
@@ -1598,11 +1896,10 @@ namespace NarrowGaugeMod
                 yield return issue;
             }
 
-            int expectedBladeCount = IsDualBothDivergePreset(definition) ? 3 : 2;
-            if (blades.Count != expectedBladeCount)
+            if (definition.SwitchGroups.Count > 0 && blades.Count == 0)
             {
                 yield return
-                    $"Expected exactly {expectedBladeCount} physical point blades but built {blades.Count}.";
+                    "Switch groups exist but no route-divergence blade plans were derived.";
             }
 
             foreach (SwitchBladePlan blade in blades)
@@ -1650,11 +1947,6 @@ namespace NarrowGaugeMod
                 }
                 else
                 {
-                    if (!SourceCurveKind("narrow-reversed").Equals("DivergingRoute", StringComparison.OrdinalIgnoreCase))
-                    {
-                        yield return "Internal source-curve mapping failed for narrow-reversed.";
-                    }
-
                     if (!sections.Any(section =>
                         section.Rail == divergingFixed
                         && section.Role != RailRole.SuppressedRail
@@ -1681,24 +1973,6 @@ namespace NarrowGaugeMod
                             $"{firstFrogCut.StartDistance:0.000}.";
                     }
                 }
-            }
-
-            foreach (string issue in SpecialWorkTruthTableValidator.Validate(
-                definition,
-                rails,
-                shared,
-                fixedPieces,
-                sections.Select(section => new RailWorkInterval(
-                    section.Rail,
-                    section.StartDistance,
-                    section.EndDistance)).ToArray(),
-                cuts,
-                frogs,
-                wings,
-                guards,
-                blades))
-            {
-                yield return issue;
             }
 
             foreach (SwitchBladePlan blade in blades)
@@ -1772,28 +2046,14 @@ namespace NarrowGaugeMod
                     continue;
                 }
 
-                if (fixedPieces.Any(piece => piece.SourceRailId == loser.Id
-                    && DistancePointToSegment(
-                        piece.Curve.LinePointAtDistance(piece.Curve.Length * 0.5f).point,
-                        interval.Start,
-                        interval.End) <= CorridorTolerance))
+                if (!definition.Preset.SupportsGhostGraph
+                    && fixedPieces.Any(piece => piece.SourceRailId == loser.Id
+                        && DistancePointToSegment(
+                            piece.Curve.LinePointAtDistance(piece.Curve.Length * 0.5f).point,
+                            interval.Start,
+                            interval.End) <= CorridorTolerance))
                 {
                     yield return $"Shared duplicate rail '{loser.Id}' still renders.";
-                }
-            }
-
-            if (!IsDualBothDivergePreset(definition))
-            {
-                foreach (string issue in ValidateSharedRailContinuity(
-                    rails,
-                    shared,
-                    sections,
-                    fixedPieces,
-                    cuts,
-                    suppressions,
-                    blades))
-                {
-                    yield return issue;
                 }
             }
 
@@ -1854,7 +2114,6 @@ namespace NarrowGaugeMod
                 .Where(section =>
                     section.Rail == rail
                     && section.Role != RailRole.Unknown
-                    && section.Role != RailRole.SuppressedRail
                     && IntervalsOverlap(section.StartDistance, section.EndDistance, start, end))
                 .OrderBy(section => section.StartDistance)
                 .ToArray();
@@ -1980,22 +2239,6 @@ namespace NarrowGaugeMod
                     yield return $"Frog '{frog.Id}' has no complete frog replacement pieces.";
                 }
 
-                int expectedWingCount =
-                    frog.Intersection.Kind == RailIntersectionKind.VeeFrogCandidate ? 2 : 4;
-                if (wings.Count(wing => wing.FrogId == frog.Id) < expectedWingCount)
-                {
-                    yield return
-                        $"Frog '{frog.Id}' has fewer than {expectedWingCount} type-specific wing rails.";
-                }
-
-                int expectedGuardCount =
-                    frog.Intersection.Kind == RailIntersectionKind.CrossingFrogCandidate ? 3 : 2;
-                if (guards.Count(guard => guard.FrogId == frog.Id) < expectedGuardCount)
-                {
-                    yield return
-                        $"Frog '{frog.Id}' has fewer than {expectedGuardCount} type-specific guard rails.";
-                }
-
                 foreach ((RailCenterline rail, float distance) in new[]
                 {
                     (frog.Intersection.RailA, frog.Intersection.DistanceA),
@@ -2051,6 +2294,11 @@ namespace NarrowGaugeMod
                 return true;
             }
 
+            if (IsSharedDuplicateAtBoundary(sections, rail, boundary, before))
+            {
+                return true;
+            }
+
             float sampleDistance = Mathf.Clamp(
                 boundary + (before ? -0.1f : 0.1f),
                 0f,
@@ -2082,39 +2330,29 @@ namespace NarrowGaugeMod
             return false;
         }
 
+        private static bool IsSharedDuplicateAtBoundary(
+            IReadOnlyList<RailRoleSection> sections,
+            RailCenterline rail,
+            float boundary,
+            bool before)
+        {
+            return sections.Any(section =>
+                section.Rail == rail
+                && section.Role == RailRole.SuppressedRail
+                && (before
+                    ? section.EndDistance >= boundary - 0.15f && section.StartDistance < boundary
+                    : section.StartDistance <= boundary + 0.15f && section.EndDistance > boundary));
+        }
+
         private static RailCenterline? ResolveDivergingFixedStockRail(
             SpecialWorkDefinition definition,
             IReadOnlyList<RailCenterline> rails,
             IReadOnlyList<SwitchBladePlan> blades)
         {
-            RailCenterline? bladeStock = blades
-                .Where(blade => blade.StockRail.Family == GaugeGraphFamily.Narrow
-                    && blade.StockRail.SourceRouteIds.Contains(
-                        "narrow-reversed",
-                        StringComparer.OrdinalIgnoreCase))
+            return blades
+                .Where(blade => blade.StockRail.Family == GaugeGraphFamily.Narrow)
                 .Select(blade => blade.StockRail)
                 .FirstOrDefault();
-            if (bladeStock != null)
-            {
-                return bladeStock;
-            }
-
-            if (SpecialWorkTruthTableCatalog.TryGet(definition.Preset.Id, out TurnoutTruthTable truth))
-            {
-                TruthRail? truthRail = truth.Rails.FirstOrDefault(rail =>
-                    string.Equals(rail.Label, "NarrowStockRail", StringComparison.OrdinalIgnoreCase));
-                if (truthRail != null
-                    && TryParseRailSide(truthRail.Side, out RailSide truthSide))
-                {
-                    RailCenterline? rail = FindRail(rails, truthRail.RouteId, truthSide);
-                    if (rail != null)
-                    {
-                        return rail;
-                    }
-                }
-            }
-
-            return null;
         }
 
         private static IEnumerable<string> ValidateSuppressionCoverage(
@@ -2393,24 +2631,197 @@ namespace NarrowGaugeMod
         }
 
         private static bool TryFindBladeDistances(
-            LineCurve stock,
-            LineCurve movable,
+            RailCenterline stock,
+            RailCenterline movable,
             Vector3 switchPoint,
+            IReadOnlyList<RailIntersection> intersections,
             out float tip,
             out float root)
         {
-            tip = movable.DistanceTo(switchPoint);
-            Vector3 tipPoint = movable.LinePointAtDistance(tip).point;
-            float stockTip = stock.DistanceTo(tipPoint);
-            if (Vector3.Distance(tipPoint, stock.LinePointAtDistance(stockTip).point)
+            LineCurve stockCurve = stock.Curve;
+            LineCurve movableCurve = movable.Curve;
+            float tipDistance = movableCurve.DistanceTo(switchPoint);
+            Vector3 tipPoint = movableCurve.LinePointAtDistance(tipDistance).point;
+            float stockTip = stockCurve.DistanceTo(tipPoint);
+            if (Vector3.Distance(tipPoint, stockCurve.LinePointAtDistance(stockTip).point)
                 > Parameters.RailHeadWidth + Parameters.BladeDivergenceThreshold)
             {
-                root = tip;
+                tip = tipDistance;
+                root = tipDistance;
                 return false;
             }
 
-            root = Mathf.Min(movable.Length, tip + MaximumBladeLength);
+            float probe = Mathf.Min(2f, Mathf.Max(0.5f, movableCurve.Length * 0.25f));
+            float forwardStockDist = StockSeparation(
+                stockCurve,
+                movableCurve.LinePointAtDistance(Mathf.Min(movableCurve.Length, tipDistance + probe)).point);
+            float backwardStockDist = StockSeparation(
+                stockCurve,
+                movableCurve.LinePointAtDistance(Mathf.Max(0f, tipDistance - probe)).point);
+
+            int direction = forwardStockDist >= backwardStockDist ? 1 : -1;
+            float separationRoot = WalkToSeparation(
+                stockCurve,
+                movableCurve,
+                tipDistance,
+                direction,
+                Parameters.BladeRootSeparation);
+            float bladeLength = Mathf.Abs(separationRoot - tipDistance);
+
+            if (TryFindBaseGameBladeLengthFromFrog(
+                    movable,
+                    tipDistance,
+                    direction,
+                    intersections,
+                    out float baseGameLength,
+                    out float maximumFrogLimitedLength))
+            {
+                bladeLength = Mathf.Clamp(
+                    Mathf.Max(bladeLength, baseGameLength),
+                    MinimumPieceLength,
+                    maximumFrogLimitedLength);
+            }
+
+            float endpoint = Mathf.Clamp(
+                tipDistance + direction * bladeLength,
+                0f,
+                movableCurve.Length);
+            if (direction > 0)
+            {
+                tip = tipDistance;
+                root = endpoint;
+            }
+            else
+            {
+                tip = endpoint;
+                root = tipDistance;
+            }
+
             return root - tip >= MinimumPieceLength;
+        }
+
+        private static bool TryFindBaseGameBladeLengthFromFrog(
+            RailCenterline rail,
+            float switchDistance,
+            int direction,
+            IEnumerable<RailIntersection> intersections,
+            out float preferredLength,
+            out float maximumLength)
+        {
+            preferredLength = 0f;
+            maximumLength = 0f;
+            if (!TryFindNearestFrogDistance(
+                    rail,
+                    switchDistance,
+                    direction,
+                    intersections,
+                    out float distanceToFrog))
+            {
+                return false;
+            }
+
+            maximumLength = distanceToFrog - BaseGamePointRailFrogCutoff;
+            if (maximumLength < MinimumPieceLength)
+            {
+                return false;
+            }
+
+            preferredLength = Mathf.Max(
+                MinimumPieceLength,
+                maximumLength * BaseGamePointClosureSplitRatio);
+            return true;
+        }
+
+        private static bool TryFindNearestFrogDistance(
+            RailCenterline rail,
+            float switchDistance,
+            int direction,
+            IEnumerable<RailIntersection> intersections,
+            out float distanceToFrog)
+        {
+            distanceToFrog = 0f;
+            float bestDelta = float.PositiveInfinity;
+            foreach (RailIntersection intersection in intersections)
+            {
+                if (!IsFrogCandidateIntersection(intersection)
+                    || intersection.AcuteAngleDegrees < MinimumFrogAngle)
+                {
+                    continue;
+                }
+
+                float distance;
+                if (intersection.RailA == rail)
+                {
+                    distance = intersection.DistanceA;
+                }
+                else if (intersection.RailB == rail)
+                {
+                    distance = intersection.DistanceB;
+                }
+                else
+                {
+                    continue;
+                }
+
+                float delta = (distance - switchDistance) * direction;
+                if (delta <= MinimumPieceLength || delta >= bestDelta)
+                {
+                    continue;
+                }
+
+                bestDelta = delta;
+            }
+
+            if (float.IsPositiveInfinity(bestDelta))
+            {
+                return false;
+            }
+
+            distanceToFrog = bestDelta;
+            return true;
+        }
+
+        private static bool IsFrogCandidateIntersection(RailIntersection intersection)
+        {
+            return intersection.Kind == RailIntersectionKind.VeeFrogCandidate
+                || intersection.Kind == RailIntersectionKind.CrossingFrogCandidate;
+        }
+
+        private static float StockSeparation(LineCurve stock, Vector3 point)
+        {
+            return Vector3.Distance(
+                point,
+                stock.LinePointAtDistance(stock.DistanceTo(point)).point);
+        }
+
+        private static float WalkToSeparation(
+            LineCurve stock,
+            LineCurve movable,
+            float startDistance,
+            int direction,
+            float targetSeparation)
+        {
+            const float step = 0.1f;
+            float distance = startDistance;
+            float walked = 0f;
+            while (walked < MaximumBladeLength)
+            {
+                float next = Mathf.Clamp(distance + direction * step, 0f, movable.Length);
+                if (Mathf.Approximately(next, distance))
+                {
+                    break;
+                }
+
+                distance = next;
+                walked += step;
+                if (StockSeparation(stock, movable.LinePointAtDistance(distance).point)
+                    >= targetSeparation)
+                {
+                    break;
+                }
+            }
+
+            return distance;
         }
 
         private static float[] BuildBoundaries(
@@ -2559,8 +2970,8 @@ namespace NarrowGaugeMod
         private static bool InsideBladeZone(RailIntersection intersection, IEnumerable<SwitchBladePlan> blades)
         {
             return blades.Any(blade =>
-                DistancePointToCurve(intersection.Position, blade.BladeCurve) <= CorridorTolerance
-                && Vector3.Distance(intersection.Position, blade.BladeCurve.Head.point) <= MaximumBladeLength + 0.5f);
+                (intersection.RailA == blade.MovableRail || intersection.RailA == blade.StockRail)
+                && (intersection.RailB == blade.MovableRail || intersection.RailB == blade.StockRail));
         }
 
         private static IEnumerable<(float Start, float End)> FindCurveOverlaps(

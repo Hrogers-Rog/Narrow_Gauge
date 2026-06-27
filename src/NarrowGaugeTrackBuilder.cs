@@ -27,6 +27,7 @@ namespace NarrowGaugeMod
         // standard rail. The middle rail sits 0.1969m from center.
         // ThirdRailGauge.Inside = 0.3938m so MakeTrackLineSegments gives its left
         // curve at exactly -0.1969m (the narrow inner/middle rail).
+        internal static readonly float ThirdRailGaugeInside = 2f * 0.9144f - Gauge.Standard.Inside;
         private static readonly Gauge ThirdRailGauge =
             (Gauge)GaugeConstructor.Invoke(new object[] {
                 2f * 0.9144f - Gauge.Standard.Inside,   // 0.3938m
@@ -429,8 +430,7 @@ namespace NarrowGaugeMod
 
         private static bool IsRenderableGaugeSeparationControlSwitch(TrackNode node)
         {
-            return IsGaugeSeparationControlSwitch(node)
-                && SpecialWorkHardwareRenderer.HasValidPlan(node);
+            return IsGaugeSeparationControlSwitch(node);
         }
 
         private static bool IsGaugeSeparationControlSwitch(TrackNode node)
@@ -2359,6 +2359,7 @@ namespace NarrowGaugeMod
             LineCurve worldRail = localRail.Offset(segmentOffset);
             (float Start, float End)[] cuts = MergeCutIntervals(
                 SpecialWorkHardwareRenderer.OwnershipCuts(worldRail, sourceSegment)
+                    .Concat(GaugeSeparationFrogCuts(worldRail, sourceSegment))
                     .Concat(objectName == "DualM"
                         ? SharedRailFlipMiddleCuts(worldRail, sourceSegment)
                         : Enumerable.Empty<(float Start, float End)>()))
@@ -3444,9 +3445,425 @@ namespace NarrowGaugeMod
                 vanillaRailObjects: 16,
                 vanillaTieObjects: 1);
             CreateSwitchStand(builder, geometry, node, root.transform);
+            if (!SpecialWorkHardwareRenderer.HasValidPlan(node))
+            {
+                CreateGaugeSeparationFallbackHardware(
+                    builder,
+                    node,
+                    parent,
+                    geometry.switchHome);
+            }
             Main.Log(
                 $"[Build] Gauge-separation switch '{node.id}' rendered control shell only; " +
                 "measured special-work owns all turnout rails, blades, frogs, guards, and ties.");
+        }
+
+        private static void CreateGaugeSeparationFallbackHardware(
+            TrackObjectBuilder builder,
+            TrackNode ghostNode,
+            Transform parent,
+            Vector3 switchHome)
+        {
+            if (!TryResolveGaugeSeparationRailLayout(
+                    ghostNode,
+                    out GaugeSeparationRailLayout layout))
+            {
+                Main.Warn(
+                    $"[Build] Gauge-separation switch '{ghostNode?.id ?? "<null>"}' " +
+                    "could not resolve physical rail layout for fallback hardware.");
+                return;
+            }
+
+            IReadOnlyList<GaugeSeparationFrogSite> sites = GaugeSeparationFrogSites(layout);
+            if (sites.Count == 0)
+            {
+                Main.Warn(
+                    $"[Build] Gauge-separation switch '{ghostNode.id}' " +
+                    "found no procedural frog sites for fallback hardware.");
+                return;
+            }
+
+            GameObject root = CreateTrackRoot(
+                builder,
+                "gauge-separation-special-work-" + ghostNode.id,
+                parent);
+
+            int frogIndex = 0;
+            foreach (GaugeSeparationFrogSite site in sites.OrderByDescending(site => site.IsVee))
+            {
+                CreateGaugeSeparationFallbackFrog(
+                    builder,
+                    root,
+                    ghostNode,
+                    site,
+                    switchHome,
+                    "GaugeSeparationFrog-" + frogIndex++);
+            }
+
+            bool bladeCreated = TryCreateGaugeSeparationFallbackBlade(
+                builder,
+                root,
+                ghostNode,
+                layout,
+                sites,
+                switchHome);
+            Main.Log(
+                $"[Build] Gauge-separation fallback hardware '{ghostNode.id}': " +
+                $"frogs={sites.Count}, blade={(bladeCreated ? 1 : 0)}.");
+        }
+
+        private static void CreateGaugeSeparationFallbackFrog(
+            TrackObjectBuilder builder,
+            GameObject root,
+            TrackNode ghostNode,
+            GaugeSeparationFrogSite site,
+            Vector3 switchHome,
+            string name)
+        {
+            Vector3 towardSwitch =
+                ghostNode.transform.localPosition - site.Intersection.point;
+            towardSwitch.y = 0f;
+            if (towardSwitch.sqrMagnitude <= 0.0001f)
+            {
+                towardSwitch = site.Intersection.direction;
+                towardSwitch.y = 0f;
+            }
+
+            towardSwitch = towardSwitch.sqrMagnitude > 0.0001f
+                ? towardSwitch.normalized
+                : Vector3.forward;
+
+            if (site.IsVee)
+            {
+                LinePoint heelA = GaugeSeparationFallbackHeel(
+                    site.RailA,
+                    site.Intersection,
+                    site.CutHalfLength,
+                    towardSwitch);
+                LinePoint heelB = GaugeSeparationFallbackHeel(
+                    site.RailB,
+                    site.Intersection,
+                    site.CutHalfLength,
+                    towardSwitch);
+                LinePoint[] points =
+                {
+                    new LinePoint(heelA.point - switchHome, heelA.Rotation),
+                    new LinePoint(
+                        site.Intersection.point - switchHome,
+                        Quaternion.LookRotation(towardSwitch, Vector3.up)),
+                    new LinePoint(heelB.point - switchHome, heelB.Rotation)
+                };
+                CreateMeshObject(
+                    builder,
+                    BuildFrogMesh(points, Gauge.Standard),
+                    name + "-Vee",
+                    root);
+                return;
+            }
+
+            CreateGaugeSeparationCrossingPointRails(
+                builder,
+                root,
+                site.RailA,
+                site.Intersection,
+                site.CutHalfLength,
+                switchHome,
+                name + "-A");
+            CreateGaugeSeparationCrossingPointRails(
+                builder,
+                root,
+                site.RailB,
+                site.Intersection,
+                site.CutHalfLength,
+                switchHome,
+                name + "-B");
+        }
+
+        private static LinePoint GaugeSeparationFallbackHeel(
+            LineCurve rail,
+            LinePoint intersection,
+            float cutHalfLength,
+            Vector3 towardSwitch)
+        {
+            float center = Mathf.Clamp(
+                rail.DistanceTo(intersection.point),
+                0f,
+                rail.Length);
+            LinePoint before = rail.LinePointAtDistance(
+                Mathf.Max(0f, center - cutHalfLength));
+            LinePoint after = rail.LinePointAtDistance(
+                Mathf.Min(rail.Length, center + cutHalfLength));
+            Vector3 beforeDirection = before.point - intersection.point;
+            Vector3 afterDirection = after.point - intersection.point;
+            return Vector3.Dot(beforeDirection, towardSwitch)
+                <= Vector3.Dot(afterDirection, towardSwitch)
+                    ? before
+                    : after;
+        }
+
+        private static void CreateGaugeSeparationCrossingPointRails(
+            TrackObjectBuilder builder,
+            GameObject root,
+            LineCurve rail,
+            LinePoint intersection,
+            float cutHalfLength,
+            Vector3 switchHome,
+            string name)
+        {
+            float center = Mathf.Clamp(
+                rail.DistanceTo(intersection.point),
+                0f,
+                rail.Length);
+            float pointSetback = Mathf.Clamp(
+                cutHalfLength * 0.22f,
+                0.08f,
+                0.24f);
+            CreateGaugeSeparationTaperedRail(
+                builder,
+                root,
+                SliceRail(
+                    rail,
+                    center - cutHalfLength,
+                    center - pointSetback),
+                switchHome,
+                name + "-Before",
+                taperAtStart: false);
+            CreateGaugeSeparationTaperedRail(
+                builder,
+                root,
+                SliceRail(
+                    rail,
+                    center + pointSetback,
+                    center + cutHalfLength),
+                switchHome,
+                name + "-After",
+                taperAtStart: true);
+        }
+
+        private static bool TryCreateGaugeSeparationFallbackBlade(
+            TrackObjectBuilder builder,
+            GameObject root,
+            TrackNode ghostNode,
+            GaugeSeparationRailLayout layout,
+            IReadOnlyList<GaugeSeparationFrogSite> sites,
+            Vector3 switchHome)
+        {
+            var candidates = new[]
+            {
+                (Rail: layout.NarrowLeft, Side: RailSide.Left),
+                (Rail: layout.NarrowRight, Side: RailSide.Right)
+            }
+                .Select(candidate =>
+                {
+                    float tip = Mathf.Clamp(
+                        candidate.Rail.DistanceTo(ghostNode.transform.localPosition),
+                        0f,
+                        candidate.Rail.Length);
+                    LinePoint tipPoint = candidate.Rail.LinePointAtDistance(tip);
+                    (LineCurve Stock, float Separation) stock =
+                        ClosestGaugeSeparationStockRail(
+                            tipPoint.point,
+                            layout.StandardLeft,
+                            layout.StandardRight);
+                    float frogDistance = sites
+                        .Where(site => site.RailA == candidate.Rail || site.RailB == candidate.Rail)
+                        .Select(site => site.RailA == candidate.Rail
+                            ? site.RailA.DistanceTo(site.Intersection.point)
+                            : site.RailB.DistanceTo(site.Intersection.point))
+                        .OrderBy(distance => Mathf.Abs(distance - tip))
+                        .FirstOrDefault();
+                    return (
+                        candidate.Rail,
+                        candidate.Side,
+                        Tip: tip,
+                        Stock: stock.Stock,
+                        stock.Separation,
+                        FrogDistance: frogDistance);
+                })
+                .Where(candidate => candidate.FrogDistance > 0f)
+                .OrderBy(candidate => candidate.Separation)
+                .ToArray();
+
+            if (candidates.Length == 0)
+            {
+                return false;
+            }
+
+            var selected = candidates[0];
+            float sign = selected.FrogDistance >= selected.Tip ? 1f : -1f;
+            float rootDistance = Mathf.Clamp(
+                selected.Tip + sign * 3.2f,
+                0f,
+                selected.Rail.Length);
+            if (Mathf.Abs(rootDistance - selected.Tip) < 0.5f)
+            {
+                return false;
+            }
+
+            LineCurve bladeCurve = SliceRail(
+                selected.Rail,
+                selected.Tip,
+                rootDistance);
+            if (bladeCurve.Length < 0.5f)
+            {
+                return false;
+            }
+
+            GameObject blade = CreateGaugeSeparationPointBlade(
+                builder,
+                root,
+                bladeCurve,
+                switchHome,
+                "GaugeSeparationBlade-" + selected.Side);
+            GameObject dummy = new GameObject("GaugeSeparationBladeDummy");
+            dummy.transform.SetParent(root.transform, false);
+            dummy.transform.localPosition = blade.transform.localPosition;
+
+            float openRotation = CalculateGaugeSeparationBladeOpenRotation(
+                selected.Stock,
+                bladeCurve);
+            root.AddComponent<SwitchPointRails>().Configure(
+                ghostNode,
+                dummy,
+                blade,
+                0f,
+                openRotation);
+            return true;
+        }
+
+        private static (LineCurve Stock, float Separation) ClosestGaugeSeparationStockRail(
+            Vector3 point,
+            LineCurve left,
+            LineCurve right)
+        {
+            float leftDistance = DistancePointToCurve(point, left);
+            float rightDistance = DistancePointToCurve(point, right);
+            return leftDistance <= rightDistance
+                ? (left, leftDistance)
+                : (right, rightDistance);
+        }
+
+        private static GameObject CreateGaugeSeparationPointBlade(
+            TrackObjectBuilder builder,
+            GameObject root,
+            LineCurve worldCurve,
+            Vector3 switchHome,
+            string name)
+        {
+            LineCurve local = worldCurve
+                .Offset(-switchHome)
+                .Subdivide(0.08f);
+            LinePoint[] points = local.Points.ToArray();
+            Vector3 pivot = points.Last().point;
+            LineCurve pivoted = new LineCurve(
+                local.Offset(-pivot).Points.ToArray(),
+                local.hand);
+            float totalLength = Mathf.Max(local.Length, 0.06f);
+            Mesh mesh = BuildStockRailMesh(
+                pivoted,
+                switchHome,
+                Gauge.Standard,
+                index =>
+                {
+                    float t = points.Length <= 1
+                        ? 1f
+                        : Mathf.Clamp01((float)index / (points.Length - 1));
+                    return Mathf.Lerp(0.04f, 1f, t * t);
+                });
+            GameObject blade = CreateMeshObject(builder, mesh, name, root);
+            blade.transform.localPosition = pivot;
+            return blade;
+        }
+
+        private static float CalculateGaugeSeparationBladeOpenRotation(
+            LineCurve stockRail,
+            LineCurve bladeCurve)
+        {
+            Vector3 tip = bladeCurve.Head.point;
+            Vector3 root = bladeCurve.Tail.point;
+            Vector3 closedTipVector = tip - root;
+            closedTipVector.y = 0f;
+            if (closedTipVector.sqrMagnitude <= 0.0001f)
+            {
+                return 0f;
+            }
+
+            float stockTipDistance = Mathf.Clamp(
+                stockRail.DistanceTo(tip),
+                0f,
+                stockRail.Length);
+            float stockRootDistance = Mathf.Clamp(
+                stockRail.DistanceTo(root),
+                0f,
+                stockRail.Length);
+            Vector3 stockTip = stockRail.LinePointAtDistance(stockTipDistance).point;
+            Vector3 stockRoot = stockRail.LinePointAtDistance(stockRootDistance).point;
+            Vector3 awayFromStock = root - stockRoot;
+            awayFromStock.y = 0f;
+            if (awayFromStock.sqrMagnitude <= 0.0001f)
+            {
+                awayFromStock = tip - stockTip;
+                awayFromStock.y = 0f;
+            }
+
+            if (awayFromStock.sqrMagnitude <= 0.0001f)
+            {
+                return 0f;
+            }
+
+            Vector3 openTip = stockTip
+                + awayFromStock.normalized
+                * (Gauge.Standard.HeadWidth + 0.05f);
+            Vector3 openTipVector = openTip - root;
+            openTipVector.y = 0f;
+            return openTipVector.sqrMagnitude <= 0.0001f
+                ? 0f
+                : Vector3.SignedAngle(
+                    closedTipVector,
+                    openTipVector,
+                    Vector3.up);
+        }
+
+        private static void CreateGaugeSeparationTaperedRail(
+            TrackObjectBuilder builder,
+            GameObject root,
+            LineCurve worldCurve,
+            Vector3 switchHome,
+            string name,
+            bool taperAtStart)
+        {
+            if (worldCurve.Points.Count() < 2 || worldCurve.Length < 0.06f)
+            {
+                return;
+            }
+
+            int pointCount = worldCurve.Points.Count();
+            Mesh mesh = BuildStockRailMesh(
+                worldCurve.Offset(-switchHome),
+                switchHome,
+                Gauge.Standard,
+                index =>
+                {
+                    int tipIndex = taperAtStart ? 0 : pointCount - 1;
+                    int shoulderIndex = taperAtStart ? 1 : pointCount - 2;
+                    if (index == tipIndex)
+                    {
+                        return 0.04f;
+                    }
+
+                    return index == shoulderIndex ? 0.65f : 1f;
+                });
+            CreateMeshObject(builder, mesh, name, root);
+        }
+
+        private static LineCurve SliceRail(LineCurve rail, float start, float end)
+        {
+            float clampedStart = Mathf.Clamp(start, 0f, rail.Length);
+            float clampedEnd = Mathf.Clamp(end, 0f, rail.Length);
+            LineCurve curve = rail
+                .Skip(Mathf.Min(clampedStart, clampedEnd), true)
+                .Take(Mathf.Abs(clampedEnd - clampedStart));
+            return clampedStart <= clampedEnd ? curve : curve.Reverse();
         }
 
         private static LineCurve GaugeSeparationSharedRail(
@@ -4262,7 +4679,8 @@ namespace NarrowGaugeMod
         internal static void CreateSpecialWorkTies(
             TrackObjectBuilder builder,
             SpecialWorkAnalysis analysis,
-            Transform parent)
+            Transform parent,
+            Vector3 switchHome)
         {
             SpecialWorkMeshPlan? plan = analysis?.MeshPlan;
             WheelPath? guide = analysis?.WheelPaths.FirstOrDefault(path =>
@@ -4270,6 +4688,9 @@ namespace NarrowGaugeMod
                 ?? analysis?.WheelPaths.FirstOrDefault();
             if (plan?.IsValid != true || guide == null || plan.WorkIntervals.Count == 0)
             {
+                Main.Log(
+                    $"[SpecialWorkTies] Skipped: valid={plan?.IsValid} guide={guide?.RouteId ?? "<null>"} " +
+                    $"intervals={plan?.WorkIntervals.Count ?? 0}");
                 return;
             }
 
@@ -4290,8 +4711,12 @@ namespace NarrowGaugeMod
             const float spacing = 0.55f;
             start = Mathf.Clamp(start - spacing, 0f, guide.Centerline.Length);
             end = Mathf.Clamp(end + spacing, start, guide.Centerline.Length);
+            Main.Log(
+                $"[SpecialWorkTies] guide={guide.RouteId} start={start:0.000} end={end:0.000} " +
+                $"span={end - start:0.000} intervals={plan.WorkIntervals.Count} switchHome={switchHome}");
             if (end - start < 0.55f)
             {
+                Main.Log("[SpecialWorkTies] Span too short, skipping ties.");
                 return;
             }
 
@@ -4337,16 +4762,17 @@ namespace NarrowGaugeMod
                 }
 
                 ties.Add(CreateTieMatrix(
-                    centerPoint.point + right * middleOffset,
+                    centerPoint.point + right * middleOffset - switchHome,
                     centerPoint.direction,
                     tieWidth / normalizedWidth,
                     Gauge.Standard));
             }
 
+            Main.Log($"[SpecialWorkTies] Created {ties.Count} ties.");
             CreateInstancedMeshDrawer(
                 builder,
                 ties.ToArray(),
-                Vector3.zero,
+                switchHome,
                 PrefabInstancer.Prefab.Tie,
                 parent.gameObject);
         }

@@ -137,6 +137,74 @@ namespace NarrowGaugeMod
             return switchGeometry;
         }
 
+        public static SwitchGeometry CalculateControlShell(
+            TrackNode node,
+            SegmentProxy a,
+            SegmentProxy b,
+            out SegmentProxy sliceA,
+            out SegmentProxy sliceB,
+            out List<SegmentProxy> remainder)
+        {
+            sliceA = a;
+            sliceB = b;
+            remainder = new List<SegmentProxy>();
+
+            Vector3 origin = node.transform.localPosition;
+            Vector3 localOrigin = Vector3.zero;
+            Vector3 standDirection = DirectionAwayFromNode(
+                SpecialWorkTopologySynchronizer.IsHiddenControlSegment(a.Segment) ? b : a,
+                node);
+            if (standDirection.sqrMagnitude <= 0.0001f)
+            {
+                standDirection = node.transform.localRotation * Vector3.forward;
+            }
+
+            if (node.flipSwitchStand)
+            {
+                standDirection = -standDirection;
+            }
+
+            if (standDirection.sqrMagnitude <= 0.0001f)
+            {
+                standDirection = Vector3.forward;
+            }
+
+            Quaternion standRotation = Quaternion.LookRotation(standDirection.normalized, Vector3.up);
+            return new SwitchGeometry
+            {
+                frogPoints = new[]
+                {
+                    new LinePoint(localOrigin, standRotation),
+                    new LinePoint(localOrigin + standDirection.normalized, standRotation),
+                    new LinePoint(localOrigin + standDirection.normalized * 2f, standRotation)
+                },
+                switchHome = origin,
+                standRailCenter = localOrigin,
+                standRotation = standRotation,
+                standPosition = localOrigin + standRotation * new Vector3(
+                    0f,
+                    -NarrowGaugeTrackBuilder.ThreeFootGauge.RailHeight,
+                    0f)
+            };
+        }
+
+        private static Vector3 DirectionAwayFromNode(SegmentProxy proxy, TrackNode node)
+        {
+            if (node == null)
+            {
+                return Vector3.zero;
+            }
+
+            Vector3 nodePoint = node.transform.localPosition;
+            Vector3 first = proxy.Curve.EndPoint1;
+            Vector3 second = proxy.Curve.EndPoint2;
+            Vector3 direction = Vector3.Distance(first, nodePoint) <= Vector3.Distance(second, nodePoint)
+                ? proxy.Curve.GetDirection(0f)
+                : -proxy.Curve.GetDirection(1f);
+            direction.y = 0f;
+            return direction;
+        }
+
         private static LineCurve MakeGuardRail(LineCurve stockRail, LinePoint frogPoint)
         {
             float offset = (stockRail.hand == Hand.Left ? 1f : -1f) * 0.15f;

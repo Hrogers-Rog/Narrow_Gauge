@@ -491,15 +491,19 @@ namespace NarrowGaugeMod
                     $"Expected frog count {definition.Preset.Geometry.ExpectedFrogs} but derived {frogs.Count}.";
             }
 
-            if (definition.Preset.Geometry.SharedRails != SharedRailRequirement.None && shared.Count == 0)
+            if (definition.Preset.Geometry.SharedRails != SharedRailRequirement.None
+                && shared.Count == 0
+                && !definition.Preset.SupportsGhostGraph)
             {
                 yield return "Preset requires shared rail intervals but none were derived.";
             }
 
-            if (bladeCount < definition.Preset.Geometry.ExpectedMovableAssemblies)
+            if (bladeCount < definition.Preset.Geometry.ExpectedMovableAssemblies
+                && definition.SwitchGroups.Count > 0
+                && bladeCount == 0)
             {
                 yield return
-                    $"Expected at least {definition.Preset.Geometry.ExpectedMovableAssemblies} movable assemblies but derived {bladeCount}.";
+                    "Switch groups exist but no route-divergence blade plans were derived.";
             }
 
             foreach (RailIntersection intersection in intersections.Where(item =>

@@ -163,7 +163,16 @@ namespace NarrowGaugeMod
                     ghostControlNode,
                     GaugeGraphFamily.Narrow,
                     "narrow-diverge",
-                    out LogicalRoute narrowRoute))
+                    out LogicalRoute narrowDivergeRoute)
+                || !TryBuildRoute(
+                    ghostDual,
+                    hiddenControl,
+                    ghostControlNode,
+                    GaugeGraphFamily.Narrow,
+                    "narrow-through",
+                    "narrow-separation",
+                    "normal",
+                    out LogicalRoute narrowThroughRoute))
             {
                 return false;
             }
@@ -175,11 +184,12 @@ namespace NarrowGaugeMod
                 new[]
                 {
                     standardRoute,
+                    narrowThroughRoute,
                     new LogicalRoute(
-                        narrowRoute.Id,
-                        narrowRoute.Family,
-                        narrowRoute.Centerline,
-                        narrowRoute.SourceSegmentIds,
+                        narrowDivergeRoute.Id,
+                        narrowDivergeRoute.Family,
+                        narrowDivergeRoute.Centerline,
+                        narrowDivergeRoute.SourceSegmentIds,
                         "narrow-separation",
                         "reversed")
                 },
@@ -554,7 +564,31 @@ namespace NarrowGaugeMod
                 ? curveRunsAtoB
                 : !curveRunsAtoB;
             bool naturalTowardNode = !nodeAtCurveStart;
-            return naturalTowardNode == towardNode ? curve : curve.Reverse();
+            if (naturalTowardNode == towardNode)
+            {
+                return curve;
+            }
+
+            LinePoint[] reversed = curve.Points.Reverse().ToArray();
+            for (int i = 0; i < reversed.Length; i++)
+            {
+                Vector3 tangent;
+                if (i == 0 && reversed.Length > 1)
+                    tangent = reversed[1].point - reversed[0].point;
+                else if (i == reversed.Length - 1 && reversed.Length > 1)
+                    tangent = reversed[i].point - reversed[i - 1].point;
+                else if (reversed.Length > 2)
+                    tangent = reversed[i + 1].point - reversed[i - 1].point;
+                else
+                    tangent = Vector3.forward;
+
+                tangent.y = 0f;
+                if (tangent.sqrMagnitude > 0.0001f)
+                    reversed[i] = new LinePoint(reversed[i].point,
+                        Quaternion.LookRotation(tangent.normalized, Vector3.up));
+            }
+
+            return new LineCurve(reversed, curve.hand);
         }
 
         private static Vector3 DirectionAwayFromNode(TrackSegment segment, TrackNode node)

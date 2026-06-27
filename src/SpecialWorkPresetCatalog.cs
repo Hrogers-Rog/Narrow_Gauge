@@ -118,10 +118,10 @@ namespace NarrowGaugeMod
                     SpecialWorkCategory.DualGauge,
                     NativeTopologyRecipe.BinarySwitch,
                     1,
-                    2,
+                    3,
                     GaugeAvailability.Dual,
                     true,
-                    Expect(0, null, 0, null, SharedRailRequirement.GaugeShared, 1)),
+                    Expect(0, null, 0, null, SharedRailRequirement.GaugeShared, 0)),
                 new SpecialWorkPresetDefinition(
                     SpecialWorkPresetIds.DualSharedRailFlip,
                     "Dual-Gauge Shared-Rail Side Transition",

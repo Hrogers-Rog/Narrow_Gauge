@@ -16,7 +16,7 @@ namespace NarrowGaugeMod
         private const float PhysicalOverlapTolerance = 0.06f;
         private const float OverlapSampleSpacing = 0.08f;
         private const float MinimumOverlapLength = 0.18f;
-        private const float MinimumRailPieceLength = 0.06f;
+        private const float MinimumRailPieceLength = 0.35f;
         private const float OwnershipSeamOverlap = 0.12f;
         private const float TieOverlapTolerance = 1.0f;
         private const float TieOwnershipMargin = 0.35f;
@@ -389,7 +389,8 @@ namespace NarrowGaugeMod
                 NarrowGaugeTrackBuilder.CreateSpecialWorkTies(
                     builder,
                     analysis,
-                    tiesRoot.transform);
+                    tiesRoot.transform,
+                    nativeGeometry.switchHome);
             }
 
             int fixedIndex = 0;
@@ -449,13 +450,23 @@ namespace NarrowGaugeMod
                     continue;
                 }
 
+                bool rebuildFrame = ShouldRebuildFixedRailFrameFromPath(analysis, piece);
+                LineCurve fixedCurve = CorrectMeasuredRailRenderFrame(
+                    analysis,
+                    piece.SourceRailId,
+                    piece.Curve,
+                    preserveProfileCenter: !rebuildFrame);
+                LogDualBothDivergeNarrowClosureFrame(
+                    analysis,
+                    piece,
+                    fixedName,
+                    piece.Curve,
+                    fixedCurve,
+                    rebuildFrame);
                 CreateRail(
                     builder,
                     root,
-                    CorrectMeasuredRailRenderFrame(
-                        analysis,
-                        piece.SourceRailId,
-                        piece.Curve),
+                    fixedCurve,
                     nativeGeometry.switchHome,
                     fixedName,
                     _ => 1f);
@@ -737,6 +748,65 @@ namespace NarrowGaugeMod
                 StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsDualBothDiverge(SpecialWorkAnalysis analysis)
+        {
+            return string.Equals(
+                analysis.Definition.Preset.Id,
+                SpecialWorkPresetIds.DualBothDiverge,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool ShouldRebuildFixedRailFrameFromPath(
+            SpecialWorkAnalysis analysis,
+            RailPiece piece)
+        {
+            return IsDualBothDiverge(analysis)
+                && piece.Kind == RailPieceKind.ClosureRail;
+        }
+
+        private static void LogDualBothDivergeNarrowClosureFrame(
+            SpecialWorkAnalysis analysis,
+            RailPiece piece,
+            string objectName,
+            LineCurve sourceCurve,
+            LineCurve renderCurve,
+            bool rebuildFrame)
+        {
+            if (!IsDualBothDiverge(analysis)
+                || piece.Kind != RailPieceKind.ClosureRail
+                || !string.Equals(
+                    piece.SourceRailId,
+                    "narrow-normal:right",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            Main.Log(
+                $"[NarrowClosureDebug] object={objectName} source={piece.SourcePlanId} " +
+                $"rail={piece.SourceRailId} dist={piece.StartDistance:0.000}-{piece.EndDistance:0.000} " +
+                $"rebuildFrame={rebuildFrame} " +
+                $"srcHead={FormatPoint(sourceCurve.Head.point)} srcTail={FormatPoint(sourceCurve.Tail.point)} " +
+                $"dstHead={FormatPoint(renderCurve.Head.point)} dstTail={FormatPoint(renderCurve.Tail.point)} " +
+                $"srcProfileHead={FormatPoint(ProfileCenter(sourceCurve.Head, sourceCurve.hand))} " +
+                $"srcProfileTail={FormatPoint(ProfileCenter(sourceCurve.Tail, sourceCurve.hand))} " +
+                $"dstProfileHead={FormatPoint(ProfileCenter(renderCurve.Head, renderCurve.hand))} " +
+                $"dstProfileTail={FormatPoint(ProfileCenter(renderCurve.Tail, renderCurve.hand))}");
+        }
+
+        private static Vector3 ProfileCenter(LinePoint point, Hand hand)
+        {
+            float offset = hand == Hand.Left
+                ? -Gauge.Standard.HeadWidth * 0.5f
+                : Gauge.Standard.HeadWidth * 0.5f;
+            return point.point + point.Rotation * Vector3.right * offset;
+        }
+
+        private static string FormatPoint(Vector3 point)
+        {
+            return $"({point.x:0.000},{point.y:0.000},{point.z:0.000})";
+        }
+
         private static LineCurve CorrectMeasuredRailRenderFrame(
             SpecialWorkAnalysis analysis,
             string sourceRailId,
@@ -765,6 +835,10 @@ namespace NarrowGaugeMod
                 || string.Equals(
                     analysis.Definition.Preset.Id,
                     SpecialWorkPresetIds.DualSplit,
+                    StringComparison.OrdinalIgnoreCase)
+                || string.Equals(
+                    analysis.Definition.Preset.Id,
+                    SpecialWorkPresetIds.DualBothDiverge,
                     StringComparison.OrdinalIgnoreCase)
                 || string.Equals(
                     analysis.Definition.Preset.Id,
@@ -1316,7 +1390,7 @@ namespace NarrowGaugeMod
                 new LinePoint(heelA.point - switchHome, heelA.Rotation),
                 new LinePoint(
                     frog.Intersection.Position - switchHome,
-                    Quaternion.LookRotation(-noseSide, Vector3.up)),
+                    Quaternion.LookRotation(noseSide, Vector3.up)),
                 new LinePoint(heelB.point - switchHome, heelB.Rotation)
             };
             if (NeedsMeasuredRailFrameCorrection(analysis))
@@ -1407,7 +1481,11 @@ namespace NarrowGaugeMod
             CreateRail(
                 builder,
                 root,
-                CorrectMeasuredRailRenderFrame(analysis, sourceRail.Id, wing),
+                CorrectMeasuredRailRenderFrame(
+                    analysis,
+                    sourceRail.Id,
+                    wing,
+                    preserveProfileCenter: !IsDualBothDiverge(analysis)),
                 switchHome,
                 name,
                 _ => 1f);
@@ -1672,9 +1750,9 @@ namespace NarrowGaugeMod
         {
             Vector3 bladeDirection = DirectionTowardBlades(frog, blades);
             float pointSetback = Mathf.Clamp(
-                frog.FlangewaySetback * 0.2f,
-                0.06f,
-                Mathf.Min(0.16f, frog.CutHalfLength * 0.35f));
+                frog.FlangewaySetback,
+                Gauge.Standard.HeadWidth + FrogPointNoseTaperLength * 0.15f,
+                frog.CutHalfLength * 0.45f);
             int index = 0;
             foreach ((RailCenterline rail, float distance) in new[]
             {
@@ -1682,6 +1760,9 @@ namespace NarrowGaugeMod
                 (frog.Intersection.RailB, frog.Intersection.DistanceB)
             })
             {
+                RailCenterline crossingRail = rail == frog.Intersection.RailA
+                    ? frog.Intersection.RailB
+                    : frog.Intersection.RailA;
                 float bladeSide = SideTowardDirection(
                     rail,
                     distance,
@@ -1694,15 +1775,45 @@ namespace NarrowGaugeMod
                         distance,
                         side * frog.CutHalfLength,
                         side * pointSetback);
-                    CreateTaperedPointRail(
-                        builder,
-                        root,
-                        CorrectMeasuredRailRenderFrame(
-                            analysis,
-                            rail.Id,
-                            point),
-                        switchHome,
-                        name + "-Point-" + index++);
+                    if (point.Length < MinimumRailPieceLength)
+                    {
+                        continue;
+                    }
+
+                    var flangewayCuts = new List<(LineCurve Center, Vector3 KeepPoint)>();
+                    Vector3 keepPoint = point.LinePointAtDistance(
+                        side > 0 ? point.Length : 0f).point;
+                    LineCurve crossingSlice = Slice(
+                        crossingRail.Curve,
+                        crossingRail.Curve.DistanceTo(point.Head.point),
+                        crossingRail.Curve.DistanceTo(point.Tail.point));
+                    if (crossingSlice.Length >= MinimumRailPieceLength)
+                    {
+                        flangewayCuts.Add((crossingSlice, keepPoint));
+                    }
+
+                    if (flangewayCuts.Count > 0)
+                    {
+                        CreateFlangewayCutRail(
+                            builder,
+                            root,
+                            CorrectMeasuredRailRenderFrame(analysis, rail.Id, point),
+                            flangewayCuts.Select(cut => (
+                                CorrectMeasuredRailRenderFrame(analysis, crossingRail.Id, cut.Center),
+                                cut.KeepPoint)).ToList(),
+                            Gauge.Standard.HeadWidth * 0.5f + 0.025f,
+                            switchHome,
+                            name + "-Point-" + index++);
+                    }
+                    else
+                    {
+                        CreateTaperedPointRail(
+                            builder,
+                            root,
+                            CorrectMeasuredRailRenderFrame(analysis, rail.Id, point),
+                            switchHome,
+                            name + "-Point-" + index++);
+                    }
                 }
             }
         }
