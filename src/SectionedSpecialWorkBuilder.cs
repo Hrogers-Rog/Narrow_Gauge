@@ -135,6 +135,16 @@ namespace NarrowGaugeMod
             AddCrossFamilySharedSuppressions(definition, rails, blades, frogs, cuts, suppressions);
             AddBladeCorridorSuppressions(definition, rails, blades, cuts, suppressions);
             AddFrogSuppressions(rails, frogs, cuts, suppressions);
+            if (IsDualBothDivergePreset(definition))
+            {
+                AddCollapsedVeeFrogGaps(
+                    rails,
+                    prototype.Intersections,
+                    frogs,
+                    blades,
+                    cuts,
+                    suppressions);
+            }
 
             RailWorkInterval[] workIntervals =
                 BuildWorkIntervals(definition, rails, shared, frogs, blades).ToArray();
@@ -622,6 +632,13 @@ namespace NarrowGaugeMod
                     && item.AcuteAngleDegrees >= MinimumFrogAngle
                     && !InsideBladeZone(item, blades))
                 .ToArray();
+            foreach (RailIntersection item in accepted)
+            {
+                item.Kind = item.RailA.Side == item.RailB.Side
+                    ? RailIntersectionKind.CrossingFrogCandidate
+                    : RailIntersectionKind.VeeFrogCandidate;
+            }
+
             if (IsDualBothDivergePreset(definition))
             {
                 accepted = CollapseDualBothDivergeDuplicateVees(accepted, blades).ToArray();
@@ -629,14 +646,11 @@ namespace NarrowGaugeMod
 
             foreach (RailIntersection intersection in accepted)
             {
-                // Gauge family does not determine frog anatomy. Opposite-side
-                // running rails converge into one ordinary vee frog even when
-                // they belong to different gauge families. Same-side rails
-                // physically cross and require a double/K crossing assembly.
-                intersection.Kind = intersection.RailA.Side == intersection.RailB.Side
-                    ? RailIntersectionKind.CrossingFrogCandidate
-                    : RailIntersectionKind.VeeFrogCandidate;
 
+                Main.Log(
+                    $"[FrogKindOverride] {intersection.Id} railA={intersection.RailA.Id}({intersection.RailA.Side}) " +
+                    $"railB={intersection.RailB.Id}({intersection.RailB.Side}) " +
+                    $"sameSide={intersection.RailA.Side == intersection.RailB.Side} → {intersection.Kind}");
                 if (!TryResolveFrogOwnership(
                     intersection,
                     out string ownerRoute,
@@ -651,8 +665,11 @@ namespace NarrowGaugeMod
                     0.01f);
                 float railHeadSetback = RailHeadWidth / Mathf.Tan(halfAngle);
                 float flangewaySetback = FlangewayWidth / Mathf.Sin(halfAngle);
+                float headMargin = intersection.Kind == RailIntersectionKind.CrossingFrogCandidate
+                    ? RailHeadWidth * 3f
+                    : RailHeadWidth * 0.5f;
                 float cutHalfLength = Mathf.Clamp(
-                    Mathf.Max(railHeadSetback + RailHeadWidth * 0.5f, flangewaySetback + 0.06f),
+                    Mathf.Max(railHeadSetback + headMargin, flangewaySetback + 0.06f),
                     MinimumFrogSetback,
                     MaximumFrogSetback);
                 Vector3 tangentA = intersection.TangentA;
@@ -670,6 +687,11 @@ namespace NarrowGaugeMod
                     nose = OrientVeeNoseTowardBlades(nose, intersection.Position, blades);
                 }
 
+                Main.Log(
+                    $"[FrogAccepted] v2-frog:{index} railA={intersection.RailA.Id} " +
+                    $"railB={intersection.RailB.Id} kind={intersection.Kind} " +
+                    $"angle={intersection.AcuteAngleDegrees:0.00} cutHalf={cutHalfLength:0.000} " +
+                    $"pos=({intersection.Position.x:0.00},{intersection.Position.z:0.00})");
                 yield return new FrogCandidate(
                     "v2-frog:" + index++,
                     intersection,
@@ -902,6 +924,11 @@ namespace NarrowGaugeMod
         {
             foreach (FrogCandidate frog in frogs)
             {
+                Main.Log(
+                    $"[FrogGapDirect] {frog.Id} kind={frog.Intersection.Kind} " +
+                    $"railA={frog.Intersection.RailA.Id}@{frog.Intersection.DistanceA:0.000} " +
+                    $"railB={frog.Intersection.RailB.Id}@{frog.Intersection.DistanceB:0.000} " +
+                    $"cutHalf={frog.CutHalfLength:0.000}");
                 foreach ((RailCenterline rail, float distance) in new[]
                 {
                     (frog.Intersection.RailA, frog.Intersection.DistanceA),
@@ -924,8 +951,17 @@ namespace NarrowGaugeMod
 
                     float distance = rail.Curve.DistanceTo(frog.Intersection.Position);
                     Vector3 closest = rail.Curve.LinePointAtDistance(distance).point;
-                    if (Vector3.Distance(closest, frog.Intersection.Position)
-                        > RailHeadWidth + FlangewayWidth)
+                    float separation = Vector3.Distance(closest, frog.Intersection.Position);
+                    if (rail.Id.IndexOf("standard-reversed", StringComparison.OrdinalIgnoreCase) >= 0
+                        && rail.Side == RailSide.Right)
+                    {
+                        Main.Log(
+                            $"[FrogNearbyCheck] {frog.Id} rail={rail.Id} distance={distance:0.000} " +
+                            $"separation={separation:0.000} tolerance={RailHeadWidth + FlangewayWidth:0.000} " +
+                            $"accepted={separation <= RailHeadWidth + FlangewayWidth}");
+                    }
+
+                    if (separation > RailHeadWidth + FlangewayWidth)
                     {
                         continue;
                     }
@@ -936,6 +972,72 @@ namespace NarrowGaugeMod
                     AddSuppression(suppressions, rail, start, end, "frog gap " + frog.Id);
                 }
             }
+        }
+
+        private static void AddCollapsedVeeFrogGaps(
+            IReadOnlyList<RailCenterline> rails,
+            IReadOnlyList<RailIntersection> allIntersections,
+            IReadOnlyList<FrogCandidate> survivingFrogs,
+            IReadOnlyList<SwitchBladePlan> blades,
+            ICollection<RailCut> cuts,
+            ICollection<RailSuppressionInterval> suppressions)
+        {
+            var survivingRailPairs = new HashSet<string>(
+                survivingFrogs.Select(frog =>
+                    PairKey(frog.Intersection.RailA.Id, frog.Intersection.RailB.Id)),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (RailIntersection intersection in allIntersections)
+            {
+                if ((intersection.Kind != RailIntersectionKind.VeeFrogCandidate
+                        && intersection.Kind != RailIntersectionKind.CrossingFrogCandidate)
+                    || intersection.AcuteAngleDegrees < MinimumFrogAngle
+                    || InsideBladeZone(intersection, blades)
+                    || survivingRailPairs.Contains(
+                        PairKey(intersection.RailA.Id, intersection.RailB.Id)))
+                {
+                    continue;
+                }
+
+                float halfAngle = Mathf.Max(
+                    intersection.AcuteAngleDegrees * 0.5f * Mathf.Deg2Rad, 0.01f);
+                float cutHalfLength = Mathf.Clamp(
+                    Mathf.Max(
+                        RailHeadWidth / Mathf.Tan(halfAngle) + RailHeadWidth * 0.5f,
+                        FlangewayWidth / Mathf.Sin(halfAngle) + 0.06f),
+                    MinimumFrogSetback,
+                    MaximumFrogSetback);
+
+                foreach ((RailCenterline rail, float distance) in new[]
+                {
+                    (intersection.RailA, intersection.DistanceA),
+                    (intersection.RailB, intersection.DistanceB)
+                })
+                {
+                    bool alreadyCovered = cuts.Any(cut =>
+                        cut.Rail == rail
+                        && cut.Kind == RailCutKind.FrogGap
+                        && cut.StartDistance <= distance + 0.5f
+                        && cut.EndDistance >= distance - 0.5f);
+                    if (alreadyCovered)
+                    {
+                        continue;
+                    }
+
+                    float start = distance - cutHalfLength;
+                    float end = distance + cutHalfLength;
+                    AddCut(cuts, rail, start, end, RailCutKind.FrogGap,
+                        "collapsed-vee:" + intersection.Id);
+                    AddSuppression(suppressions, rail, start, end,
+                        "collapsed vee frog gap");
+                }
+            }
+        }
+
+        private static string PairKey(string a, string b)
+        {
+            return string.Compare(a, b, StringComparison.OrdinalIgnoreCase) <= 0
+                ? a + "|" + b
+                : b + "|" + a;
         }
 
         private static void AddSharedSuppressions(

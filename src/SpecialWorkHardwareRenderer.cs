@@ -1702,11 +1702,11 @@ namespace NarrowGaugeMod
             string name)
         {
             if (!TryResolveNarrowBranchCrossingRails(
-                frog,
-                out RailCenterline standardRail,
-                out float standardDistance,
-                out RailCenterline narrowRail,
-                out float narrowDistance))
+                    frog,
+                    out RailCenterline standardRail,
+                    out float standardDistance,
+                    out RailCenterline narrowRail,
+                    out float narrowDistance))
             {
                 CreateGenericCrossingPoints(
                     builder,
