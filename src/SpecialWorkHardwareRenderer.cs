@@ -2427,6 +2427,60 @@ namespace NarrowGaugeMod
             NarrowGaugeTrackBuilder.CreateMeshObject(builder, mesh, name, root);
         }
 
+        internal static void CreateFlangewayCutRailDirect(
+            LineCurve worldCurve,
+            IReadOnlyList<(LineCurve Center, Vector3 KeepPoint)> flangewayCenters,
+            float flangewayWidth,
+            Vector3 switchHome,
+            out Mesh? result)
+        {
+            result = null;
+            if (worldCurve == null
+                || flangewayCenters == null
+                || worldCurve.Points.Count() < 2
+                || worldCurve.Length < MinimumRailPieceLength)
+            {
+                return;
+            }
+
+            LineCurve sampled = worldCurve.Subdivide(0.08f);
+            var cuts = new List<FlangewayCut>();
+            float halfWidth = Mathf.Max(flangewayWidth * 0.5f, 0.001f);
+            foreach ((LineCurve center, Vector3 keepPoint) in flangewayCenters.Where(item =>
+                item.Center != null && item.Center.Points.Count() >= 2))
+            {
+                float keepSignedDistance = SignedDistanceToCurve(
+                    center,
+                    keepPoint,
+                    out _);
+                cuts.Add(new FlangewayCut(
+                    center,
+                    halfWidth,
+                    keepSignedDistance >= 0f ? 1f : -1f));
+            }
+
+            if (cuts.Count == 0)
+            {
+                return;
+            }
+
+            Mesh mesh = NarrowGaugeTrackBuilder.BuildStockRailMesh(
+                sampled.Offset(-switchHome),
+                switchHome,
+                Gauge.Standard,
+                _ => 1f);
+            ApplyFlangewayCuts(mesh, cuts, switchHome);
+            result = mesh;
+        }
+
+        internal static LineCurve CorrectMeasuredRailRenderFramePublic(
+            SpecialWorkAnalysis analysis,
+            string sourceRailId,
+            LineCurve curve)
+        {
+            return CorrectMeasuredRailRenderFrame(analysis, sourceRailId, curve);
+        }
+
         private static void ApplyFlangewayCuts(
             Mesh mesh,
             IReadOnlyList<FlangewayCut> cuts,

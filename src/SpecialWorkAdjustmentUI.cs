@@ -11,8 +11,8 @@ namespace NarrowGaugeMod
 {
     internal sealed class SpecialWorkAdjustmentUI : MonoBehaviour
     {
-        private const float WindowWidth = 520f;
-        private const float WindowHeight = 650f;
+        private const float WindowWidth = 560f;
+        private const float WindowHeight = 900f;
         private const float MinimumAdjustedRailLength = 0.1f;
         private const float RenderedMinimumRailPieceLength = 0.35f;
 
@@ -21,6 +21,7 @@ namespace NarrowGaugeMod
         internal string? DebugLabelNodeFilter;
 
         private string? _selectedNodeId;
+        private SpecialWorkAnalysis? _selectedAnalysis;
         private int _selectedPieceIndex = -1;
         private Vector2 _nodeScrollPosition;
         private Vector2 _pieceScrollPosition;
@@ -391,6 +392,42 @@ namespace NarrowGaugeMod
                 GUILayout.EndHorizontal();
             }
 
+            if (piece.HasRailMatch && !string.IsNullOrEmpty(piece.SourceNodeId))
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("Cut by rail:", GUILayout.Width(70f));
+                piece.ManualCutRailId = GUILayout.TextField(
+                    piece.ManualCutRailId ?? "", GUILayout.Width(160f));
+                GUILayout.Label("W:", GUILayout.Width(18f));
+                piece.ManualCutWidthText = GUILayout.TextField(
+                    piece.ManualCutWidthText ?? "63", GUILayout.Width(40f));
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("Cut"))
+                {
+                    ApplyManualFlangewayCut(piece);
+                }
+                if (GUILayout.Button("Clear"))
+                {
+                    piece.ManualCutRailId = "";
+                    RestoreMesh(piece);
+                }
+                GUILayout.EndHorizontal();
+
+                if (_selectedAnalysis != null)
+                {
+                    GUILayout.Label("Available rails (click to select):");
+                    foreach (RailCenterline rail in _selectedAnalysis.Rails)
+                    {
+                        if (GUILayout.Button(rail.Id))
+                        {
+                            piece.ManualCutRailId = rail.Id;
+                        }
+                    }
+                }
+            }
+
             if (changed)
             {
                 ParseAndApply(piece);
@@ -464,6 +501,10 @@ namespace NarrowGaugeMod
             if (float.TryParse(piece.FrogPullbackText, out float frogPullback))
                 piece.FrogPullback = frogPullback / 1000f;
             ApplyPiece(piece);
+            if (!string.IsNullOrEmpty(piece.ManualCutRailId))
+            {
+                ApplyManualFlangewayCut(piece);
+            }
         }
 
         private void SelectNode(string nodeId)
@@ -480,7 +521,10 @@ namespace NarrowGaugeMod
             }
 
             _cachedRoot = root;
-            SpecialWorkAnalysis? analysis = SpecialWorkRuntimeRegistry.FindByNativeNodeId(nodeId);
+            _selectedAnalysis = SpecialWorkRuntimeRegistry.Analyses
+                .FirstOrDefault(a => a.Definition.NativeSwitchNodeIds
+                    .Contains(nodeId, StringComparer.OrdinalIgnoreCase));
+            SpecialWorkAnalysis? analysis = _selectedAnalysis;
             CaptureOriginals(nodeId, root);
             _trueOriginalPositions.TryGetValue(nodeId, out var origPositions);
             _trueOriginalRotations.TryGetValue(nodeId, out var origRotations);
@@ -581,6 +625,9 @@ namespace NarrowGaugeMod
             piece.TailDelta = tailDeltaMm / 1000f;
             piece.FrogPullback = frogPullbackMm / 1000f;
             piece.FlipFlangewaySide = saved.FlipFlangewaySide;
+            piece.ManualCutRailId = saved.ManualCutRailId;
+            piece.ManualCutWidth = saved.ManualCutWidthMm / 1000f;
+            piece.ManualCutWidthText = saved.ManualCutWidthMm.ToString("0");
             piece.LateralText = saved.LateralMm.ToString("0.0");
             piece.LongitudinalText = saved.LongitudinalMm.ToString("0.0");
             piece.VerticalText = saved.VerticalMm.ToString("0.0");
@@ -843,6 +890,91 @@ namespace NarrowGaugeMod
             piece.OriginalMesh = null;
         }
 
+        private void ApplyManualFlangewayCut(PieceState piece)
+        {
+            if (piece.Transform == null
+                || piece.MatchedRail == null
+                || string.IsNullOrEmpty(piece.ManualCutRailId))
+            {
+                Main.Log("[AdjustUI] Manual cut: missing data");
+                return;
+            }
+
+            SpecialWorkAnalysis? analysis = _selectedAnalysis;
+            if (analysis == null)
+            {
+                Main.Log("[AdjustUI] Manual cut: no analysis cached");
+                return;
+            }
+
+            RailCenterline? cutterRail = analysis.Rails.FirstOrDefault(r =>
+                string.Equals(r.Id, piece.ManualCutRailId, StringComparison.OrdinalIgnoreCase));
+            if (cutterRail == null)
+            {
+                Main.Log($"[AdjustUI] Manual cut: rail '{piece.ManualCutRailId}' not found");
+                return;
+            }
+
+            MeshFilter? mf = piece.Transform.GetComponentInChildren<MeshFilter>();
+            if (mf == null)
+            {
+                return;
+            }
+
+            if (piece.OriginalMesh == null)
+            {
+                piece.OriginalMesh = mf.sharedMesh;
+            }
+
+            TrackNode? node = Graph.Shared?.GetNode(piece.SourceNodeId);
+            Vector3 switchHome = node != null
+                ? node.transform.localPosition
+                : Vector3.zero;
+
+            LineCurve pieceCurve = piece.MatchedRail.Curve
+                .Skip(piece.MatchedStartDistance, true)
+                .Take(piece.MatchedEndDistance - piece.MatchedStartDistance);
+            LineCurve cutterSlice = cutterRail.Curve.Skip(
+                cutterRail.Curve.DistanceTo(pieceCurve.Head.point), true)
+                .Take(Mathf.Abs(
+                    cutterRail.Curve.DistanceTo(pieceCurve.Tail.point)
+                    - cutterRail.Curve.DistanceTo(pieceCurve.Head.point)));
+            if (cutterSlice.Length < 0.1f)
+            {
+                Main.Log("[AdjustUI] Manual cut: cutter slice too short");
+                return;
+            }
+
+            Vector3 keepPoint = pieceCurve.LinePointAtDistance(pieceCurve.Length).point;
+            if (float.TryParse(piece.ManualCutWidthText, out float parsedWidth))
+            {
+                piece.ManualCutWidth = parsedWidth / 1000f;
+            }
+
+            float flangewayWidth = Mathf.Max(piece.ManualCutWidth, 0.01f);
+
+            LineCurve correctedPiece = SpecialWorkHardwareRenderer.CorrectMeasuredRailRenderFramePublic(
+                analysis, piece.MatchedRail.Id, pieceCurve);
+            LineCurve correctedCutter = SpecialWorkHardwareRenderer.CorrectMeasuredRailRenderFramePublic(
+                analysis, cutterRail.Id, cutterSlice);
+
+            var cuts = new List<(LineCurve Center, Vector3 KeepPoint)>
+            {
+                (correctedCutter, keepPoint)
+            };
+            SpecialWorkHardwareRenderer.CreateFlangewayCutRailDirect(
+                correctedPiece,
+                cuts,
+                flangewayWidth,
+                switchHome,
+                out Mesh? resultMesh);
+            if (resultMesh != null)
+            {
+                mf.mesh = resultMesh;
+                Main.Log($"[AdjustUI] Manual cut: applied cut from '{cutterRail.Id}' to '{piece.Name}'");
+            }
+        }
+
         private void ApplyAll()
         {
             foreach (PieceState piece in _pieces)
@@ -976,6 +1108,8 @@ namespace NarrowGaugeMod
                     TailDeltaMm = p.TailDelta * 1000f,
                     FrogPullbackMm = p.FrogPullback * 1000f,
                     FlipFlangewaySide = p.FlipFlangewaySide,
+                    ManualCutRailId = p.ManualCutRailId ?? "",
+                    ManualCutWidthMm = p.ManualCutWidth * 1000f,
                     LengthDeltaMm = p.TailDelta * 1000f,
                     Visible = p.Visible
                 }).ToArray()
@@ -1624,6 +1758,9 @@ namespace NarrowGaugeMod
             public FrogEndpointSide FrogSide;
             public float FrogDistance;
             public bool HasFrogPullback => FrogSide != FrogEndpointSide.None;
+            public string? ManualCutRailId;
+            public string ManualCutWidthText = "63";
+            public float ManualCutWidth = 0.063f;
             public bool HasFlangewayCut =>
                 MatchedFlangewayCenters.Count > 0 && MatchedFlangewayWidth > 0f;
             public bool HasRailMatch;
@@ -1647,6 +1784,8 @@ namespace NarrowGaugeMod
             public float? TailDeltaMm;
             public float? FrogPullbackMm;
             public bool FlipFlangewaySide;
+            public string ManualCutRailId = "";
+            public float ManualCutWidthMm = 63f;
             public float LengthDeltaMm;
             public bool Visible = true;
         }
