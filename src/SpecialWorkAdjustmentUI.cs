@@ -193,7 +193,10 @@ namespace NarrowGaugeMod
                 return;
             }
 
-            SpecialWorkAnalysis? analysis = SpecialWorkRuntimeRegistry.FindByNativeNodeId(nodeId);
+            SpecialWorkAnalysis? analysis = SpecialWorkRuntimeRegistry.Analyses
+                .FirstOrDefault(a => a.Definition.NativeSwitchNodeIds
+                    .Contains(nodeId, StringComparer.OrdinalIgnoreCase))
+                ?? SpecialWorkRuntimeRegistry.FindByNativeNodeId(nodeId);
             _trueOriginalPositions.TryGetValue(nodeId, out var origPositions);
             _trueOriginalRotations.TryGetValue(nodeId, out var origRotations);
 
@@ -220,6 +223,13 @@ namespace NarrowGaugeMod
                     origRotations);
                 ApplySavedData(piece, saved);
                 ApplyPiece(piece);
+                if (!string.IsNullOrEmpty(saved.ManualCutRailId) && analysis != null)
+                {
+                    piece.ManualCutRailId = saved.ManualCutRailId;
+                    piece.ManualCutWidth = saved.ManualCutWidthMm / 1000f;
+                    _selectedAnalysis = analysis;
+                    ApplyManualFlangewayCut(piece);
+                }
             }
         }
 
