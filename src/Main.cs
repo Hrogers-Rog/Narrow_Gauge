@@ -14,7 +14,7 @@ namespace NarrowGaugeMod
         public static UnityModManager.ModEntry? ModEntry { get; private set; }
         public static Harmony? Harmony { get; private set; }
         public static NarrowGaugeSettings? Settings { get; private set; }
-        private static GameObject? ManagerObject;
+        internal static GameObject? ManagerObject;
 
         /// <summary>True while the mod is enabled.</summary>
         public static bool Enabled { get; private set; }
@@ -43,6 +43,7 @@ namespace NarrowGaugeMod
             ManagerObject = new GameObject("FUSE Narrow Gauge Manager");
             ManagerObject.AddComponent<NarrowGaugeManager>();
             ManagerObject.AddComponent<SpecialWorkDebugRenderer>();
+            ManagerObject.AddComponent<SpecialWorkAdjustmentUI>();
 
             foreach (string issue in SpecialWorkPresetCatalog.ValidateCatalog())
             {
@@ -142,6 +143,12 @@ namespace NarrowGaugeMod
                 $"Catalog presets: {SpecialWorkPresetCatalog.Presets.Count} | " +
                 $"Runtime objects: {SpecialWorkRuntimeRegistry.Analyses.Count} | " +
                 $"Valid plans: {validPlans} | Authored: {authored} | Invalid: {invalid}");
+            SpecialWorkAdjustmentUI? adjustUI = ManagerObject?.GetComponent<SpecialWorkAdjustmentUI>();
+            if (adjustUI != null)
+            {
+                adjustUI.Visible = GUILayout.Toggle(adjustUI.Visible, "Show live adjustment panel");
+            }
+
             if (GUILayout.Button("Rebuild special-work analysis"))
             {
                 NarrowGaugeManager.RequestSynchronization();

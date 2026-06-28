@@ -2021,6 +2021,9 @@ namespace NarrowGaugeMod
                             piece.StartDistance + MinimumRailPieceLength,
                             0f,
                             standardRail.Curve.Length)).point;
+                    string frogName = name + "-StandardThroughFrog";
+                    bool localFlip = ShouldAutoFlipFlangewayKeepSide(analysis, frogName);
+                    bool localizeCut = ShouldLocalizeFrogFlangewayCut(analysis, frogName);
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
@@ -2032,7 +2035,11 @@ namespace NarrowGaugeMod
                         keepPoint,
                         parameters.FlangewayWidth,
                         switchHome,
-                        name + "-StandardThroughFrog");
+                        frogName,
+                        localFlip,
+                        AutoFlipFlangewayKeepSideIndex(analysis, frogName),
+                        localizeCut ? frog.Intersection.Position : (Vector3?)null,
+                        localizeCut ? FrogFlangewayCutWindowLength(frog) : 0f);
                     return true;
                 }
 
@@ -2113,6 +2120,19 @@ namespace NarrowGaugeMod
             IReadOnlyList<WheelPath> wheelPaths,
             out LineCurve flangeway)
         {
+            return TryResolveRailFlangeway(
+                rail,
+                wheelPaths,
+                rail.Side,
+                out flangeway);
+        }
+
+        private static bool TryResolveRailFlangeway(
+            RailCenterline rail,
+            IReadOnlyList<WheelPath> wheelPaths,
+            RailSide guideSide,
+            out LineCurve flangeway)
+        {
             flangeway = null!;
             WheelPath? path = wheelPaths.FirstOrDefault(item =>
                     string.Equals(item.Id, rail.WheelPathId, StringComparison.OrdinalIgnoreCase))
@@ -2124,8 +2144,13 @@ namespace NarrowGaugeMod
                 return false;
             }
 
-            flangeway = path.FlangeGuide(rail.Side);
+            flangeway = path.FlangeGuide(guideSide);
             return flangeway != null && flangeway.Points.Count() >= 2;
+        }
+
+        private static RailSide OppositeSide(RailSide side)
+        {
+            return side == RailSide.Left ? RailSide.Right : RailSide.Left;
         }
 
         private static void CreateFlangewayCutFrogRail(
@@ -2136,30 +2161,94 @@ namespace NarrowGaugeMod
             Vector3 keepPoint,
             float flangewayWidth,
             Vector3 switchHome,
-            string name)
+            string name,
+            bool invertKeepSide = false,
+            int invertKeepSideIndex = -1,
+            Vector3? cutFocusPoint = null,
+            float cutWindowLength = 0f)
+        {
+            Mesh? mesh = BuildFlangewayCutFrogRailMesh(
+                worldCurve,
+                flangewayCenters,
+                keepPoint,
+                flangewayWidth,
+                switchHome,
+                invertKeepSide,
+                invertKeepSideIndex,
+                cutFocusPoint,
+                cutWindowLength);
+            if (mesh == null)
+            {
+                return;
+            }
+
+            NarrowGaugeTrackBuilder.CreateMeshObject(builder, mesh, name, root);
+        }
+
+        internal static Mesh? BuildFlangewayCutFrogRailMesh(
+            LineCurve worldCurve,
+            IReadOnlyList<LineCurve> flangewayCenters,
+            Vector3 keepPoint,
+            float flangewayWidth,
+            Vector3 switchHome,
+            bool invertKeepSide = false,
+            int invertKeepSideIndex = -1,
+            Vector3? cutFocusPoint = null,
+            float cutWindowLength = 0f)
         {
             if (worldCurve == null
                 || flangewayCenters == null
                 || worldCurve.Points.Count() < 2
                 || worldCurve.Length < MinimumRailPieceLength)
             {
-                return;
+                return null;
             }
 
             LineCurve sampled = worldCurve.Subdivide(0.08f);
             var cuts = new List<FlangewayCut>();
             float halfWidth = Mathf.Max(flangewayWidth * 0.5f, 0.001f);
-            foreach (LineCurve center in flangewayCenters.Where(item =>
-                item != null && item.Points.Count() >= 2))
+            LineCurve[] centers = flangewayCenters
+                .Where(item => item != null && item.Points.Count() >= 2)
+                .ToArray();
+            int invertIndex = invertKeepSide
+                ? ResolveFlangewayCutIndexToInvert(centers, worldCurve, invertKeepSideIndex)
+                : -1;
+            for (int index = 0; index < centers.Length; index++)
             {
+                LineCurve center = centers[index];
+                float windowStart = 0f;
+                float windowEnd = center.Length;
+                bool hasDistanceWindow = cutFocusPoint.HasValue
+                    && cutWindowLength > 0.001f;
+                if (hasDistanceWindow)
+                {
+                    Vector3 focusPoint = cutFocusPoint.GetValueOrDefault();
+                    float centerDistance = Mathf.Clamp(
+                        center.DistanceTo(focusPoint),
+                        0f,
+                        center.Length);
+                    float halfWindow = Mathf.Max(cutWindowLength * 0.5f, halfWidth * 2f);
+                    windowStart = Mathf.Max(0f, centerDistance - halfWindow);
+                    windowEnd = Mathf.Min(center.Length, centerDistance + halfWindow);
+                }
+
                 float keepSignedDistance = SignedDistanceToCurve(
                     center,
                     keepPoint,
                     out _);
+                float keepSign = keepSignedDistance >= 0f ? 1f : -1f;
+                if (index == invertIndex)
+                {
+                    keepSign = -keepSign;
+                }
+
                 cuts.Add(new FlangewayCut(
                     center,
                     halfWidth,
-                    keepSignedDistance >= 0f ? 1f : -1f));
+                    keepSign,
+                    windowStart,
+                    windowEnd,
+                    hasDistanceWindow));
             }
 
             Mesh mesh = NarrowGaugeTrackBuilder.BuildStockRailMesh(
@@ -2168,7 +2257,108 @@ namespace NarrowGaugeMod
                 Gauge.Standard,
                 _ => 1f);
             ApplyFlangewayCuts(mesh, cuts, switchHome);
-            NarrowGaugeTrackBuilder.CreateMeshObject(builder, mesh, name, root);
+            if (mesh.vertexCount == 0 || mesh.triangles.Length == 0)
+            {
+                Main.Warn("[FlangewayCut] Clipping removed all rail geometry; returning uncut rail.");
+                return NarrowGaugeTrackBuilder.BuildStockRailMesh(
+                    sampled.Offset(-switchHome),
+                    switchHome,
+                    Gauge.Standard,
+                    _ => 1f);
+            }
+
+            return mesh;
+        }
+
+        private static int ResolveFlangewayCutIndexToInvert(
+            IReadOnlyList<LineCurve> centers,
+            LineCurve worldCurve,
+            int requestedIndex)
+        {
+            if (centers.Count == 0)
+            {
+                return -1;
+            }
+
+            if (requestedIndex >= 0 && requestedIndex < centers.Count)
+            {
+                return requestedIndex;
+            }
+
+            if (centers.Count == 1)
+            {
+                return 0;
+            }
+
+            int selected = 0;
+            float bestDistance = float.PositiveInfinity;
+            for (int index = 0; index < centers.Count; index++)
+            {
+                float distance = ClosestDistanceBetweenCurves(centers[index], worldCurve);
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    selected = index;
+                }
+            }
+
+            return selected;
+        }
+
+        private static float ClosestDistanceBetweenCurves(LineCurve first, LineCurve second)
+        {
+            if (first == null || second == null || second.Points.Count() == 0)
+            {
+                return float.PositiveInfinity;
+            }
+
+            int sampleCount = Mathf.Clamp(
+                Mathf.CeilToInt(second.Length / 0.25f) + 1,
+                3,
+                25);
+            float best = float.PositiveInfinity;
+            for (int index = 0; index < sampleCount; index++)
+            {
+                float distance = sampleCount <= 1
+                    ? 0f
+                    : second.Length * index / (sampleCount - 1);
+                Vector3 point = second.LinePointAtDistance(distance).point;
+                float firstDistance = Mathf.Clamp(first.DistanceTo(point), 0f, first.Length);
+                Vector3 closest = first.LinePointAtDistance(firstDistance).point;
+                best = Mathf.Min(best, Vector3.Distance(point, closest));
+            }
+
+            return best;
+        }
+
+        internal static bool ShouldAutoFlipFlangewayKeepSide(
+            SpecialWorkAnalysis analysis,
+            string objectName)
+        {
+            return false;
+        }
+
+        internal static int AutoFlipFlangewayKeepSideIndex(
+            SpecialWorkAnalysis analysis,
+            string objectName)
+        {
+            return ShouldAutoFlipFlangewayKeepSide(analysis, objectName)
+                ? 1
+                : -1;
+        }
+
+        internal static bool ShouldLocalizeFrogFlangewayCut(
+            SpecialWorkAnalysis analysis,
+            string objectName)
+        {
+            return IsDualBothDiverge(analysis)
+                && analysis.Definition.Id.IndexOf("fc97", StringComparison.OrdinalIgnoreCase) >= 0
+                && objectName.IndexOf("StandardThroughFrog", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        internal static float FrogFlangewayCutWindowLength(FrogCandidate frog)
+        {
+            return Mathf.Max(0.45f, frog.CutHalfLength * 2.25f);
         }
 
         internal static void CreateFlangewayCutRail(
@@ -2397,7 +2587,14 @@ namespace NarrowGaugeMod
 
         private static float ClearancePastCut(Vector3 worldPoint, FlangewayCut cut)
         {
-            return SignedDistanceToCurve(cut.Center, worldPoint, out _)
+            float centerDistance = Mathf.Clamp(cut.Center.DistanceTo(worldPoint), 0f, cut.Center.Length);
+            if (cut.HasDistanceWindow
+                && (centerDistance < cut.WindowStart || centerDistance > cut.WindowEnd))
+            {
+                return 1f;
+            }
+
+            return SignedDistanceToCurveAtDistance(cut.Center, centerDistance, worldPoint, out _)
                 * cut.KeepSign
                 - cut.HalfWidth;
         }
@@ -2438,8 +2635,18 @@ namespace NarrowGaugeMod
             Vector3 point,
             out Vector3 normal)
         {
+            float distance = Mathf.Clamp(center.DistanceTo(point), 0f, center.Length);
+            return SignedDistanceToCurveAtDistance(center, distance, point, out normal);
+        }
+
+        private static float SignedDistanceToCurveAtDistance(
+            LineCurve center,
+            float distance,
+            Vector3 point,
+            out Vector3 normal)
+        {
             LinePoint centerPoint = center.LinePointAtDistance(
-                Mathf.Clamp(center.DistanceTo(point), 0f, center.Length));
+                Mathf.Clamp(distance, 0f, center.Length));
             normal = centerPoint.Rotation * Vector3.right;
             normal.y = 0f;
             if (normal.sqrMagnitude <= 0.0001f)
@@ -2457,16 +2664,28 @@ namespace NarrowGaugeMod
 
         private readonly struct FlangewayCut
         {
-            public FlangewayCut(LineCurve center, float halfWidth, float keepSign)
+            public FlangewayCut(
+                LineCurve center,
+                float halfWidth,
+                float keepSign,
+                float windowStart = 0f,
+                float windowEnd = 0f,
+                bool hasDistanceWindow = false)
             {
                 Center = center;
                 HalfWidth = halfWidth;
                 KeepSign = keepSign;
+                WindowStart = windowStart;
+                WindowEnd = windowEnd;
+                HasDistanceWindow = hasDistanceWindow;
             }
 
             public LineCurve Center { get; }
             public float HalfWidth { get; }
             public float KeepSign { get; }
+            public float WindowStart { get; }
+            public float WindowEnd { get; }
+            public bool HasDistanceWindow { get; }
         }
 
         private readonly struct MeshClipVertex
@@ -2524,11 +2743,23 @@ namespace NarrowGaugeMod
                 narrowRail,
                 narrowDistance,
                 -narrowBladeSide * frog.CutHalfLength);
-            return BuildKinkedHandoff(
+            LineCurve handoff = BuildKinkedHandoff(
                 standardStockBoundary,
                 narrowStockBoundary,
-                frog.Intersection.Position)
-                .Parallel(Gauge.Standard.HeadWidth);
+                frog.Intersection.Position);
+            LineCurve positive = handoff.Parallel(Gauge.Standard.HeadWidth);
+            LineCurve negative = handoff.Parallel(-Gauge.Standard.HeadWidth);
+            Vector3 stdBefore = standardRail.Curve.LinePointAtDistance(
+                Mathf.Max(0f, standardDistance - frog.CutHalfLength * 1.5f)).point;
+            Vector3 stdAfter = standardRail.Curve.LinePointAtDistance(
+                Mathf.Min(standardRail.Curve.Length, standardDistance + frog.CutHalfLength * 1.5f)).point;
+            float positiveToStd = Mathf.Min(
+                Vector3.Distance(positive.Head.point, stdBefore),
+                Vector3.Distance(positive.Tail.point, stdAfter));
+            float negativeToStd = Mathf.Min(
+                Vector3.Distance(negative.Head.point, stdBefore),
+                Vector3.Distance(negative.Tail.point, stdAfter));
+            return positiveToStd <= negativeToStd ? positive : negative;
         }
 
         private static float CrossingPointSetback(FrogCandidate frog)

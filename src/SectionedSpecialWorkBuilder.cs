@@ -276,14 +276,14 @@ namespace NarrowGaugeMod
             IEnumerable<WheelPath> wheelPaths)
         {
             WheelPath[] paths = wheelPaths.ToArray();
-            bool isDualBothDiverge = IsDualBothDivergePreset(definition);
-            RailSide? sharedSide = isDualBothDiverge
+            bool isDualGauge = definition.Preset.Category == SpecialWorkCategory.DualGauge;
+            RailSide? sharedSide = isDualGauge
                 ? DetectSharedSide(definition)
                 : null;
 
             foreach (WheelPath path in paths)
             {
-                if (isDualBothDiverge
+                if (isDualGauge
                     && path.Family == GaugeGraphFamily.Narrow
                     && sharedSide.HasValue)
                 {
@@ -1788,10 +1788,15 @@ namespace NarrowGaugeMod
             // The special K-frog check rail follows the opposite crossing
             // diagonal from the bent stock handoff. Pick the offset that opens
             // away from the handoff corridor so the flangeway stays clear.
-            guardCurve = DistancePointToCurve(positiveMiddle, stockHandoff)
+            LineCurve selectedGuard = DistancePointToCurve(positiveMiddle, stockHandoff)
                 >= DistancePointToCurve(negativeMiddle, stockHandoff)
                 ? positive
                 : negative;
+            float guardShift = DistancePointToCurve(positiveMiddle, stockHandoff)
+                >= DistancePointToCurve(negativeMiddle, stockHandoff)
+                ? -RailHeadWidth
+                : RailHeadWidth;
+            guardCurve = selectedGuard.Parallel(guardShift);
             return true;
         }
 

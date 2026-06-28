@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using Core;
 using Helpers;
 using UnityEngine;
@@ -36,8 +38,16 @@ namespace NarrowGaugeMod
             GL.PushMatrix();
             GL.Begin(GL.LINES);
 
+            SpecialWorkAdjustmentUI? adjustUILines = Main.ManagerObject?.GetComponent<SpecialWorkAdjustmentUI>();
+            string? lineNodeFilter = adjustUILines?.DebugLabelNodeFilter;
             foreach (SpecialWorkAnalysis analysis in SpecialWorkRuntimeRegistry.Analyses)
             {
+                if (!string.IsNullOrEmpty(lineNodeFilter)
+                    && !analysis.Definition.NativeSwitchNodeIds.Contains(
+                        lineNodeFilter, StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
                 if (settings.DebugRoutes)
                 {
                     foreach (LogicalRoute route in analysis.Definition.Routes)
@@ -128,9 +138,17 @@ namespace NarrowGaugeMod
             }
 
             EnsureLabelStyle();
+            SpecialWorkAdjustmentUI? adjustUI = Main.ManagerObject?.GetComponent<SpecialWorkAdjustmentUI>();
+            string? nodeFilter = adjustUI?.DebugLabelNodeFilter;
             var occupied = new List<Rect>();
             foreach (SpecialWorkAnalysis analysis in SpecialWorkRuntimeRegistry.Analyses)
             {
+                if (!string.IsNullOrEmpty(nodeFilter)
+                    && !analysis.Definition.NativeSwitchNodeIds.Contains(
+                        nodeFilter, StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
                 foreach (RailIntersection intersection in analysis.Intersections)
                 {
                     Vector3 world = WorldTransformer.GameToWorld(
