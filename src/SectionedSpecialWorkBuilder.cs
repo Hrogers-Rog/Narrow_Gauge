@@ -11,7 +11,7 @@ namespace NarrowGaugeMod
     internal static class SectionedSpecialWorkBuilder
     {
         private const float MinimumPieceLength = 0.35f;
-        private const float WorkEnvelopeMargin = 1.5f;
+        private const float WorkEnvelopeMargin = 3.0f;
         private const float BladeSampleSpacing = 0.1f;
         private const float BladeRootSeparation = 0.18f;
         private const float MaximumBladeLength = 7f;
