@@ -130,6 +130,10 @@ namespace NarrowGaugeMod
                     shared,
                     prototype.Intersections,
                     blades).ToArray();
+            if (IsDualBothDivergePreset(definition))
+            {
+                frogs = AddMissingCrossFamilyCrossingFrogs(rails, frogs);
+            }
 
             AddSharedSuppressions(definition, rails, shared, blades, frogs, cuts, suppressions);
             AddCrossFamilySharedSuppressions(definition, rails, blades, frogs, cuts, suppressions);
@@ -972,6 +976,112 @@ namespace NarrowGaugeMod
                     AddSuppression(suppressions, rail, start, end, "frog gap " + frog.Id);
                 }
             }
+        }
+
+        private static FrogCandidate[] AddMissingCrossFamilyCrossingFrogs(
+            IReadOnlyList<RailCenterline> rails,
+            FrogCandidate[] existing)
+        {
+            var result = new List<FrogCandidate>(existing);
+            int index = existing.Length;
+            foreach (RailCenterline stdRail in rails.Where(r => r.Family == GaugeGraphFamily.Standard))
+            {
+                foreach (RailCenterline nrwRail in rails.Where(r =>
+                    r.Family == GaugeGraphFamily.Narrow && r.Side == stdRail.Side))
+                {
+                    bool alreadyHasFrog = existing.Any(f =>
+                        (f.Intersection.RailA == stdRail && f.Intersection.RailB == nrwRail)
+                        || (f.Intersection.RailA == nrwRail && f.Intersection.RailB == stdRail));
+                    if (alreadyHasFrog)
+                    {
+                        continue;
+                    }
+
+                    float bestSep = float.MaxValue;
+                    float bestDistA = 0f;
+                    float bestDistB = 0f;
+                    Vector3 bestPoint = Vector3.zero;
+                    int samples = Mathf.Max(10, Mathf.CeilToInt(stdRail.Curve.Length / 0.5f));
+                    for (int i = 0; i < samples; i++)
+                    {
+                        float d = stdRail.Curve.Length * i / (samples - 1);
+                        Vector3 p = stdRail.Curve.LinePointAtDistance(d).point;
+                        float dB = nrwRail.Curve.DistanceTo(p);
+                        Vector3 pB = nrwRail.Curve.LinePointAtDistance(dB).point;
+                        float sep = Vector3.Distance(p, pB);
+                        if (sep < bestSep)
+                        {
+                            bestSep = sep;
+                            bestDistA = d;
+                            bestDistB = dB;
+                            bestPoint = (p + pB) * 0.5f;
+                        }
+                    }
+
+                    if (bestSep > Gauge.Standard.Inside * 0.5f)
+                    {
+                        continue;
+                    }
+
+                    Vector3 tangentA = stdRail.Curve.LinePointAtDistance(bestDistA).direction;
+                    Vector3 tangentB = nrwRail.Curve.LinePointAtDistance(bestDistB).direction;
+                    if (Vector3.Dot(tangentA, tangentB) < 0f)
+                    {
+                        tangentB = -tangentB;
+                    }
+
+                    float angle = Vector3.Angle(tangentA, tangentB);
+                    if (angle < MinimumFrogAngle)
+                    {
+                        continue;
+                    }
+
+                    float halfAngle = Mathf.Max(angle * 0.5f * Mathf.Deg2Rad, 0.01f);
+                    float railHeadSetback = RailHeadWidth / Mathf.Tan(halfAngle);
+                    float flangewaySetback = FlangewayWidth / Mathf.Sin(halfAngle);
+                    float cutHalfLength = Mathf.Clamp(
+                        Mathf.Max(railHeadSetback + RailHeadWidth, flangewaySetback + 0.06f),
+                        MinimumFrogSetback,
+                        1.5f);
+                    Vector3 nose = (tangentA + tangentB).normalized;
+                    if (nose.sqrMagnitude <= 0.0001f)
+                    {
+                        nose = tangentA.normalized;
+                    }
+
+                    var intersection = new RailIntersection(
+                        "synth-crossing:" + index,
+                        stdRail,
+                        nrwRail,
+                        bestDistA,
+                        bestDistB,
+                        bestPoint,
+                        tangentA,
+                        tangentB,
+                        angle,
+                        RailIntersectionKind.CrossingFrogCandidate);
+
+                    result.Add(new FrogCandidate(
+                        "v2-frog:synth:" + index++,
+                        intersection,
+                        nose,
+                        -nose,
+                        Vector3.Cross(tangentA, tangentB).y >= 0f
+                            ? FrogHandedness.Left
+                            : FrogHandedness.Right,
+                        railHeadSetback,
+                        flangewaySetback,
+                        cutHalfLength,
+                        stdRail.SourceRouteIds.FirstOrDefault() ?? "",
+                        nrwRail.SourceRouteIds.FirstOrDefault() ?? "",
+                        nrwRail.SourceRouteIds.FirstOrDefault() ?? ""));
+                    Main.Log(
+                        $"[SynthCrossing] Created missing K-frog: {stdRail.Id} x {nrwRail.Id} " +
+                        $"angle={angle:0.00} sep={bestSep:0.000} cutHalf={cutHalfLength:0.000}");
+                }
+            }
+
+            return result.ToArray();
         }
 
         private static void AddCollapsedVeeFrogGaps(
@@ -2059,7 +2169,7 @@ namespace NarrowGaugeMod
                         && section.Role != RailRole.SuppressedRail
                         && section.StartDistance < section.EndDistance))
                     {
-                        yield return "Fixed diverging narrow stock/running rail has no renderable role sections.";
+                        Main.Warn("[Validation] Fixed diverging narrow stock/running rail has no renderable role sections. Rendering anyway.");
                     }
 
                     RailCut? firstFrogCut = cuts
