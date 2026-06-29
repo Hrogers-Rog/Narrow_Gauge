@@ -134,6 +134,10 @@ namespace NarrowGaugeMod
             {
                 frogs = AddMissingCrossFamilyCrossingFrogs(rails, frogs);
             }
+            if (SpecialWorkHardwareProfileCatalog.ShouldUseNoveSplitFrogCatalog(definition))
+            {
+                frogs = AddNoveCatalogCrossingFrog(rails, frogs);
+            }
 
             AddSharedSuppressions(definition, rails, shared, blades, frogs, cuts, suppressions);
             AddCrossFamilySharedSuppressions(definition, rails, blades, frogs, cuts, suppressions);
@@ -646,6 +650,14 @@ namespace NarrowGaugeMod
                 }
             }
 
+            bool useNoveSplitFrogCatalog =
+                SpecialWorkHardwareProfileCatalog.ShouldUseNoveSplitFrogCatalog(definition);
+            if (useNoveSplitFrogCatalog)
+            {
+                ApplyNoveSplitFrogCatalog(accepted);
+                accepted = accepted.Where(IsFrogCandidateIntersection).ToArray();
+            }
+
             if (IsDualBothDivergePreset(definition))
             {
                 accepted = CollapseDualBothDivergeDuplicateVees(accepted, blades).ToArray();
@@ -692,6 +704,16 @@ namespace NarrowGaugeMod
                 if (intersection.Kind == RailIntersectionKind.VeeFrogCandidate)
                 {
                     nose = OrientVeeNoseTowardBlades(nose, intersection.Position, blades);
+                    if (useNoveSplitFrogCatalog
+                        && (IntersectionUsesRoutePair(
+                                intersection,
+                                "standard-through",
+                                "narrow-diverge")))
+                    {
+                        nose = -nose;
+                        Main.Log(
+                            $"[NoveFrogCatalog] {intersection.Id} reversed V nose.");
+                    }
                 }
 
                 Main.Log(
@@ -714,6 +736,52 @@ namespace NarrowGaugeMod
                     crossingRoute,
                     protectedRoute);
             }
+        }
+
+        private static void ApplyNoveSplitFrogCatalog(
+            IReadOnlyList<RailIntersection> intersections)
+        {
+            foreach (RailIntersection intersection in intersections)
+            {
+                RailIntersectionKind? catalogKind = null;
+                if (IntersectionUsesRoutePair(
+                        intersection,
+                        "standard-through",
+                        "narrow-diverge"))
+                {
+                    catalogKind = RailIntersectionKind.VeeFrogCandidate;
+                }
+                else if (IntersectionUsesRoutePair(
+                             intersection,
+                             "narrow-through",
+                             "narrow-diverge"))
+                {
+                    catalogKind = RailIntersectionKind.InvalidShallowCrossing;
+                }
+
+                if (!catalogKind.HasValue)
+                {
+                    continue;
+                }
+
+                RailIntersectionKind previous = intersection.Kind;
+                intersection.Kind = catalogKind.Value;
+                Main.Log(
+                    $"[NoveFrogCatalog] {intersection.Id} " +
+                    $"{intersection.RailA.Id}/{intersection.RailB.Id}: " +
+                    $"{previous} => {intersection.Kind}");
+            }
+        }
+
+        private static bool IntersectionUsesRoutePair(
+            RailIntersection intersection,
+            string firstRouteId,
+            string secondRouteId)
+        {
+            return RailUsesRoute(intersection.RailA, firstRouteId)
+                    && RailUsesRoute(intersection.RailB, secondRouteId)
+                || RailUsesRoute(intersection.RailA, secondRouteId)
+                    && RailUsesRoute(intersection.RailB, firstRouteId);
         }
 
         private static IEnumerable<RailIntersection> CollapseDualBothDivergeDuplicateVees(
@@ -979,6 +1047,149 @@ namespace NarrowGaugeMod
                     AddSuppression(suppressions, rail, start, end, "frog gap " + frog.Id);
                 }
             }
+        }
+
+        private static FrogCandidate[] AddNoveCatalogCrossingFrog(
+            IReadOnlyList<RailCenterline> rails,
+            FrogCandidate[] existing)
+        {
+            RailCenterline? standardThroughRight = FindRail(rails, "standard-through", RailSide.Right);
+            RailCenterline? narrowDivergeLeft = FindRail(rails, "narrow-diverge", RailSide.Left);
+            if (standardThroughRight == null || narrowDivergeLeft == null)
+            {
+                return existing;
+            }
+
+            bool alreadyHasFrog = existing.Any(frog =>
+                (frog.Intersection.RailA == standardThroughRight
+                    && frog.Intersection.RailB == narrowDivergeLeft)
+                || (frog.Intersection.RailA == narrowDivergeLeft
+                    && frog.Intersection.RailB == standardThroughRight));
+            if (alreadyHasFrog)
+            {
+                return existing;
+            }
+
+            if (!TryCreateSyntheticCrossingFrog(
+                    standardThroughRight,
+                    narrowDivergeLeft,
+                    existing.Length,
+                    "nove-catalog",
+                    Gauge.Standard.Inside,
+                    1.5f,
+                    out FrogCandidate frog,
+                    out string rejectionReason))
+            {
+                Main.Log(
+                    "[NoveFrogCatalog] Could not add bottom-left K frog for " +
+                    $"{standardThroughRight.Id}/{narrowDivergeLeft.Id}: " +
+                    rejectionReason);
+                return existing;
+            }
+
+            Main.Log(
+                $"[NoveFrogCatalog] Added bottom-left K frog {frog.Id}: " +
+                $"{standardThroughRight.Id}/{narrowDivergeLeft.Id} " +
+                $"angle={frog.Intersection.AcuteAngleDegrees:0.00} " +
+                $"cutHalf={frog.CutHalfLength:0.000}.");
+            return existing.Concat(new[] { frog }).ToArray();
+        }
+
+        private static bool TryCreateSyntheticCrossingFrog(
+            RailCenterline standardRail,
+            RailCenterline narrowRail,
+            int index,
+            string idPrefix,
+            float maximumSeparation,
+            float maximumCutHalf,
+            out FrogCandidate frog,
+            out string rejectionReason)
+        {
+            frog = null!;
+            rejectionReason = string.Empty;
+            float bestSeparation = float.MaxValue;
+            float bestStandardDistance = 0f;
+            float bestNarrowDistance = 0f;
+            Vector3 bestPoint = Vector3.zero;
+            int samples = Mathf.Max(10, Mathf.CeilToInt(standardRail.Curve.Length / 0.5f));
+            for (int i = 0; i < samples; i++)
+            {
+                float standardDistance = standardRail.Curve.Length * i / (samples - 1);
+                Vector3 standardPoint = standardRail.Curve.LinePointAtDistance(standardDistance).point;
+                float narrowDistance = narrowRail.Curve.DistanceTo(standardPoint);
+                Vector3 narrowPoint = narrowRail.Curve.LinePointAtDistance(narrowDistance).point;
+                float separation = Vector3.Distance(standardPoint, narrowPoint);
+                if (separation < bestSeparation)
+                {
+                    bestSeparation = separation;
+                    bestStandardDistance = standardDistance;
+                    bestNarrowDistance = narrowDistance;
+                    bestPoint = (standardPoint + narrowPoint) * 0.5f;
+                }
+            }
+
+            if (bestSeparation > maximumSeparation)
+            {
+                rejectionReason =
+                    $"closest separation {bestSeparation:0.000} exceeds {maximumSeparation:0.000}.";
+                return false;
+            }
+
+            Vector3 tangentA = standardRail.Curve.LinePointAtDistance(bestStandardDistance).direction;
+            Vector3 tangentB = narrowRail.Curve.LinePointAtDistance(bestNarrowDistance).direction;
+            if (Vector3.Dot(tangentA, tangentB) < 0f)
+            {
+                tangentB = -tangentB;
+            }
+
+            float angle = Vector3.Angle(tangentA, tangentB);
+            if (angle < MinimumFrogAngle)
+            {
+                rejectionReason =
+                    $"angle {angle:0.00} is below minimum {MinimumFrogAngle:0.00}.";
+                return false;
+            }
+
+            float halfAngle = Mathf.Max(angle * 0.5f * Mathf.Deg2Rad, 0.01f);
+            float railHeadSetback = RailHeadWidth / Mathf.Tan(halfAngle);
+            float flangewaySetback = FlangewayWidth / Mathf.Sin(halfAngle);
+            float cutHalfLength = Mathf.Clamp(
+                Mathf.Max(railHeadSetback + RailHeadWidth, flangewaySetback + 0.06f),
+                MinimumFrogSetback,
+                maximumCutHalf);
+            Vector3 nose = (tangentA + tangentB).normalized;
+            if (nose.sqrMagnitude <= 0.0001f)
+            {
+                nose = tangentA.normalized;
+            }
+
+            var intersection = new RailIntersection(
+                idPrefix + "-crossing:" + index,
+                standardRail,
+                narrowRail,
+                bestStandardDistance,
+                bestNarrowDistance,
+                bestPoint,
+                tangentA,
+                tangentB,
+                angle,
+                RailIntersectionKind.CrossingFrogCandidate);
+
+            frog = new FrogCandidate(
+                "v2-frog:" + idPrefix + ":" + index,
+                intersection,
+                nose,
+                -nose,
+                Vector3.Cross(tangentA, tangentB).y >= 0f
+                    ? FrogHandedness.Left
+                    : FrogHandedness.Right,
+                railHeadSetback,
+                flangewaySetback,
+                cutHalfLength,
+                standardRail.SourceRouteIds.FirstOrDefault() ?? string.Empty,
+                narrowRail.SourceRouteIds.FirstOrDefault() ?? string.Empty,
+                narrowRail.SourceRouteIds.FirstOrDefault() ?? string.Empty);
+            return true;
         }
 
         private static FrogCandidate[] AddMissingCrossFamilyCrossingFrogs(

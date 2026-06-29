@@ -23,11 +23,31 @@ namespace NarrowGaugeMod
             "pushedFrogFlangeways"
         };
 
+        private static readonly string[] NoveSplitFrogProfiles =
+        {
+            "nove-split-frog-catalog",
+            "noveSplitFrogCatalog"
+        };
+
         private static readonly string[] U6N0Ids =
         {
             "u6n0",
             "Custom_u6n0",
             "NCustom_u6n0"
+        };
+
+        private static readonly string[] NoveIds =
+        {
+            "Nove",
+            "special-work:Nove",
+            "fuse-ng:n:Nove"
+        };
+
+        private static readonly string[] SuppressSpecialWorkTieProfiles =
+        {
+            "suppress-special-work-ties",
+            "suppressSpecialWorkTies",
+            "native-switch-ties"
         };
 
         public static bool ShouldRenderSolidFrogRail(
@@ -75,13 +95,42 @@ namespace NarrowGaugeMod
             return true;
         }
 
+        public static bool ShouldUseNoveSplitFrogCatalog(SpecialWorkDefinition definition)
+        {
+            if (definition == null)
+            {
+                return false;
+            }
+
+            return MatchesAnyDefinitionId(definition, NoveIds)
+                || HasHardwareProfile(definition, NoveSplitFrogProfiles);
+        }
+
+        public static bool ShouldSuppressSpecialWorkTies(SpecialWorkAnalysis analysis)
+        {
+            if (analysis == null)
+            {
+                return false;
+            }
+
+            return MatchesAnyDefinitionId(analysis, NoveIds)
+                || HasHardwareProfile(analysis, SuppressSpecialWorkTieProfiles);
+        }
+
         private static bool HasHardwareProfile(
             SpecialWorkAnalysis analysis,
             IReadOnlyCollection<string> profileNames)
         {
-            return TryGetParameter(analysis, "hardwareProfile", out JToken? value)
+            return HasHardwareProfile(analysis.Definition, profileNames);
+        }
+
+        private static bool HasHardwareProfile(
+            SpecialWorkDefinition definition,
+            IReadOnlyCollection<string> profileNames)
+        {
+            return TryGetParameter(definition, "hardwareProfile", out JToken? value)
                     && TokenContainsAny(value!, profileNames)
-                || TryGetParameter(analysis, "hardwareProfiles", out value)
+                || TryGetParameter(definition, "hardwareProfiles", out value)
                     && TokenContainsAny(value!, profileNames);
         }
 
@@ -99,8 +148,16 @@ namespace NarrowGaugeMod
             string name,
             out JToken? value)
         {
+            return TryGetParameter(analysis.Definition, name, out value);
+        }
+
+        private static bool TryGetParameter(
+            SpecialWorkDefinition definition,
+            string name,
+            out JToken? value)
+        {
             value = null;
-            return analysis.Definition.Authoring?.Parameters.TryGetValue(name, out value) == true;
+            return definition.Authoring?.Parameters.TryGetValue(name, out value) == true;
         }
 
         private static bool TokenContainsAny(
@@ -167,7 +224,14 @@ namespace NarrowGaugeMod
             SpecialWorkAnalysis analysis,
             IReadOnlyCollection<string> candidates)
         {
-            return DefinitionIds(analysis).Any(id =>
+            return MatchesAnyDefinitionId(analysis.Definition, candidates);
+        }
+
+        private static bool MatchesAnyDefinitionId(
+            SpecialWorkDefinition definition,
+            IReadOnlyCollection<string> candidates)
+        {
+            return DefinitionIds(definition).Any(id =>
                 candidates.Any(candidate =>
                     string.Equals(id, candidate, StringComparison.OrdinalIgnoreCase)
                     || id.EndsWith(":" + candidate, StringComparison.OrdinalIgnoreCase)
@@ -177,14 +241,19 @@ namespace NarrowGaugeMod
 
         private static IEnumerable<string> DefinitionIds(SpecialWorkAnalysis analysis)
         {
-            yield return analysis.Definition.Id;
+            return DefinitionIds(analysis.Definition);
+        }
 
-            foreach (string nodeId in analysis.Definition.NativeSwitchNodeIds)
+        private static IEnumerable<string> DefinitionIds(SpecialWorkDefinition definition)
+        {
+            yield return definition.Id;
+
+            foreach (string nodeId in definition.NativeSwitchNodeIds)
             {
                 yield return nodeId;
             }
 
-            SpecialWorkAuthoringBinding? authoring = analysis.Definition.Authoring;
+            SpecialWorkAuthoringBinding? authoring = definition.Authoring;
             if (authoring != null)
             {
                 yield return authoring.Id;

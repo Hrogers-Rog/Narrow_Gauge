@@ -380,7 +380,9 @@ namespace NarrowGaugeMod
                 $"wings={plan.WingRails.Count}, guards={plan.GuardRails.Count}, " +
                 $"blades={plan.SwitchBlades.Count}.");
 
-            if (Main.Settings?.DebugHideCustomTies != true)
+            bool suppressSpecialWorkTies =
+                SpecialWorkHardwareProfileCatalog.ShouldSuppressSpecialWorkTies(analysis);
+            if (Main.Settings?.DebugHideCustomTies != true && !suppressSpecialWorkTies)
             {
                 GameObject tiesRoot = NarrowGaugeTrackBuilder.CreateTrackRoot(
                     builder,
@@ -391,6 +393,11 @@ namespace NarrowGaugeMod
                     analysis,
                     tiesRoot.transform,
                     nativeGeometry.switchHome);
+            }
+            else if (suppressSpecialWorkTies)
+            {
+                Main.Log(
+                    $"[SpecialWorkTies] Suppressed by hardware catalog for '{analysis.Definition.Id}'.");
             }
 
             int fixedIndex = 0;
