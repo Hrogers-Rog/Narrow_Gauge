@@ -354,6 +354,12 @@ namespace NarrowGaugeMod
             IReadOnlyList<WheelPath> allPaths)
         {
             string narrowRouteId = narrowPath.RouteId ?? string.Empty;
+            if (narrowRouteId.IndexOf("reversed", StringComparison.OrdinalIgnoreCase) >= 0
+                || narrowRouteId.IndexOf("diverge", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return null;
+            }
+
             string suffix = narrowRouteId.IndexOf('-') >= 0
                 ? narrowRouteId.Substring(narrowRouteId.IndexOf('-'))
                 : string.Empty;
@@ -672,10 +678,13 @@ namespace NarrowGaugeMod
                 float headMargin = intersection.Kind == RailIntersectionKind.CrossingFrogCandidate
                     ? RailHeadWidth * 3f
                     : RailHeadWidth * 0.5f;
+                float maxSetback = intersection.Kind == RailIntersectionKind.CrossingFrogCandidate
+                    ? 2.0f
+                    : MaximumFrogSetback;
                 float cutHalfLength = Mathf.Clamp(
                     Mathf.Max(railHeadSetback + headMargin, flangewaySetback + 0.06f),
                     MinimumFrogSetback,
-                    MaximumFrogSetback);
+                    maxSetback);
                 Vector3 tangentA = intersection.TangentA;
                 Vector3 tangentB = Vector3.Dot(tangentA, intersection.TangentB) < 0f
                     ? -intersection.TangentB

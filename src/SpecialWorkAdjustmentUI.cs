@@ -227,6 +227,7 @@ namespace NarrowGaugeMod
                 {
                     piece.ManualCutRailId = saved.ManualCutRailId;
                     piece.ManualCutWidth = saved.ManualCutWidthMm / 1000f;
+                    piece.ManualCutKeepTail = saved.ManualCutKeepTail;
                     _selectedAnalysis = analysis;
                     ApplyManualFlangewayCut(piece);
                 }
@@ -365,8 +366,15 @@ namespace NarrowGaugeMod
             GUILayout.BeginHorizontal();
             GUILayout.Label("Vertical (mm):", GUILayout.Width(90f));
             changed |= DrawTextField(ref piece.VerticalText, 70f);
-            GUILayout.Label("Rotation (deg):", GUILayout.Width(95f));
+            GUILayout.Label("Yaw (deg):", GUILayout.Width(95f));
             changed |= DrawTextField(ref piece.RotationText, 70f);
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Pitch (deg):", GUILayout.Width(90f));
+            changed |= DrawTextField(ref piece.PitchText, 70f);
+            GUILayout.Label("Roll (deg):", GUILayout.Width(95f));
+            changed |= DrawTextField(ref piece.RollText, 70f);
             GUILayout.EndHorizontal();
 
             if (piece.HasRailMatch)
@@ -413,6 +421,8 @@ namespace NarrowGaugeMod
                     piece.ManualCutWidthText ?? "63", GUILayout.Width(40f));
                 GUILayout.EndHorizontal();
 
+                piece.ManualCutKeepTail = GUILayout.Toggle(piece.ManualCutKeepTail, "Keep tail side");
+
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button("Cut"))
                 {
@@ -455,6 +465,8 @@ namespace NarrowGaugeMod
                 piece.LongitudinalOffset = 0f;
                 piece.VerticalOffset = 0f;
                 piece.RotationDegrees = 0f;
+                piece.PitchDegrees = 0f;
+                piece.RollDegrees = 0f;
                 piece.HeadDelta = 0f;
                 piece.TailDelta = 0f;
                 piece.FrogPullback = 0f;
@@ -504,6 +516,10 @@ namespace NarrowGaugeMod
                 piece.VerticalOffset = vert / 1000f;
             if (float.TryParse(piece.RotationText, out float rot))
                 piece.RotationDegrees = rot;
+            if (float.TryParse(piece.PitchText, out float pitch))
+                piece.PitchDegrees = pitch;
+            if (float.TryParse(piece.RollText, out float roll))
+                piece.RollDegrees = roll;
             if (float.TryParse(piece.HeadDeltaText, out float head))
                 piece.HeadDelta = head / 1000f;
             if (float.TryParse(piece.TailDeltaText, out float tail))
@@ -631,17 +647,22 @@ namespace NarrowGaugeMod
             piece.LongitudinalOffset = saved.LongitudinalMm / 1000f;
             piece.VerticalOffset = saved.VerticalMm / 1000f;
             piece.RotationDegrees = saved.RotationDeg;
+            piece.PitchDegrees = saved.PitchDeg;
+            piece.RollDegrees = saved.RollDeg;
             piece.HeadDelta = headDeltaMm / 1000f;
             piece.TailDelta = tailDeltaMm / 1000f;
             piece.FrogPullback = frogPullbackMm / 1000f;
             piece.FlipFlangewaySide = saved.FlipFlangewaySide;
             piece.ManualCutRailId = saved.ManualCutRailId;
             piece.ManualCutWidth = saved.ManualCutWidthMm / 1000f;
+            piece.ManualCutKeepTail = saved.ManualCutKeepTail;
             piece.ManualCutWidthText = saved.ManualCutWidthMm.ToString("0");
             piece.LateralText = saved.LateralMm.ToString("0.0");
             piece.LongitudinalText = saved.LongitudinalMm.ToString("0.0");
             piece.VerticalText = saved.VerticalMm.ToString("0.0");
             piece.RotationText = saved.RotationDeg.ToString("0.00");
+            piece.PitchText = saved.PitchDeg.ToString("0.00");
+            piece.RollText = saved.RollDeg.ToString("0.00");
             piece.HeadDeltaText = headDeltaMm.ToString("0.0");
             piece.TailDeltaText = tailDeltaMm.ToString("0.0");
             piece.FrogPullbackText = frogPullbackMm.ToString("0.0");
@@ -665,7 +686,7 @@ namespace NarrowGaugeMod
                 + Vector3.up * piece.VerticalOffset;
 
             piece.Transform.localRotation = piece.OriginalRotation
-                * Quaternion.Euler(0f, piece.RotationDegrees, 0f);
+                * Quaternion.Euler(piece.PitchDegrees, piece.RotationDegrees, piece.RollDegrees);
 
             if (piece.HasRailMatch
                 && (Mathf.Abs(piece.HeadDelta) > 0.0001f
@@ -702,8 +723,11 @@ namespace NarrowGaugeMod
             if (!TryGetAdjustedDistances(piece, out float adjustedStart, out float adjustedEnd)
                 || !TryBuildAdjustedCurve(piece.MatchedRail.Curve, adjustedStart, adjustedEnd, out LineCurve sliced))
             {
+                Main.Log($"[AdjustUI] RebuildMesh failed: head={piece.HeadDelta:0.000} tail={piece.TailDelta:0.000} matched={piece.HasRailMatch} rail={piece.MatchedRail?.Id}");
                 return;
             }
+
+            Main.Log($"[AdjustUI] RebuildMesh: {piece.Name} dist={adjustedStart:0.00}-{adjustedEnd:0.00} len={sliced.Length:0.00}");
 
             TrackNode? node = !string.IsNullOrEmpty(piece.SourceNodeId)
                 ? Graph.Shared?.GetNode(piece.SourceNodeId)
@@ -733,7 +757,7 @@ namespace NarrowGaugeMod
                 switchHome,
                 Gauge.Standard,
                 _ => 1f);
-            mf.mesh = newMesh;
+            AssignMesh(mf, newMesh);
         }
 
         private static bool TryGetAdjustedDistances(
@@ -884,6 +908,24 @@ namespace NarrowGaugeMod
                 : Vector3.forward;
         }
 
+        private static void AssignMesh(MeshFilter mf, Mesh mesh)
+        {
+            mf.sharedMesh = mesh;
+            mf.mesh = mesh;
+            if (mesh != null)
+            {
+                mesh.RecalculateBounds();
+                mesh.RecalculateNormals();
+            }
+
+            MeshRenderer? rend = mf.GetComponent<MeshRenderer>();
+            if (rend != null)
+            {
+                rend.enabled = false;
+                rend.enabled = true;
+            }
+        }
+
         private static void RestoreMesh(PieceState piece)
         {
             if (piece.Transform == null || piece.OriginalMesh == null)
@@ -894,7 +936,7 @@ namespace NarrowGaugeMod
             MeshFilter? mf = piece.Transform.GetComponentInChildren<MeshFilter>();
             if (mf != null)
             {
-                mf.mesh = piece.OriginalMesh;
+                AssignMesh(mf, piece.OriginalMesh);
             }
 
             piece.OriginalMesh = null;
@@ -955,7 +997,9 @@ namespace NarrowGaugeMod
                 return;
             }
 
-            Vector3 keepPoint = pieceCurve.LinePointAtDistance(pieceCurve.Length).point;
+            Vector3 keepPoint = piece.ManualCutKeepTail
+                ? pieceCurve.LinePointAtDistance(pieceCurve.Length).point
+                : pieceCurve.LinePointAtDistance(0f).point;
             if (float.TryParse(piece.ManualCutWidthText, out float parsedWidth))
             {
                 piece.ManualCutWidth = parsedWidth / 1000f;
@@ -980,7 +1024,7 @@ namespace NarrowGaugeMod
                 out Mesh? resultMesh);
             if (resultMesh != null)
             {
-                mf.mesh = resultMesh;
+                AssignMesh(mf, resultMesh);
                 Main.Log($"[AdjustUI] Manual cut: applied cut from '{cutterRail.Id}' to '{piece.Name}'");
             }
         }
@@ -1001,6 +1045,8 @@ namespace NarrowGaugeMod
                 piece.LongitudinalOffset = 0f;
                 piece.VerticalOffset = 0f;
                 piece.RotationDegrees = 0f;
+                piece.PitchDegrees = 0f;
+                piece.RollDegrees = 0f;
                 piece.HeadDelta = 0f;
                 piece.TailDelta = 0f;
                 piece.FrogPullback = 0f;
@@ -1114,12 +1160,15 @@ namespace NarrowGaugeMod
                     LongitudinalMm = p.LongitudinalOffset * 1000f,
                     VerticalMm = p.VerticalOffset * 1000f,
                     RotationDeg = p.RotationDegrees,
+                    PitchDeg = p.PitchDegrees,
+                    RollDeg = p.RollDegrees,
                     HeadDeltaMm = p.HeadDelta * 1000f,
                     TailDeltaMm = p.TailDelta * 1000f,
                     FrogPullbackMm = p.FrogPullback * 1000f,
                     FlipFlangewaySide = p.FlipFlangewaySide,
                     ManualCutRailId = p.ManualCutRailId ?? "",
                     ManualCutWidthMm = p.ManualCutWidth * 1000f,
+                    ManualCutKeepTail = p.ManualCutKeepTail,
                     LengthDeltaMm = p.TailDelta * 1000f,
                     Visible = p.Visible
                 }).ToArray()
@@ -1743,10 +1792,14 @@ namespace NarrowGaugeMod
             public float LongitudinalOffset;
             public float VerticalOffset;
             public float RotationDegrees;
+            public float PitchDegrees;
+            public float RollDegrees;
             public string LateralText = "0";
             public string LongitudinalText = "0";
             public string VerticalText = "0";
             public string RotationText = "0";
+            public string PitchText = "0";
+            public string RollText = "0";
             public float HeadDelta;
             public float TailDelta;
             public float FrogPullback;
@@ -1771,6 +1824,7 @@ namespace NarrowGaugeMod
             public string? ManualCutRailId;
             public string ManualCutWidthText = "63";
             public float ManualCutWidth = 0.063f;
+            public bool ManualCutKeepTail = true;
             public bool HasFlangewayCut =>
                 MatchedFlangewayCenters.Count > 0 && MatchedFlangewayWidth > 0f;
             public bool HasRailMatch;
@@ -1790,12 +1844,15 @@ namespace NarrowGaugeMod
             public float LongitudinalMm;
             public float VerticalMm;
             public float RotationDeg;
+            public float PitchDeg;
+            public float RollDeg;
             public float? HeadDeltaMm;
             public float? TailDeltaMm;
             public float? FrogPullbackMm;
             public bool FlipFlangewaySide;
             public string ManualCutRailId = "";
             public float ManualCutWidthMm = 63f;
+            public bool ManualCutKeepTail = true;
             public float LengthDeltaMm;
             public bool Visible = true;
         }
