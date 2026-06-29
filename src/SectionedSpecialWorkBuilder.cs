@@ -354,12 +354,6 @@ namespace NarrowGaugeMod
             IReadOnlyList<WheelPath> allPaths)
         {
             string narrowRouteId = narrowPath.RouteId ?? string.Empty;
-            if (narrowRouteId.IndexOf("reversed", StringComparison.OrdinalIgnoreCase) >= 0
-                || narrowRouteId.IndexOf("diverge", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return null;
-            }
-
             string suffix = narrowRouteId.IndexOf('-') >= 0
                 ? narrowRouteId.Substring(narrowRouteId.IndexOf('-'))
                 : string.Empty;
@@ -642,11 +636,14 @@ namespace NarrowGaugeMod
                     && item.AcuteAngleDegrees >= MinimumFrogAngle
                     && !InsideBladeZone(item, blades))
                 .ToArray();
-            foreach (RailIntersection item in accepted)
+            if (IsDualBothDivergePreset(definition))
             {
-                item.Kind = item.RailA.Side == item.RailB.Side
-                    ? RailIntersectionKind.CrossingFrogCandidate
-                    : RailIntersectionKind.VeeFrogCandidate;
+                foreach (RailIntersection item in accepted)
+                {
+                    item.Kind = item.RailA.Side == item.RailB.Side
+                        ? RailIntersectionKind.CrossingFrogCandidate
+                        : RailIntersectionKind.VeeFrogCandidate;
+                }
             }
 
             if (IsDualBothDivergePreset(definition))
@@ -678,13 +675,10 @@ namespace NarrowGaugeMod
                 float headMargin = intersection.Kind == RailIntersectionKind.CrossingFrogCandidate
                     ? RailHeadWidth * 3f
                     : RailHeadWidth * 0.5f;
-                float maxSetback = intersection.Kind == RailIntersectionKind.CrossingFrogCandidate
-                    ? 2.0f
-                    : MaximumFrogSetback;
                 float cutHalfLength = Mathf.Clamp(
                     Mathf.Max(railHeadSetback + headMargin, flangewaySetback + 0.06f),
                     MinimumFrogSetback,
-                    maxSetback);
+                    MaximumFrogSetback);
                 Vector3 tangentA = intersection.TangentA;
                 Vector3 tangentB = Vector3.Dot(tangentA, intersection.TangentB) < 0f
                     ? -intersection.TangentB
@@ -2124,8 +2118,8 @@ namespace NarrowGaugeMod
 
             if (definition.SwitchGroups.Count > 0 && blades.Count == 0)
             {
-                yield return
-                    "Switch groups exist but no route-divergence blade plans were derived.";
+                Main.Warn(
+                    $"[Validation] Switch groups exist but no route-divergence blade plans were derived for '{definition.Id}'. Rendering anyway.");
             }
 
             foreach (SwitchBladePlan blade in blades)
