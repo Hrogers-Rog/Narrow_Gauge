@@ -59,21 +59,21 @@ namespace NarrowGaugeMod
             {
                 if (NarrowGaugeManager.IsGeneratedGhostNode(node))
                 {
-                    if (TryBuildGaugeSeparation(
-                        graph,
-                        node,
-                        allSegments,
-                        out SpecialWorkDefinition separation))
-                    {
-                        definitions.Add(separation);
-                    }
-                    else if (TryBuildNarrowBranchTransition(
+                    if (TryBuildNarrowBranchTransition(
                         graph,
                         node,
                         allSegments,
                         out SpecialWorkDefinition transition))
                     {
                         definitions.Add(transition);
+                    }
+                    else if (TryBuildGaugeSeparation(
+                        graph,
+                        node,
+                        allSegments,
+                        out SpecialWorkDefinition separation))
+                    {
+                        definitions.Add(separation);
                     }
 
                     continue;
@@ -212,8 +212,11 @@ namespace NarrowGaugeMod
         {
             definition = null!;
             TrackSegment[] connected = Connected(ghostSwitchNode, allSegments).ToArray();
+            int ghostOrControlCount = connected.Count(segment =>
+                NarrowGaugeManager.IsGeneratedGhost(segment)
+                || SpecialWorkTopologySynchronizer.IsHiddenControlSegment(segment));
             if (connected.Length != 3
-                || connected.Count(NarrowGaugeManager.IsGeneratedGhost) != 2
+                || ghostOrControlCount < 2
                 || connected.Count(IsRealNarrowOnly) != 1
                 || !TryGetSourceNodeForGhost(ghostSwitchNode, graph, out TrackNode sourceNode))
             {

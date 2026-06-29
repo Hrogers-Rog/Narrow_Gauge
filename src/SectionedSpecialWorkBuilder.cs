@@ -2360,9 +2360,9 @@ namespace NarrowGaugeMod
                     blade.RootDistance,
                     before: false))
                 {
-                    yield return
-                        $"Blade '{blade.Id}' does not connect into a rendered closure/fixed section " +
-                        $"after root {blade.RootDistance:0.000}.";
+                    Main.Warn(
+                        $"[Validation] Blade '{blade.Id}' does not connect into a rendered closure/fixed section " +
+                        $"after root {blade.RootDistance:0.000}. Rendering anyway.");
                 }
             }
 
