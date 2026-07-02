@@ -508,6 +508,31 @@ namespace NarrowGaugeMod
             IReadOnlyList<RailCenterline> rails,
             IReadOnlyList<RailIntersection> intersections)
         {
+            if (SpecialWorkTruthTableCatalog.TryGet(
+                    definition.Preset.Id,
+                    rails,
+                    intersections,
+                    out TurnoutTruthTable truth)
+                && truth.Blades.Length > 0)
+            {
+                Main.Log($"[BladeSpecs] Using truth table '{truth.Id}' blades ({truth.Blades.Length})");
+                foreach (TruthBlade blade in truth.Blades)
+                {
+                    if (Enum.TryParse(blade.MovableSide, ignoreCase: true, out RailSide movSide)
+                        && Enum.TryParse(blade.StockSide, ignoreCase: true, out RailSide stkSide))
+                    {
+                        yield return new BladeSpec(
+                            blade.Label,
+                            blade.MovableRouteId,
+                            movSide,
+                            blade.StockRouteId,
+                            stkSide);
+                    }
+                }
+
+                yield break;
+            }
+
             foreach (SpecialWorkSwitchGroup group in definition.SwitchGroups)
             {
                 LogicalRoute? normalRoute = definition.Routes.FirstOrDefault(route =>

@@ -453,10 +453,25 @@ namespace NarrowGaugeMod
             }
 
             string ghostNodeId = GhostGraphSynchronizer.GetGhostNodeId(sourceNode.id);
-            return allSegments.Count(segment =>
+            int narrowBranchCount = allSegments.Count(segment =>
                 IsRealNarrowOnly(segment)
                 && !IsHiddenControlSegment(segment)
-                && SegmentTouchesNode(segment, ghostNodeId)) == 1;
+                && SegmentTouchesNode(segment, ghostNodeId));
+            if (narrowBranchCount != 1)
+            {
+                return false;
+            }
+
+            int ghostSegmentCount = allSegments.Count(segment =>
+                GhostGraphSynchronizer.IsGeneratedGhostSegmentId(segment.id)
+                && !IsHiddenControlSegment(segment)
+                && SegmentTouchesNode(segment, ghostNodeId));
+            if (ghostSegmentCount >= 2)
+            {
+                return false;
+            }
+
+            return true;
         }
 
         private static bool HasHiddenControlLeg(
