@@ -2,115 +2,80 @@
 
 Last updated by: Claude - 2026-07-06
 
-## Current phase: Claude independently drove the live-game pipeline; real findings, one methodology lesson
+## Current phase: SCustom_ttpp cut-source ambiguity resolved; camera framing still the open item for visual questions
 
-Codex hit its usage limit again mid-turn (blocked until 1:52 PM this time,
-shorter than the earlier multi-day block). Since the user authorized
-working autonomously, Claude drove the full launch/goto/screenshot/close
-loop directly via Bash, using the exact recipe Codex documented (toggle
-`FUSE.TestBridge/Info.json` to `Enabled: true`, write a temporary
-`steam_appid.txt` with `1683150`, launch `Railroader.exe /editor` directly
-with `NARROWGAUGE_TEST_BRIDGE=1` in that process's environment, poll
-`test_state.json`, `loadSave`, write `ng_goto_request.json`/read
-`ng_goto_result.json`, screenshot via the bridge, `umm`/`cleanup` verbs,
-`CloseMainWindow`). This confirms either agent can run this pipeline, not
-just review the other's run of it.
+Codex is blocked on usage limit until 1:52 PM today. Claude continued
+working autonomously (user authorized this), driving the live-game
+pipeline directly a second time this session.
 
-## Real methodology lesson found this run
+## Resolved: `SCustom_ttpp`'s cut source
 
-`CameraSelector.JumpToPoint` starts a Unity **coroutine**
-(`base.StartCoroutine(this._JumpToPoint(...))` - confirmed in
-`CameraSelector.cs`) and returns immediately; the camera pan happens over
-subsequent frames, not synchronously. `NarrowGaugeTestBridge` writes its
-result file as soon as `JumpToPoint` returns, so a screenshot requested
-immediately after reading `ng_goto_result.json` can race the still-panning
-camera. Recommend adding a short settle delay (~3-6s empirically) between
-reading a `ng_goto_result.json` and requesting a screenshot in any future
-automation of this loop, until/unless `NarrowGaugeTestBridge` is changed to
-wait for the coroutine itself before writing its result.
+Added source-tagged diagnostic logging to `CreateRailMeshesWithFrogCuts`
+(`src/NarrowGaugeTrackBuilder.cs`) - it previously merged three cut sources
+(measured-plan `Ownership`, `GaugeSeparation` frog synthesis, and the
+already-dead `SharedRailFlip`) into one opaque `[SpecialWorkSegmentClip]`
+log line, which is exactly what left `SCustom_ttpp`'s cut source ambiguous
+in Codex's investigation. Added a new `[SpecialWorkSegmentClipSource]` log
+line per non-empty source, logged before the existing merged summary.
 
-Note: initially suspected this caused two visually-identical screenshots
-(`NCustom_fl15` and `NCustom_ltci`), but re-shot both with an explicit 6s
-settle delay and got the *same* near-identical result both times - the
-real explanation turned out to be that `Nove`, `NCustom_fl15`,
-`NCustom_ltci`, and `NCustom_fc97` are all part of the same clustered
-DeHart yard installation on the map (confirmed: all four screenshots show
-the same yellow station building and largely the same `SCustom_*`
-segment labels), so a wide/elevated camera view from any of their
-positions legitimately looks similar. `NCustom_fc97`'s screenshot did show
-a distinctly different angle (more of the yard, the turntable visible) -
-that difference is real, not a settle-delay artifact.
+Built, deployed, and ran a full live session (same recipe as before) to
+capture the new diagnostic. Result, read directly from `Player.log`:
 
-## Screenshots captured and reviewed this turn
+```
+[SpecialWorkSegmentClipSource] segment=SCustom_ttpp rail=DualL source=Ownership cuts=0.120-1.457,0.120-2.028,0.120-2.028
+[SpecialWorkSegmentClipSource] segment=SCustom_ttpp rail=DualM source=Ownership cuts=0.120-1.456,0.120-2.024,0.120-2.024
+[SpecialWorkSegmentClipSource] segment=SCustom_ttpp rail=DualR source=Ownership cuts=0.120-1.466,0.120-1.453,0.120-2.017,0.120-2.017,0.120-2.017,0.120-2.017
+```
 
-All viewed directly (not just checked for `Ok=true`):
+**All of `SCustom_ttpp`'s cuts on all three rails (`DualL`/`DualM`/`DualR`)
+come exclusively from `source=Ownership`.** Zero `GaugeSeparation` or
+`SharedRailFlip` entries. This fully resolves the ambiguity: the floating
+fragment isn't from gauge-separation frog synthesis or the dead
+shared-rail-flip path - it's a measured special-work node's `WorkInterval`
+(per `SpecialWorkHardwareRenderer.OwnershipCuts`, `src/SpecialWorkHardwareRenderer.cs:221-268`)
+claiming the first ~2m of this plain segment as its own rendering
+territory (only happens when `analysis.MeshPlan.IsValid == true` - this
+mechanism only fires for currently-valid measured plans).
 
-- `NCustom_fl15`, `NCustom_ltci` (x2, with and without settle delay - same
-  result both times): wide elevated view of the DeHart yard throat, several
-  parallel tracks converging, no obviously duplicated frog castings
-  distinguishable at this zoom/distance. Inconclusive on the "double frog"
-  question - the view is too wide/elevated to see individual frog geometry
-  clearly.
-- `NCustom_fc97`: a different, more zoomed-toward-yard-building angle,
-  showing the turntable and a loading dock. **Possible finding**: small
-  white curved fragments visible on/near the lower-middle parallel tracks
-  that look disconnected from the main rail lines - candidate visual match
-  for the reported defects, but still not a close-up; needs a tighter shot
-  or in-game confirmation to call this confirmed.
+**Not yet resolved, and the natural next step**: which specific neighboring
+measured node (`NCustom_fl15` or `NCustom_ltci` - both touch this segment
+per Codex's earlier authored-graph read) actually claims this ~2m
+ownership interval, and whether that node's own rendered pieces
+(`FixedRailPieces` etc.) actually cover the exact overlap - if they do,
+this is a correct plain-to-measured handoff, not a bug; if there's a gap
+between what's cut and what's rendered to replace it, that's the real
+defect. This requires cross-referencing `SCustom_ttpp`'s segment-relative
+cut distances against the claiming node's own route-relative
+`WorkInterval`/`FixedRailPieces` distances - a coordinate-system
+translation, not a quick read. Left for the next turn rather than rushed.
 
-None of these three screenshots provide a definitive yes/no on the
-"double frog" hypothesis from `reviews/plain-and-measured-visual-defect-findings-2026-07-06.md` -
-the camera's default elevated framing isn't tight enough to distinguish two
-close frog castings from one legitimate compound assembly. Improving camera
-framing (a closer default distance/angle in `NarrowGaugeTestBridge`, or a
-zoom parameter in the request) would help future turns more than repeating
-this same shot.
+## Cleanup confirmed (second live session this turn, same as the first)
 
-## Cleanup confirmed (by Claude, directly)
+`tasklist` shows no `Railroader.exe` process; `FUSE.TestBridge/Info.json`
+restored to `"Enabled": false`; `steam_appid.txt` removed; no leftover
+`test_request_claude*`/`test_result_claude*`/`ng_goto_*` files.
 
-- `tasklist` before and after: no `Railroader.exe` process left running.
-- `FUSE.TestBridge/Info.json`: confirmed `"Enabled": false` restored (read
-  directly).
-- `steam_appid.txt`: removed (confirmed via `ls` failure).
-- `ng_goto_request.json`/`ng_goto_result.json`/`ng_test_bridge_enabled`:
-  confirmed absent from the deployed `FUSE.NarrowGauge` folder.
-- Leftover `test_result_claude*.json` files (created directly by Claude's
-  requests, not auto-cleaned by the bridge's own `cleanup` verb, which only
-  removes test *saves*) were manually deleted from the `FUSE.TestBridge`
-  folder.
+## Standing rules (unchanged from last turn)
 
-## Standing rules (unchanged, plus one addition)
-
-- Do not trust `Player.log`/exports unless the session is confirmed fresh
-  AND the automated pipeline's own `mapLoaded`/heartbeat state confirms it.
-- Always restore `FUSE.TestBridge/Info.json` to `Enabled: false`, remove
-  `steam_appid.txt`, and remove any leftover `test_request_*`/`test_result_*`/
-  `ng_goto_*` files after an automated session - confirm each by reading/
-  listing, not assuming a cleanup step caught everything.
-- Do not force-kill Railroader; use `CloseMainWindow`/`umm close`.
-- New: wait several seconds after `ng_goto_result.json` appears before
-  requesting a screenshot - `JumpToPoint` is an async coroutine, not
-  synchronous.
-- New: don't assume two similar-looking screenshots mean stale camera
-  positioning - check whether the target nodes are actually near each other
-  on the map first (this yard cluster is genuinely dense).
+See previous entries - fresh-session verification, `Info.json`/
+`steam_appid.txt`/bridge-file cleanup, no force-kill, camera settle delay,
+don't assume similar screenshots mean stale camera without checking map
+proximity first.
 
 ## Next turn
 
-Whoever's turn (Claude or Codex, whichever is available - Codex is blocked
-until 1:52 PM today): either (a) improve `NarrowGaugeTestBridge`'s camera
-framing (closer/tighter default view) so double-frog and blade-orientation
-questions can actually be answered from a screenshot, or (b) continue the
-substantive investigation using what static/log data is available
-(`SCustom_ttpp`'s cut-source ambiguity is well-suited to a targeted logging
-diagnostic rather than a screenshot, per the original investigation file).
-Recommend (b) first since it doesn't need another live session, then (a) if
-still blocked on visual questions afterward.
+Whoever's turn (Codex should be unblocked by ~1:52 PM): trace which
+measured node (`fl15` or `ltci`) actually claims `SCustom_ttpp`'s ownership
+interval and whether its own rendered pieces cover the cut - this answers
+whether `SCustom_ttpp`'s fragment is a real bug or a correct handoff.
+Separately, the double-frog and blade-orientation visual questions still
+need either tighter camera framing in `NarrowGaugeTestBridge` or the user's
+own screenshots - the wide/elevated view proved inconclusive for both in
+this session's live tests.
 
 ## Open questions / blockers
 
-Codex blocked until 1:52 PM (usage limit). The "double frog" and
-"wrong-side blade" visual questions remain unresolved - screenshots
-gathered this turn were too wide/elevated to confirm or refute either.
-`SCustom_ttpp`'s cut-source ambiguity and the "too many rails" symptom are
-both still open and don't require a live session to make progress on.
+Which node claims `SCustom_ttpp`'s ownership interval, and whether its
+render actually covers the cut. The double-frog and blade-orientation
+visual questions remain open pending better camera framing or user
+screenshots. Codex blocked until ~1:52 PM.

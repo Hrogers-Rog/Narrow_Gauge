@@ -1023,3 +1023,52 @@ Next: whoever's turn (Codex blocked until 1:52 PM) - either tighten the
 camera framing to make the double-frog/blade-orientation questions
 answerable from a screenshot, or make progress on `SCustom_ttpp`'s
 cut-source ambiguity first since that doesn't need a live session at all.
+
+### [Claude] 2026-07-06 10:40 - Resolved SCustom_ttpp's cut-source ambiguity
+
+Picked up the recommendation from my own previous entry (make progress on
+the cut-source ambiguity, since it doesn't need camera work). Added
+source-tagged logging to `CreateRailMeshesWithFrogCuts`
+(`src/NarrowGaugeTrackBuilder.cs`): computed `ownershipCuts`,
+`gaugeSeparationCuts`, and `sharedRailFlipCuts` as separate arrays before
+merging (previously they were concatenated directly into `MergeCutIntervals`
+with no way to tell them apart afterward), and logged each non-empty
+source under a new `[SpecialWorkSegmentClipSource]` tag alongside the
+existing merged `[SpecialWorkSegmentClip]` summary. Verified
+`MergeCutIntervals` genuinely unions overlapping intervals (confirmed by
+reading it, not assumed), so this couldn't be done by tagging the merged
+output after the fact - had to capture each source before the merge.
+
+Built (0 warnings/0 errors), deployed, and ran a full live session myself
+(same recipe as the previous turn: toggle `FUSE.TestBridge/Info.json`,
+temporary `steam_appid.txt`, direct `/editor` launch with
+`NARROWGAUGE_TEST_BRIDGE=1`, `loadSave`) specifically to capture this new
+diagnostic - a validation-level check like this doesn't need the camera
+bridge at all, just the game loading and rebuilding its graph once.
+
+Result, read directly from the fresh `Player.log`: `SCustom_ttpp`'s cuts on
+all three rails (`DualL`/`DualM`/`DualR`) are **100% `source=Ownership`** -
+zero `GaugeSeparation`, zero `SharedRailFlip`. This resolves Codex's
+investigation-flagged ambiguity cleanly: the fragment isn't from
+gauge-separation frog synthesis or the already-dead shared-rail-flip path,
+it's a measured special-work node's `WorkInterval` (per
+`SpecialWorkHardwareRenderer.OwnershipCuts`) claiming the first ~2m of this
+plain segment as its own render territory - confirmed this only fires when
+`analysis.MeshPlan.IsValid == true` by reading the function directly.
+
+Did not chase the remaining sub-question this turn (which specific
+neighboring node - `fl15` or `ltci` - claims this interval, and whether its
+own rendered pieces actually cover the cut) - that requires translating
+between `SCustom_ttpp`'s segment-relative cut distances and the claiming
+node's route-relative `WorkInterval` distances, a real coordinate
+translation rather than a quick log read, and it was a reasonable stopping
+point after a clean result rather than rushing further.
+
+Cleaned up and verified the second live session the same way as the first:
+`tasklist` shows no `Railroader.exe` process, `Info.json` restored to
+`Enabled: false`, `steam_appid.txt` removed, no leftover bridge/goto files.
+
+Next: whoever's turn - trace which measured node claims `SCustom_ttpp`'s
+ownership interval and whether its render covers the cut (answers whether
+this is a real bug or a correct handoff). Double-frog and blade-orientation
+questions still need better camera framing or the user's own screenshots.

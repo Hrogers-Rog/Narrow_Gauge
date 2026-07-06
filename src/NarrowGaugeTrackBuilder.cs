@@ -2357,12 +2357,15 @@ namespace NarrowGaugeMod
             GameObject root)
         {
             LineCurve worldRail = localRail.Offset(segmentOffset);
+            (float Start, float End)[] ownershipCuts =
+                SpecialWorkHardwareRenderer.OwnershipCuts(worldRail, sourceSegment).ToArray();
+            (float Start, float End)[] gaugeSeparationCuts =
+                GaugeSeparationFrogCuts(worldRail, sourceSegment).ToArray();
+            (float Start, float End)[] sharedRailFlipCuts = objectName == "DualM"
+                ? SharedRailFlipMiddleCuts(worldRail, sourceSegment).ToArray()
+                : Array.Empty<(float Start, float End)>();
             (float Start, float End)[] cuts = MergeCutIntervals(
-                SpecialWorkHardwareRenderer.OwnershipCuts(worldRail, sourceSegment)
-                    .Concat(GaugeSeparationFrogCuts(worldRail, sourceSegment))
-                    .Concat(objectName == "DualM"
-                        ? SharedRailFlipMiddleCuts(worldRail, sourceSegment)
-                        : Enumerable.Empty<(float Start, float End)>()))
+                ownershipCuts.Concat(gaugeSeparationCuts).Concat(sharedRailFlipCuts))
                 .ToArray();
             if (cuts.Length == 0)
             {
@@ -2372,6 +2375,37 @@ namespace NarrowGaugeMod
                     objectName,
                     root);
                 return;
+            }
+
+            // [SpecialWorkSegmentClip] previously merged all three cut sources into one
+            // opaque interval list, making it impossible to tell from the log alone
+            // whether a given segment's clip came from measured-plan ownership,
+            // gauge-separation frog synthesis, or the (currently dead)
+            // shared-rail-flip path. Log each source's raw contribution alongside the
+            // merged result so a specific segment's cut source can be identified
+            // without re-deriving it from code every time.
+            if (ownershipCuts.Length > 0)
+            {
+                Main.Log(
+                    $"[SpecialWorkSegmentClipSource] segment={sourceSegment.id} rail={objectName} " +
+                    $"source=Ownership cuts=" +
+                    string.Join(",", ownershipCuts.Select(cut => $"{cut.Start:0.000}-{cut.End:0.000}")));
+            }
+
+            if (gaugeSeparationCuts.Length > 0)
+            {
+                Main.Log(
+                    $"[SpecialWorkSegmentClipSource] segment={sourceSegment.id} rail={objectName} " +
+                    $"source=GaugeSeparation cuts=" +
+                    string.Join(",", gaugeSeparationCuts.Select(cut => $"{cut.Start:0.000}-{cut.End:0.000}")));
+            }
+
+            if (sharedRailFlipCuts.Length > 0)
+            {
+                Main.Log(
+                    $"[SpecialWorkSegmentClipSource] segment={sourceSegment.id} rail={objectName} " +
+                    $"source=SharedRailFlip cuts=" +
+                    string.Join(",", sharedRailFlipCuts.Select(cut => $"{cut.Start:0.000}-{cut.End:0.000}")));
             }
 
             Main.Log(
