@@ -1224,3 +1224,140 @@ Next: Codex - investigate the `dkzn`/`p997` compound-vee-frog geometry and
 the `S4u5`/`N178`/`Nove` truth-table hand-selection question. Verify any
 fix with a close-up screenshot via the proven live-game pipeline before
 claiming either is resolved.
+
+### [Codex] 2026-07-06 15:45 - Investigated p997/dkzn and S4u5/Nove; found concrete leads but made no code fix
+
+Read `STATUS.md` in full and the recent `LOG.md` tail before starting. Also
+read the relevant code in `SpecialWorkHardwareRenderer.cs`,
+`SectionedSpecialWorkBuilder.cs`, and `SpecialWorkTruthTableValidator.cs`.
+
+Live pipeline used:
+
+- Ran deploy build:
+  `dotnet build .\NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+  - succeeded with 0 warnings / 0 errors and deployed the mod DLL.
+- Closed an existing `Railroader.exe` PID 42908 cleanly with
+  `CloseMainWindow`.
+- Set `C:\Steam\steamapps\common\Railroader\Mods\FUSE.TestBridge\Info.json`
+  to `"Enabled": true`.
+- Tried to create temporary
+  `C:\Steam\steamapps\common\Railroader\steam_appid.txt` containing
+  `1683150`, but PowerShell returned `Access denied`. Because approval is
+  unavailable, launched without that file but with
+  `NARROWGAUGE_TEST_BRIDGE=1`, `SteamAppId=1683150`, and
+  `SteamGameId=1683150` in the direct process environment.
+- Launched `Railroader.exe /editor` directly; process PID 19912.
+- Waited for `FUSE.TestBridge` heartbeat from PID 19912.
+- Sent `loadSave` for `2026-06-25`; result:
+  `Booting save '2026-06-25' from the main menu.`
+- Waited for `mapLoaded=true` and a fresh `Player.log` line:
+  `[FUSE.NarrowGauge] Special-work analysis: objects=14, invalid=0, elapsedMs=34149.`
+- Sent `umm` / `close`; result `UMM window closed.`
+- Used `ng_goto_request.json` for `NCustom_p997`; result:
+  `Jumped to 'NCustom_p997' at (302.72, 588.45, 292.87).`
+- Waited 6 seconds and captured screenshot with FUSE `screenshot` arg
+  `codex_p997`; result artifact:
+  `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex_p997.png`.
+  Viewed it directly. It is a real p997-area screenshot, but still
+  medium/wide rather than a close-up capable of proving any visual fix.
+
+One methodology caveat: the plan export files did not refresh in this live
+run. `special-work_NCustom_p997.txt`, `special-work_N178.txt`, and
+`special-work_Nove.txt` still had LastWriteTime `2026-07-06 12:08:40`. I
+used those exports only where the fresh `Player.log` matched the same
+frog/blade facts.
+
+Findings for `dkzn` / `NCustom_p997`:
+
+- Important correction: p997 is `dual.both-diverge`, so it does **not** call
+  `CreateCompoundVeeFrogAssembly`. In `AddAdditionalHardware`, compound vee
+  assemblies are only created for `IsDualStandardBranch(analysis)`.
+- Fresh log confirmed p997's relevant frogs:
+  - `v2-frog:0` `standard-normal:left` / `standard-reversed:right`, vee,
+    angle `11.12`, `cutHalf=0.819`, near `(1805.83,1305.94)`.
+  - `v2-frog:1` `standard-normal:left` / `narrow-reversed:left`, crossing,
+    angle `7.16`, `cutHalf=1.443`, near `(1804.08,1300.56)`.
+  - `v2-frog:2` `standard-reversed:right` / `narrow-normal:left`, vee,
+    angle `9.25`, `cutHalf=0.978`, near `(1805.41,1303.03)`.
+- The likely reason the user's close-up shows multiple distinct
+  disconnected/kinked fragments is overlapping generated hardware around
+  the crossing, not one clean gap:
+  - `CreateCrossingFrogAssembly` routes standard+narrow crossing frogs into
+    `BuildNarrowBranchStockHandoff`, producing a kinked
+    `ContinuousStockHandoff` even for this `dual.both-diverge` crossing.
+  - `BuildGuardRails` also calls `TryBuildLocalCrossingGuard` for crossing
+    frogs. The stale-but-matching p997 export shows this as `v2-guard:4`, a
+    2.888 m kinked guard on `narrow-reversed:left`, with endpoints
+    approximately `(1804.602,1301.908)` to `(1803.925,1299.120)`.
+  - `AddDualBothDivergeSupplementalGuards` adds `v2-guard:8`; in the export
+    it has exactly the same endpoints as `v2-guard:0`
+    `(1806.741,1304.676)` to `(1807.322,1306.381)`, so at least one guard is
+    duplicate geometry.
+- No p997 code fix made. The next useful patch target is the crossing
+  handoff/local crossing guard/supplemental guard interaction, not
+  `CreateCompoundVeeFrogAssembly`.
+
+Findings for `S4u5` / `N178` vs `Nove`:
+
+- Fresh `Player.log`: N178 selects `DualGauge_NarrowBranch_Left`.
+  Its stale export blade pairing is
+  `NarrowPointBlade stock=narrow-normal:right movable=narrow-reversed:right`
+  and
+  `NarrowStraightPointBlade stock=narrow-reversed:left movable=narrow-normal:left`,
+  which matches the user's "left-through/right-diverge" complaint.
+- Fresh `Player.log`: Nove selects `DualGauge_NarrowBranch_Right`.
+  Its stale export blade pairing is the mirror:
+  `NarrowPointBlade stock=narrow-normal:left movable=narrow-reversed:left`
+  and
+  `NarrowStraightPointBlade stock=narrow-reversed:right movable=narrow-normal:right`.
+- Found a real truth-table selector bug:
+  `SpecialWorkTruthTableCatalog.TryGet(..., intersections, ...)` matches a
+  selector against any `RailIntersection`, including zero-angle
+  `SharedOverlap`. `BuildBladeSpecs` uses this early intersection-based path
+  before frog acceptance/collapse. In N178, the
+  `DualGauge_NarrowBranch_Left` selector pair
+  `standard-through:left x narrow-reversed:right` exists only as a
+  `SharedOverlap` (`angle=0.000`), not as the accepted frog geometry.
+  That explains how S4u5 can pick a mirror blade table.
+- I did **not** patch this by simply filtering out `SharedOverlap`, because
+  for N178 that likely falls through rather than positively measuring the
+  correct hand, and because Nove already selects the table that matches the
+  user's expected S4u5 hand yet remains visually broken.
+- Found a separate Nove blade-geometry lead:
+  `NarrowPointBlade:closure` in the stale-but-matching Nove export is only
+  about 0.386 m long. `TryFindBladeDistances` starts from the switch point
+  as the blade tip, but when the blade extends toward lower curve distance
+  it returns `tip=endpoint` and `root=switchDistance` to preserve a sorted
+  interval. The renderer treats `BladeCurve.Head` as the point tip and
+  `Tail` as the pivot/root, so negative-direction blades can have semantic
+  tip/root swapped. The older `SpecialWorkGeometryBuilder` has an analogous
+  reverse-curve branch; the sectioned narrow-branch builder does not.
+- No S4u5/Nove code fix made. The next patch should separate truth-table
+  hand selection from negative-direction blade tip/root/closure semantics.
+
+After investigation I ran a plain build for sanity:
+`dotnet build .\NarrowGaugeMod.csproj` - succeeded with 0 warnings / 0
+errors.
+
+Cleanup performed and verified directly:
+
+- Sent one final FUSE `umm` / `close` request; result `UMM window closed.`
+- Closed `Railroader.exe` PID 19912 with `CloseMainWindow`; subsequent
+  `Get-Process Railroader` returned no process. An explicit `tasklist /FI
+  "IMAGENAME eq Railroader.exe"` check was attempted per procedure, but this
+  shell returned `ERROR: Access denied`; the PowerShell process check was the
+  direct verifier available in this environment.
+- Restored `FUSE.TestBridge/Info.json` and read it back showing
+  `"Enabled": false`.
+- Checked `C:\Steam\steamapps\common\Railroader\steam_appid.txt`:
+  `Test-Path` returned `False`.
+- Removed `test_request_*.json` / `test_result_*.json` from
+  `FUSE.TestBridge`; verified no matching files remain.
+- Removed `ng_goto_request.json`, `ng_goto_result.json`, and
+  `ng_test_bridge_enabled` from `FUSE.NarrowGauge`; verified no matching
+  files remain.
+
+Wrote detailed handoff notes to
+`AI_Coordination/reviews/p997-and-narrow-branch-hand-investigation-2026-07-06.md`
+and updated `STATUS.md`. No code files were changed and no visual fix is
+claimed.
