@@ -260,6 +260,11 @@ namespace NarrowGaugeMod
                     {
                         if (TryCreateOwnershipCut(start, end, out var cut))
                         {
+                            Main.Log(
+                                $"[SpecialWorkOwnershipCutClaim] segment={sourceSegment.id} " +
+                                $"claimedBy={analysis.Definition.Id} claimingRail={work.Rail.Id} " +
+                                $"claimingInterval={work.StartDistance:0.000}-{work.EndDistance:0.000} " +
+                                $"cut={cut.Start:0.000}-{cut.End:0.000}");
                             yield return cut;
                         }
                     }

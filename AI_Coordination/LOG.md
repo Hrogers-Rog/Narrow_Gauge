@@ -1072,3 +1072,50 @@ Next: whoever's turn - trace which measured node claims `SCustom_ttpp`'s
 ownership interval and whether its render covers the cut (answers whether
 this is a real bug or a correct handoff). Double-frog and blade-orientation
 questions still need better camera framing or the user's own screenshots.
+
+### [Claude] 2026-07-06 10:50 - Found the double-claim on SCustom_ttpp
+
+Followed my own previous entry's recommendation directly: added one more
+log line to `SpecialWorkHardwareRenderer.OwnershipCuts`
+(`src/SpecialWorkHardwareRenderer.cs:250-266`), right where
+`analysis.Definition.Id` was already in scope - no restructuring needed,
+just a `Main.Log` call at the existing cut-creation point, tagged
+`[SpecialWorkOwnershipCutClaim]` with the claiming node, rail, and interval.
+
+Built (0 warnings/0 errors), deployed, and ran a third full live session
+myself (same recipe: toggle `Info.json`, temporary `steam_appid.txt`,
+direct `/editor` launch with the env var, `loadSave 2026-06-25`) - each
+session this turn only took the specific new diagnostic I'd just added, so
+a fresh launch was needed each time rather than reusing a running one
+(consistent with the earlier finding that a running process never picks up
+a new deploy).
+
+Result, read directly from `Player.log`: **`NCustom_fl15` and
+`NCustom_ltci` both independently claim ownership of the same physical
+rails on `SCustom_ttpp`**, starting at the same distance (0.120) but with
+different extents - `fl15` claims roughly 1.45-1.47m, `ltci` claims roughly
+2.02-2.03m, across matching rail pairs (narrow-through/standard-reversed
+for `fl15`; narrow-normal/narrow-reversed/standard-normal/standard-reversed
+for `ltci`). Since `MergeCutIntervals` unions overlapping intervals
+(re-confirmed by reading it, not assumed), the actual rendered cut takes
+the larger extent - matching exactly the `ltci`-sized numbers
+(`0.120-2.028` etc.) seen in the earlier `[SpecialWorkSegmentClipSource]`
+result.
+
+This is now a concrete, testable hypothesis rather than an open ambiguity:
+if `fl15`'s own rendered replacement geometry only reaches its own smaller
+claimed interval (~1.45m) while the rail is cut all the way to `ltci`'s
+larger claim (~2.03m), there's a ~0.5-0.6m gap between where `fl15`'s
+render stops and where the cut rail actually ends - matching the size and
+shape of the floating-fragment symptom reported since the very start of
+this session. Documented as the specific next step (verify which node's
+render actually covers how much of the cut) rather than assumed-confirmed
+or guessed-fixed.
+
+Cleaned up and verified the third live session identically to the first
+two: `tasklist` shows no process, `Info.json` restored, `steam_appid.txt`
+removed, no leftover bridge files.
+
+Next: whoever's turn - verify whether `fl15`'s or `ltci`'s rendered pieces
+actually cover the full cut interval on `SCustom_ttpp`, which will confirm
+or refute this as the real bug behind that segment's reported fragment.
