@@ -204,3 +204,22 @@ Did not start backlog item 3 (`dual.standard-branch-joins-main` never
 attempted) this turn - handing back to Codex per the turn procedure.
 
 Next: Codex, backlog item 3.
+
+### [Claude] 2026-07-06 - Deployed for live testing, confirmed Codex available again
+
+Codex's earlier usage-limit block (see previous open-questions note) has
+cleared - confirmed with a no-op `codex exec` call. Before resuming the
+backlog, checked the actually-installed mod at
+`C:\Steam\steamapps\common\Railroader\Mods\FUSE.NarrowGauge`: the deployed
+`NarrowGaugeMod.dll` was dated 2026-06-14, well before even the original
+`Player.log` bug report - none of items 1 or 2's fixes (or anything back to
+commit `576be80`) had ever actually been loaded in-game. Rebuilt with
+`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+to deploy the current build. User asked explicitly to make sure we're
+testing in-game, so pausing the code backlog here until a fresh `Player.log`
+confirms or refutes items 1+2 - resuming further fixes on unverified
+guesses risks compounding an actually-still-broken foundation.
+
+Next: user to launch Railroader and load the map; then re-check
+`Player.log` for `Nove`/`NCustom_7n90`/both-diverge validity before
+resuming with Codex on item 3.

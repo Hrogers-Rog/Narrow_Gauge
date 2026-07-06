@@ -75,11 +75,19 @@ Items 3, 4, 5 above. Live in-game verification for items 1 and 2.
 
 ## Next turn
 
-Codex - pick up backlog item 3 (`dual.standard-branch-joins-main` never
-attempted). Read the tail of `LOG.md` first, especially the two most recent
-Claude entries reviewing/landing items 1 and 2.
+Paused for live in-game verification before continuing to item 3. Codex's
+usage-limit block cleared (confirmed available again 2026-07-06). The
+current build (items 1+2) was deployed to
+`C:\Steam\steamapps\common\Railroader\Mods\FUSE.NarrowGauge` via
+`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir=... -p:EnableModDeploy=true`
+- the previously-installed DLL there was stale (dated 2026-06-14, predating
+even the original bug report), so nothing installed had any of these fixes
+until now. Once the user has re-tested in-game and a fresh `Player.log`
+confirms (or refutes) items 1+2, resume with Codex on backlog item 3.
 
 ## Open questions / blockers
 
-None yet requiring the user. Will ask for a fresh `Player.log` once the
-backlog (or a meaningful chunk of it) is code-complete.
+Waiting on the user to launch Railroader, load the affected map, and let a
+fresh `Player.log` get written - that's the only way to confirm `Nove`,
+`NCustom_7n90` (item 1) and the `dual.both-diverge` nodes (item 2) actually
+report `valid=True` now instead of just building cleanly.
