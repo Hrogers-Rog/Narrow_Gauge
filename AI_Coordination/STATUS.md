@@ -1,85 +1,103 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-06
+Last updated by: Claude - 2026-07-06
 
-## Current phase: FUSE.TestBridge live-game harness proven, with launch caveats
+## Current phase: live-game automation verified working; camera control is the remaining gap
 
-This turn set up and exercised the sibling FUSE repo's `FUSE.TestBridge`
-against the live Railroader install. No NarrowGauge source was modified.
+Codex's `FUSE.TestBridge` harness turn (previous entry, kept below) was
+independently verified, not just trusted:
 
-## Confirmed working
+- Confirmed via `tasklist` that Railroader was not left running after the
+  session.
+- Confirmed the deployed `FUSE.TestBridge/Info.json` was actually restored to
+  `"Enabled": false` (read the file directly).
+- Viewed the captured screenshot directly
+  (`FUSE-test-shots/narrow-gauge-harness-20260706-0903.png`) - it's real: a
+  genuine in-game trackside view with World Labels on, showing actual
+  segment IDs (`SCustom_e6i0`, `fuse-ng:s:SCustom_47ab`, etc.), confirming
+  this was a real running session, not a fabricated report.
 
-- Built and deployed `FUSE.TestBridge` from
-  `C:\Hrogers_Railroader_mods_Projects\FUSE\FUSE.TestBridge` with:
-  `dotnet build FUSE.TestBridge.csproj -p:EnableTestBridgeDeploy=true -p:GameDir="C:\Steam\steamapps\common\Railroader"`.
-  Build/deploy completed with 0 warnings and 0 errors.
-- The runtime activation gate is exactly as documented in `Main.cs`: either
-  `FUSE_TEST_BRIDGE=1` or deployed `Info.json` `"Enabled": true`.
-- The successful launch path was: temporarily set the deployed
-  `C:\Steam\steamapps\common\Railroader\Mods\FUSE.TestBridge\Info.json`
-  to `"Enabled": true`, launch `Railroader.exe` normally, then restore the
-  deployed `Info.json` to `"Enabled": false` after shutdown.
-- The bridge reached `Connected` with fresh heartbeat from live PID `27828`
-  and `MapLoaded=false` at the main menu, then loaded the user's real save
-  by name:
-  - `saves` returned `2026-06-25_auto1` and `2026-06-25`
-  - `loadSave` with arg `2026-06-25` returned `Ok=true` and
-    `Booting save '2026-06-25' from the main menu.`
-- The save finished loading and settled:
-  - `test_state.json`: `mapLoaded=true`, `canApply=true`, fresh heartbeat
-  - `Player.log`: `[FUSE.NarrowGauge] Special-work analysis: objects=14, invalid=0, elapsedMs=34074.`
-- A `console` verb request for `/fuse.report json` returned `Ok=true` with
-  17,586 bytes of meaningful JSON text. Prefix summary:
-  `FUSE: 20 loaded | faults 1 | conflicts 0 | assets 29 | graph 2 | transfers 0 | suppressions 130 | orphans 0 | /fuse.report`.
-- `umm close` returned `Ok=true` / `UMM window closed.`
-- `screenshot` returned `Ok=true` and wrote:
-  `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\narrow-gauge-harness-20260706-0903.png`
-  (3,686,542 bytes). It captures the current in-game camera exactly as-is:
-  a trackside view with world labels and the top HUD. The protocol does not
-  expose camera positioning.
-- `cleanup` returned `Ok=true` / `Removed 0 test save(s).`
-- Railroader was closed cleanly with `CloseMainWindow`; no `Stop-Process`,
-  `taskkill`, or other forced termination was used for the successful run.
-- Final successful `Player.log` freshness check passed:
-  exactly one `Initialize engine version`, exactly one
-  `[FUSE.NarrowGauge] Version`, exactly one bridge-enabled line, exactly one
-  `Special-work analysis: objects=14`.
+**This means we now have real, working automation for validation-level
+testing**: build+deploy NarrowGaugeMod -> toggle TestBridge's `Info.json`
+`Enabled: true` -> launch Railroader normally (not `-batchmode`, that path
+doesn't work yet - see below) -> poll `test_state.json` for a fresh
+heartbeat -> `loadSave` the user's real save by name (`2026-06-25` or
+`2026-06-25_auto1`) -> wait for `mapLoaded=true` and/or
+`Special-work analysis: objects=14` in `Player.log` -> run `console` verb
+requests (e.g. `/fuse.report json`) for structured data -> close cleanly
+(`umm close` / `CloseMainWindow`, confirmed no force-kill needed) -> restore
+`Info.json` to `Enabled: false`. Either agent can now independently verify a
+fix's log/validation-level effect without the user launching anything.
 
-## What did not work / risks
+## The remaining gap: no camera control
 
-- A true Unity headless launch using `-batchmode -nographics` is not proven.
-  It wrote one bridge heartbeat from PID `21440`, then the heartbeat went
-  stale; a later `Railroader.exe -batchmode -nographics /editor` process had
-  no live bridge. It was closed by posting Windows close messages; no force
-  kill was needed.
-- Launching normally with only `$env:FUSE_TEST_BRIDGE='1'` also did not work
-  end-to-end. Railroader hands off to a second `Railroader.exe /editor`
-  process, and the final process did not inherit the environment variable:
-  `Player.log` showed `FUSE.TestBridge present but disabled`. That disabled
-  session was closed cleanly with `CloseMainWindow`.
-- `FUSE.TestCli` could not be used from this sandbox because `dotnet run`
-  failed reading `C:\Users\roger\AppData\Roaming\NuGet\NuGet.Config` with
-  access denied. Direct protocol JSON files worked and should be enough for a
-  NarrowGauge-local wrapper if needed.
-- Since the deployed `Info.json` was restored to `"Enabled": false`, future
-  automation should explicitly toggle it true before launch and false after
-  shutdown, or find a launch path where the environment variable reaches the
-  final `/editor` process.
-- The bridge can prove load/console/report/screenshot, but screenshot-based
-  visual regression still needs a camera-control strategy. Current screenshot
-  automation only captures whatever the game camera is already viewing.
+Checked the base game's decompiled console commands for a way to point the
+camera at a specific track node/switch before a `screenshot` request.
+Found `/tp <place>` (`Decompiled dlls base game/Assembly-CSharp/UI/Console/Commands/TeleportCommand.cs`) -
+but it only jumps to a predefined named `SpawnPoint` or follows an existing
+`Car` by name/ID. It does **not** accept arbitrary world coordinates or a
+track node ID. Searched FUSE's own console commands too (`FuseConsoleCommands.cs`) -
+nothing camera-related there either. So `screenshot` only ever captures
+whatever the camera happens to already be looking at (wherever the save's
+camera was last left) - it cannot yet target a specific switch like `Nove`
+or `SCustom_ttpp` on demand.
+
+To close this gap, the concrete option is to add a new debug console
+command to NarrowGaugeMod itself (we own this source) - e.g.
+`/ng.goto <nodeId>` that reads the node's world transform from the live
+graph and moves the camera there, mirroring what `/tp` does internally
+(`CameraSelector.shared.JumpToPoint(position, rotation, null)`). Not built
+yet - this is a real, scoped feature request, not a quick patch, and the
+user should decide whether it's worth building before more automated visual
+verification work happens.
+
+## What did not work (Codex's findings, still true)
+
+- True headless (`-batchmode -nographics`) launch does not reach a connected
+  bridge state yet - do not assume headless screenshot/console automation
+  is available. Normal graphical launch + temporary `Info.json` toggle is
+  the only proven path right now.
+- Environment-variable activation (`FUSE_TEST_BRIDGE=1`) does not propagate
+  to the actual game process (Railroader re-launches itself as a second
+  `/editor` process that doesn't inherit it) - the `Info.json` toggle is the
+  reliable activation method.
+- `FUSE.TestCli`'s own `dotnet run` path failed in this sandbox (NuGet.Config
+  permission issue) - direct JSON request/response files against the bridge
+  worked fine and are sufficient without it.
+
+## Standing rules (unchanged, now with one addition)
+
+- Do not trust `Player.log`/exports unless the session is confirmed fresh
+  AND the automated pipeline's own `mapLoaded`/heartbeat state confirms it,
+  not just file content.
+- Always restore `FUSE.TestBridge`'s `Info.json` to `Enabled: false` after
+  any automated session - confirm this by reading the file, not assuming a
+  cleanup step ran.
+- Do not force-kill Railroader; use `umm close`/`CloseMainWindow`. This
+  session proved a clean shutdown path exists - there's no excuse to skip it.
+- Screenshot automation currently only captures the existing camera view -
+  do not claim it verifies a *specific* switch unless the camera was
+  actually confirmed pointed at it.
 
 ## Next turn
 
-Claude can treat the live-game bridge pipeline as proven for normal graphics
-launches with temporary deployed-`Info.json` enablement. If continuing
-automation work, the next useful step is a small local harness script that
-toggles the bridge flag, launches the game, sends direct JSON requests, waits
-for readiness, captures screenshots/reports, closes the game, and restores
-the flag.
+Open question for the user: build the `/ng.goto <nodeId>` camera command (a
+real, scoped NarrowGaugeMod feature, not exploratory anymore) to get full
+automated visual verification of specific switches, or continue relying on
+the user's own screenshots for visual confirmation while using the now-proven
+automation for validation-level checks (build/deploy/launch/loadSave/report/close)?
+Once decided: if building the camera command, that's a Claude or Codex
+implementation turn like any other code change (build, verify, no in-game
+test needed beyond the automation we now have). If not, resume investigating
+the still-open symptoms (Nove's blade orientation, `SCustom_ttpp`'s
+cut-source ambiguity, double-frog mapping, "too many rails") using the
+automated pipeline for log-level checks and the user's screenshots for
+visual ones.
 
 ## Open questions / blockers
 
-- True `-batchmode -nographics` operation is not working yet; do not assume
-  headless screenshots or headless request processing are available.
-- Camera positioning is not exposed by the current bridge protocol.
+Waiting on the user's decision: build the camera-goto command, or proceed
+without it. Also still open from before: Nove's blade-orientation symptom
+(unresolved, needs either a screenshot after camera control exists or the
+user's continued manual testing), `SCustom_ttpp` cut-source ambiguity,
+double-frog mapping, unmapped "too many rails" symptom.

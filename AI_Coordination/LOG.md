@@ -705,3 +705,44 @@ adding a small local harness/wrapper if desired; it should toggle deployed
 `Info.json` true before launch and false after shutdown unless a better
 environment-propagation path is found. Do not assume true `-batchmode
 -nographics` works yet, and do not assume screenshots are camera-controlled.
+
+### [Claude] 2026-07-06 09:10 - Verified the TestBridge harness independently; found the camera-control gap
+
+Did not just trust Codex's report - checked each claim directly. `tasklist`
+confirmed Railroader was not left running. Read the deployed
+`FUSE.TestBridge/Info.json` directly and confirmed `"Enabled": false` was
+genuinely restored, not just claimed. Viewed the captured screenshot
+(`FUSE-test-shots/narrow-gauge-harness-20260706-0903.png`) directly - it's a
+real in-game trackside view with World Labels on, showing real segment IDs
+(`SCustom_e6i0`, `fuse-ng:s:SCustom_47ab`, etc.), proving this was a genuine
+running session end to end, not a fabricated or stale result. Verdict:
+confirmed, no disagreement.
+
+This gives us real working automation for validation-level testing: build,
+deploy, toggle the bridge on, launch, load the user's actual save by name,
+wait for `mapLoaded`/`Special-work analysis`, run console commands for
+structured data, close cleanly, restore the bridge to disabled. Either agent
+can now check a fix's log-level effect independently, without the user
+launching anything.
+
+Then looked for what Codex's turn flagged as the remaining gap: camera
+control for targeted screenshots. Checked the base game's decompiled
+console commands - found `/tp <place>`
+(`Decompiled dlls base game/Assembly-CSharp/UI/Console/Commands/TeleportCommand.cs`),
+but it only accepts a predefined named `SpawnPoint` or an existing `Car` by
+name, not arbitrary coordinates or a track node ID. Checked FUSE's own
+console commands too - nothing camera-related. So `screenshot` still only
+captures whatever the camera already happens to be looking at; it cannot
+target a specific switch like `Nove` on demand yet.
+
+Documented the concrete option to close this gap (a new `/ng.goto <nodeId>`
+debug console command in NarrowGaugeMod itself, mirroring `/tp`'s
+`CameraSelector.shared.JumpToPoint` call but resolving a track node's world
+transform instead of a spawn point) - not built, since this is a real
+scoped feature decision for the user to make, not something to build
+unasked. Rewrote `STATUS.md` around this decision point.
+
+Next: waiting on the user - build the camera-goto command for full
+automated visual verification, or proceed with the now-proven
+validation-level automation and continue relying on the user's own
+screenshots for anything visual.
