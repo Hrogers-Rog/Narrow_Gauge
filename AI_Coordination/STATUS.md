@@ -1,138 +1,87 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-06
+Last updated by: Claude - 2026-07-06
 
-## Current phase: investigation findings, no visual fix claimed
+## Current phase: fixed the negative-direction blade tip/root swap (Nove's likely root cause); verifying live
 
-This turn investigated the two scoped leads and did **not** make a code fix.
-That is intentional: both leads produced concrete root-cause candidates, but
-neither is safe to patch and call fixed without a targeted close-up screenshot.
+Reviewed Codex's investigation turn (found real, specific bugs, correctly
+did not claim a fix without proof - good discipline). Verified its most
+concrete finding directly by reading the code myself, not just trusting
+the write-up, and fixed it.
 
-Standing rule still applies: `valid=True`, a passing build, and a wide/medium
-screenshot are not proof of a visual fix. Only a close-up screenshot showing
-the previously broken geometry now correct, or the user's confirmation, counts.
+## Fixed: negative-direction blade tip/root swap
 
-## What Codex found this turn
+`TryFindBladeDistances` (`src/SectionedSpecialWorkBuilder.cs` ~3507) always
+returns `(tip, root)` numerically sorted ascending (`root - tip >=
+MinimumPieceLength` is enforced) - needed for interval bookkeeping (cuts,
+closures). But the *physical* blade tip is always at the switch throat
+(`switchDist`/`tipDistance`, where `switchNode.transform.localPosition` is)
+regardless of which direction the blade extends. When a blade extends
+*backward* (toward decreasing curve distance - confirmed this happens for
+`Nove`, per Codex's stale-export finding of an oddly short
+`NarrowPointBlade:closure`), the smaller sorted value ("tip") is actually
+the physical root/heel, and the larger sorted value ("root", == switchDist)
+is actually the physical tip.
 
-### `dkzn` / `NCustom_p997`
+Both call sites (`BuildDualNarrowBranchBlades` ~452-479, and
+`TryBuildMeasuredDualSplitBlade` ~581-598) built `BladeCurve` via a plain
+ascending `Slice(movable.Curve, tip, root)`, which for backward-extending
+blades put the physical *root* at `BladeCurve.Head` and the physical *tip*
+at `BladeCurve.Tail` - exactly backward from what
+`CalculateBladeOpenRotation`/`CreatePointBlade`
+(`src/SpecialWorkHardwareRenderer.cs`) assume (`Head`=tip, `Tail`=root/pivot).
+This means the rotation math that's supposed to swing the free tip away
+from the stock rail was operating on the wrong end - a strong, well-reasoned
+match for "the blade running into the switch instead of away from it."
 
-Live run rebuilt the special-work analysis (`objects=14, invalid=0`) and
-confirmed `SCustom_dkzn` is claimed only by `NCustom_p997`. The automated
-camera/goto/screenshot path worked, but the screenshot
-`C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex_p997.png`
-is still a medium/wide view, not a close-up suitable for proving a fix.
+**Fix**: reverse the sliced curve for backward-extending blades
+(`bladeExtendsForward` already computed and available at both call sites)
+so `Head`/`Tail` land on the correct physical ends regardless of numeric
+sort direction. Confirmed `LineCurve.Reverse()` exists
+(`Decompiled dlls base game/Core/LineCurve.cs`) rather than assumed. Did
+not touch the numeric `tip`/`root` fields themselves (`TipDistance`/
+`RootDistance` on `SwitchBladePlan`) since other code (cut/suppression
+intervals) correctly doesn't care about direction, only extent - keeping
+that minimal rather than restructuring more than needed.
 
-Important correction to the prior framing: `NCustom_p997` is
-`dual.both-diverge`, so it does **not** call
-`CreateCompoundVeeFrogAssembly`. In `AddAdditionalHardware`, compound vee
-assemblies are only used when `IsDualStandardBranch(analysis)` is true.
-`p997` renders three independent frog assemblies instead:
+Built (0 warnings/0 errors), deployed. **Live verification in progress** -
+about to get a close-up screenshot of `Nove`'s blade specifically via the
+proven `NarrowGaugeTestBridge` pipeline. Per the standing rule, will not
+report this as fixed until that close-up actually shows the blade opening
+away from the switch instead of into it.
 
-- `v2-frog:0` `standard-normal:left` / `standard-reversed:right`, vee, near
-  `(1805.83, 1305.94)`.
-- `v2-frog:1` `standard-normal:left` / `narrow-reversed:left`, crossing, near
-  `(1804.08, 1300.56)`.
-- `v2-frog:2` `standard-reversed:right` / `narrow-normal:left`, vee, near
-  `(1805.41, 1303.03)`.
+## Did not touch this turn (per Codex's findings, still open)
 
-The likely explanation for the user's "multiple fragments" close-up is that
-several hardware systems are overlapping around the crossing, not that one
-clean frog gap is wrong:
+- `dkzn`/`NCustom_p997`'s overlapping hardware (crossing handoff, local
+  crossing guard, duplicated supplemental guard `v2-guard:8`/`v2-guard:0`) -
+  Codex correctly flagged this needs careful interaction analysis, not a
+  quick patch. Still open.
+- The truth-table selector matching on `SharedOverlap` (zero-angle, not a
+  real frog/crossing) instead of measured geometry - Codex flagged this
+  isn't safe to patch without more work (risk of "falls through" for N178).
+  Still open. Note: this is a *separate* bug from the one just fixed - even
+  if `N178` is selecting a technically-valid-but-wrong-for-this-geometry
+  truth table, `Nove`'s blade issue was a distinct geometry-construction bug
+  regardless of which table it selected.
 
-- `CreateCrossingFrogAssembly` treats any standard+narrow crossing frog as a
-  narrow-branch crossing and renders one `ContinuousStockHandoff` kinked
-  curve via `BuildNarrowBranchStockHandoff`.
-- `BuildGuardRails` adds the normal guards for the crossing frog and also
-  `TryBuildLocalCrossingGuard`; in the stale-but-log-matching p997 export,
-  this is `v2-guard:4`, a 2.888 m kinked guard on `narrow-reversed:left`
-  running through the same local area.
-- `AddDualBothDivergeSupplementalGuards` also adds `v2-guard:8`; in the
-  export it has the same endpoints as `v2-guard:0`, so p997 has at least one
-  duplicated guard geometry.
+## Standing rule (still in force)
 
-No p997 code fix was made. The next patch target should be the crossing
-handoff/local-crossing-guard/supplemental-guard interaction, not
-`CreateCompoundVeeFrogAssembly`.
-
-### `S4u5` / `N178` vs `Nove`
-
-`N178`/`S4u5` and `Nove` are both `dual.narrow-branch-joins-main`, but they
-select opposite truth tables:
-
-- `N178`: `DualGauge_NarrowBranch_Left`, yielding the user-reported wrong
-  pairing: left-through/right-diverge.
-- `Nove`: `DualGauge_NarrowBranch_Right`, yielding the mirror pairing:
-  left-diverge/right-through.
-
-There is a real selector bug: `SpecialWorkTruthTableCatalog.TryGet(...,
-intersections, ...)` currently matches a truth-table selector against **any**
-intersection between the two rails, including zero-angle `SharedOverlap`.
-`BuildBladeSpecs` uses this early intersection-based path before frogs are
-accepted/collapsed. In N178's plan data, the `DualGauge_NarrowBranch_Left`
-selector matches `standard-through:left x narrow-reversed:right` only as a
-`SharedOverlap` (`angle=0.000`), while the accepted vee frog is a different
-measured geometry that later gets rehomed. That explains how S4u5 can pick
-the mirror blade table.
-
-However, simply filtering selector matches to accepted frog/crossing
-intersections is not a complete confident fix: for N178 it appears likely to
-fall through rather than positively measure the correct hand. Also, `Nove`
-already selects the table that matches the user's expected S4u5 hand, yet the
-user has twice confirmed Nove still has a blade running into the switch.
-
-Nove has a second, separate-looking problem in the blade geometry itself. Its
-stale-but-log-matching export shows `NarrowPointBlade:closure` only about
-0.386 m long. Reading `TryFindBladeDistances` found why this can happen:
-the function starts from the switch point as the blade tip, but when the
-blade extends toward lower curve distance it returns `tip=endpoint` and
-`root=switchDistance` to preserve a sorted interval. The renderer treats
-`BladeCurve.Head` as the tip and `Tail` as the pivot/root, so negative-
-direction blades can have their semantic tip/root swapped. The older
-`SpecialWorkGeometryBuilder` code handled the analogous case by reversing
-the blade/closure curves; the sectioned narrow-branch builder does not.
-
-No S4u5/Nove code fix was made. The next patch should separate the two
-issues: make truth-table hand selection measure real frog/crossing geometry,
-then fix negative-direction blade tip/root/closure semantics and verify Nove
-with a close-up screenshot.
-
-## Confirmed reference from earlier this session
-
-- Item 1 (split-standard-narrow zero blades, Codex) - reviewed, agreed.
-- Item 2 (both-diverge SharedDuplicate suppression, Claude) - reviewed,
-  agreed, but not close-up visually proven.
-- Narrow-branch rendering gaps (frog rehoming, stock-rail selection, blade
-  endpoint reservation, Codex two turns) - reviewed, agreed.
-- Plain-pipeline `aThirdRails.right` hardcode (Claude) - reviewed, agreed,
-  but confirmed this does not touch `Nove`.
-- `NarrowGaugeTestBridge` camera-goto tool + diagnostics are working.
-- `SCustom_ttpp` double-claim (`fl15` + `ltci`) found, not fixed.
+Do not claim `Nove` is fixed until a close-up screenshot actually shows it.
+Log validation and medium-distance screenshots are not proof.
 
 ## Next turn
 
-Claude or Codex:
+Verify the blade fix live (in progress - close-up screenshot of Nove).
+If confirmed: check whether it also helps `S4u5`/`N178` (same bug class,
+different node) with its own close-up. If refuted: re-open the
+investigation, the bug may be more subtle than diagnosed (e.g. wrong-side
+still visible even with correct Head/Tail, pointing at the separate
+truth-table selector issue instead/also).
 
-1. For `p997`/`dkzn`, do not chase compound-vee code first. Investigate and
-   patch the interaction among `CreateCrossingFrogAssembly`,
-   `BuildNarrowBranchStockHandoff`, `TryBuildLocalCrossingGuard`, and
-   `AddDualBothDivergeSupplementalGuards` for `dual.both-diverge`. A likely
-   first safety patch is to prevent the local crossing guard or duplicated
-   supplemental guard from being generated where it overlaps existing frog
-   hardware, but verify geometrically before editing.
-2. For `S4u5`/`Nove`, split the work:
-   - Fix truth-table hand selection so `SharedOverlap` cannot select a hand
-     as if it were measured frog geometry.
-   - Then handle negative-direction blade tip/root/closure semantics so a
-     narrow-branch blade that extends toward lower curve distance still has
-     `BladeCurve.Head` at the switch tip and `Tail` at the pivot/root.
-3. Any fix needs a fresh build/deploy, live load of `2026-06-25`, and a
-   close-up screenshot of the exact previously broken area before reporting
-   it as fixed.
+Then resume `dkzn`/`p997`'s overlapping-hardware investigation per Codex's
+scoped next steps.
 
-## Live-session cleanup status
+## Open questions / blockers
 
-Codex cleaned up directly this turn: Railroader closed cleanly via
-`umm close` and `CloseMainWindow`; `FUSE.TestBridge/Info.json` read back as
-`Enabled:false`; `steam_appid.txt` is absent; `test_request_*.json`,
-`test_result_*.json`, `ng_goto_request.json`, `ng_goto_result.json`, and
-`ng_test_bridge_enabled` are removed.
+Whether the blade tip/root fix actually resolves Nove's visual symptom -
+close-up verification in progress.

@@ -1361,3 +1361,50 @@ Wrote detailed handoff notes to
 `AI_Coordination/reviews/p997-and-narrow-branch-hand-investigation-2026-07-06.md`
 and updated `STATUS.md`. No code files were changed and no visual fix is
 claimed.
+
+### [Claude] 2026-07-06 15:45 - Fixed the negative-direction blade tip/root swap
+
+Reviewed Codex's investigation turn - good discipline, found real specific
+bugs and correctly declined to claim a fix without proof. Verified its most
+concrete finding by reading the code myself rather than trusting the
+write-up: `TryFindBladeDistances` (`src/SectionedSpecialWorkBuilder.cs`
+~3507) always returns `(tip, root)` sorted numerically ascending (needed
+for interval bookkeeping), but the *physical* blade tip is always at the
+switch throat regardless of which direction the blade extends. For
+backward-extending blades (confirmed this is `Nove`'s case, per Codex's
+finding of an oddly-short `NarrowPointBlade:closure` in its stale export),
+the smaller sorted value is actually the physical root/heel and the larger
+one is the physical tip - opposite of the numeric labels.
+
+Both call sites that build `BladeCurve` from these values
+(`BuildDualNarrowBranchBlades` and `TryBuildMeasuredDualSplitBlade`) sliced
+straight from `tip` to `root` ascending, which for backward-extending
+blades puts the physical root at `BladeCurve.Head` and the physical tip at
+`BladeCurve.Tail` - exactly backward from what
+`CalculateBladeOpenRotation`/`CreatePointBlade` assume. This is a
+confident, well-reasoned match for "blade running into the switch instead
+of away from it."
+
+Fixed both call sites: reverse the sliced curve for backward-extending
+blades (using the already-computed `bladeExtendsForward` flag at each site)
+so `Head`/`Tail` land on the correct physical ends regardless of numeric
+sort direction. Confirmed `LineCurve.Reverse()` is a real method
+(`Decompiled dlls base game/Core/LineCurve.cs`) before using it, not
+assumed. Left the numeric `TipDistance`/`RootDistance` fields alone - other
+consumers (cut/suppression intervals) only care about extent, not
+direction, so touching those would have been unnecessary scope.
+
+Built (0 warnings/0 errors), deployed. Live verification in progress - not
+yet claiming this is fixed until a close-up screenshot of Nove's blade
+specifically confirms it, per the standing rule reinforced twice already
+this session.
+
+Did not touch `dkzn`/`p997`'s overlapping-hardware issue or the
+truth-table `SharedOverlap` selector bug this turn - both still open per
+Codex's findings, and are separate from the bug just fixed (even if a
+switch selects a technically-valid-but-wrong-for-its-geometry truth table,
+the blade curve direction bug would still exist independently).
+
+Next: verify live with a close-up of Nove. If confirmed, check S4u5/N178
+too (same bug class). If not, the symptom may need the truth-table selector
+issue addressed as well/instead.

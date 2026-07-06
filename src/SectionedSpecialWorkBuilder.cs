@@ -467,6 +467,24 @@ namespace NarrowGaugeMod
                     ? Slice(movable.Curve, root, movable.Curve.Length)
                     : Slice(movable.Curve, 0f, tip);
 
+                // TryFindBladeDistances always returns (tip, root) sorted ascending
+                // for interval bookkeeping, but the physical blade tip is always at
+                // the switch throat (switchDist) - which of the two sorted values
+                // that is depends on which direction the blade extends. When it
+                // extends backward (!bladeExtendsForward), the smaller value ("tip")
+                // is actually the physical root/heel and the larger value ("root",
+                // == switchDist) is the physical tip. Slicing straight from tip to
+                // root would then put the physical root at BladeCurve.Head and the
+                // physical tip at BladeCurve.Tail - backward from what
+                // CalculateBladeOpenRotation/CreatePointBlade assume (Head=tip,
+                // Tail=root/pivot) - producing exactly a blade that visually opens
+                // toward the switch instead of away from it. Reverse the slice for
+                // backward-extending blades so Head/Tail land on the correct
+                // physical ends regardless of numeric direction.
+                LineCurve bladeCurve = bladeExtendsForward
+                    ? Slice(movable.Curve, tip, root)
+                    : Slice(movable.Curve, tip, root).Reverse();
+
                 yield return new SwitchBladePlan(
                     "v2-blade:" + spec.Label,
                     switchNode?.id,
@@ -475,7 +493,7 @@ namespace NarrowGaugeMod
                     movable,
                     tip,
                     root,
-                    Slice(movable.Curve, tip, root),
+                    bladeCurve,
                     closureCurve);
                 yieldedAny = true;
             }
@@ -585,6 +603,14 @@ namespace NarrowGaugeMod
                 ? Slice(selected.MovableRail.Curve, selected.RootDistance, selected.MovableRail.Curve.Length)
                 : Slice(selected.MovableRail.Curve, 0f, selected.TipDistance);
 
+            // Same physical-tip/root vs. numeric-sorted-tip/root mismatch as the
+            // narrow-branch blade builder above - reverse the slice for
+            // backward-extending blades so BladeCurve.Head/Tail land on the
+            // physical tip/root regardless of numeric direction.
+            LineCurve bladeCurve = bladeExtendsForward
+                ? Slice(selected.MovableRail.Curve, selected.TipDistance, selected.RootDistance)
+                : Slice(selected.MovableRail.Curve, selected.TipDistance, selected.RootDistance).Reverse();
+
             string sideId = selected.Side.ToString().ToLowerInvariant();
             blade = new SwitchBladePlan(
                 "v2-blade:gauge-separation:" + sideId,
@@ -594,7 +620,7 @@ namespace NarrowGaugeMod
                 selected.MovableRail,
                 selected.TipDistance,
                 selected.RootDistance,
-                Slice(selected.MovableRail.Curve, selected.TipDistance, selected.RootDistance),
+                bladeCurve,
                 closureCurve);
             Main.Log(
                 $"[BladeSpecs] Measured dual split blade movable={selected.MovableRail.Id} " +
