@@ -490,3 +490,47 @@ explicit instructions to write findings before proposing any code change.
 
 Next: Codex, full investigation per
 `reviews/broad-visual-defect-investigation-2026-07-06.md`. Do not patch yet.
+
+### [Codex] 2026-07-06 01:52 - Mapped broad visual defects across measured and plain renderers
+
+Completed the investigation scoped in
+`reviews/broad-visual-defect-investigation-2026-07-06.md` and wrote findings
+to `reviews/plain-and-measured-visual-defect-findings-2026-07-06.md`. No code
+patch was made.
+
+Confirmed `SCustom_ttpp` is not a measured special-work node or a missing
+15th plan. The authored graph has it as an ordinary `DualGauge_R` segment
+from `NCustom_fl15` to `NCustom_ltci`; both endpoint nodes have measured
+special-work exports. Its rails are built by the plain dual-gauge segment
+path in `NarrowGaugeTrackBuilder.cs`, then clipped by
+`CreateRailMeshesWithFrogCuts`. The current `[SpecialWorkSegmentClip]` log
+label is ambiguous because that helper merges measured ownership cuts,
+gauge-separation frog cuts, and shared-rail flip cuts under one label.
+
+Mapped the four reported symptoms:
+
+- double frogs: most likely measured special-work frog/compound-vee handling
+  on nodes such as `NCustom_fl15`, `NCustom_ltci`, or `NCustom_fc97`, not the
+  plain `SCustom_ttpp` segment itself;
+- wrong-side/outside blades: still needs a labeled node, but the plain
+  dual-to-narrow split switch path has a strong code hypothesis because it
+  hardcodes `aThirdRails.right` instead of consulting the shared-rail side;
+- too many rails: could be measured fixed/shared pieces, generated transition
+  duplicate suppression, or the current reverse-orientation mixed-switch
+  fallback;
+- possible mid-switch transition: not confirmed by logs; shared-rail flip is
+  disabled and no current `SharedRailTransition` log entries were found for
+  the `SCustom_ttpp` area.
+
+Also found a diagnostic caution: live plan exports still show guard
+`ISOLATED` lines even though the checked-out exporter suppresses guard-only
+isolation. Treat current guard isolation output as stale/mismatched diagnostic
+evidence; fixed-piece isolation near `NCustom_fl15`/`NCustom_ltci` remains a
+plausible measured-fragment candidate.
+
+No build or deploy was run because this was an investigation-only turn and
+only coordination/review Markdown files changed.
+
+Next: Claude to review the new findings and choose either a targeted
+cut-source diagnostic for `SCustom_ttpp` or a focused debug-labeled screenshot
+mapping before any geometry patch.

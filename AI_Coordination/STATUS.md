@@ -1,89 +1,87 @@
 # Coordination Status
 
-Last updated by: Claude - 2026-07-06
+Last updated by: Codex - 2026-07-06
 
-## Current phase: broad investigation (defects span more than one system)
+## Current phase: broad visual-defect investigation findings ready for review
 
-This session's targeted fixes (split-standard-narrow zero blades, both-diverge
-`SharedDuplicate` suppression, narrow-branch rendering gaps) all landed,
-reviewed, and re-tested `valid=True`. The user kept testing in-game with
-debug labels on and sent more screenshots. Their direct report:
+Codex completed the investigation scoped by
+`reviews/broad-visual-defect-investigation-2026-07-06.md`. Findings are in:
 
-> "Still a lot of the same issues with double frogs, blades being on the
-> outside or wrong side of the rail, and oddness where it seems there is too
-> many rails or even maybe a transition in the middle of a switch."
+`reviews/plain-and-measured-visual-defect-findings-2026-07-06.md`
 
-That's four distinct failure modes, not a continuation of the two checks
-already fixed. Worse: one flagged fragment (`SCustom_ttpp`, debug-labeled in
-a screenshot) **is not part of any of the 14 measured special-work plans at
-all** - confirmed via `grep -rl "ttpp" NarrowGauge/SpecialWorkPlans/*.txt`
-(no match) and `Player.log` (only ordinary
-`SpecialWorkSegmentClip`/`SpecialWorkTieClip` entries, ordinary dual-gauge
-segment, not measured-plan membership). This means the bug surface spans at
-least two separate systems:
+No code patch was made this turn.
 
-1. `SectionedSpecialWorkBuilder.cs` + `SpecialWorkTruthTableValidator.cs`
-   (the measured special-work system this session has been fixing, and
-   where `GeometryContinuity`'s new diagnostic applies).
-2. The plain dual/narrow-gauge pipeline (`NarrowGaugeTrackBuilder.cs`,
-   `NarrowGaugeSwitchGeometry.cs`) that renders every other dual-gauge
-   segment and plain narrow switch - **no diagnostic tooling exists for this
-   at all**, and no confirmed root cause yet.
+## Main findings
 
-Full scope, the four symptoms broken down, and a suggested investigation
-approach: `reviews/broad-visual-defect-investigation-2026-07-06.md`. Per
-user instruction: stop reacting to individual screenshots, do a real
-investigation before patching further.
+- `SCustom_ttpp` is confirmed as an ordinary authored `DualGauge_R` segment,
+  not a measured special-work node and not a missing 15th plan. In the
+  authored graph it runs from `NCustom_fl15` to `NCustom_ltci`; both endpoint
+  nodes have measured special-work exports. Its rails are built by the plain
+  dual-gauge segment path in `NarrowGaugeTrackBuilder.cs`, then clipped by
+  `CreateRailMeshesWithFrogCuts`.
+- The `SCustom_ttpp` clip logs are real, but their source is ambiguous:
+  `CreateRailMeshesWithFrogCuts` merges measured ownership cuts,
+  gauge-separation frog cuts, and possible shared-rail flip cuts under one
+  `[SpecialWorkSegmentClip]` log label. A narrow diagnostic that logs cut
+  source by interval is the next useful step for this specific segment.
+- The plain dual/narrow switch pipeline has at least one strong code
+  hypothesis for wrong-side blades: `CreateDualGaugeNarrowSplitSwitchRailObjects`
+  hardcodes `aThirdRails.right` when resolving the dual middle rail, while the
+  normal dual-gauge segment/gauge-separation code consults
+  `DualGaugeSharedRailRegistry.SharesRightRail`. Do not patch this until a
+  labeled failing switch is tied to this path.
+- Double frogs currently map more strongly to measured special-work rendering
+  than to `SCustom_ttpp`. Relevant nodes include `NCustom_fl15`,
+  `NCustom_ltci`, and `NCustom_fc97`, all of which render three frogs in the
+  current logs. The likely code area is frog candidate collapse and compound
+  vee rendering, but the specific screenshot node is still needed before
+  changing tolerances or suppressions.
+- "Too many rails" may be measured-plan extra fixed/shared pieces, generated
+  transition-switch duplicate suppression misses, or the current plain
+  mixed-switch fallback for `aNarrowOnly && bDual`. The symptom is not mapped
+  to a single code path yet.
+- The possible "transition in the middle of a switch" is not confirmed by the
+  current logs. `TryResolveSharedRailFlip` is disabled, and no current
+  `SharedRailTransition` log entries were found around `SCustom_ttpp`.
 
-## What's actually landed and confirmed so far (don't re-litigate these)
+## Diagnostic caution
 
-- `dual.split-standard-narrow` zero-blade fix (Codex, reviewed by Claude).
-- `dual.both-diverge` `SharedDuplicate` suppression fix (Claude).
-- Narrow-branch rendering-gap fix: frog rehoming off shared-duplicate rails,
-  duplicate-frog collapse, correct diverging-stock-rail selection, blade-root
-  endpoint reservation, two validation checks restored to hard failures
-  (Codex, two turns, both reviewed by Claude).
-- `GeometryContinuity`/`PieceEndpoints` diagnostic sections added to the
-  per-switch `.txt` export (Claude), then corrected after a real coverage
-  gap was found (`FrogPieces` wasn't included; `Guard` pieces were falsely
-  flagged since they're built free-standing by design, not joined to
-  anything - see `BuildGuardRails`/`GuardLeadLength`/`GuardTrailLength`).
-  This diagnostic is scoped to the measured special-work system only - it
-  does not (and should not yet) cover the plain pipeline.
-- All four rounds independently rebuilt+deployed with
-  `-p:EnableModDeploy=true` by whoever made the change, not just trusted
-  from a report.
+Live plan exports still show `ISOLATED: v2-guard:*` lines, but the checked-out
+`SpecialWorkPlanExporter.cs` source now suppresses guard-only isolated
+verdicts. Treat guard isolation lines in the current live exports as stale or
+diagnostic-mismatch evidence, not confirmed geometry defects. Fixed-piece
+isolation lines near `NCustom_fl15` and `NCustom_ltci` remain plausible visual
+fragment candidates.
 
 ## Standing rules
 
 - Do not trust `Player.log` `valid=True` as proof anything is visually
-  correct - it only covers the 14 measured special-work nodes, and even
-  there only checks what it's coded to check.
-- Do not "fix" a validator gap by relaxing it further - fix the geometry, or
-  restore a check to a hard failure once actually fixed.
-- Do not patch symptom-by-symptom from screenshot descriptions. Investigate
-  which system + which specific node a symptom belongs to first (per
-  `00_PROJECT_CONSTITUTION.md`'s Process section), write findings to
-  `reviews/*.md`, then fix.
+  correct.
+- Do not relax validation to hide geometry defects.
+- Do not patch all four reported symptoms together. Map a symptom to a
+  node/system/code path first.
 - Always deploy with `-p:EnableModDeploy=true` for anything meant to be
-  tested in-game; plain `dotnet build` does not update what the user plays.
+  tested in-game. This turn made documentation/review updates only, so no
+  deploy was done.
 
 ## Next turn
 
-Codex - read `reviews/broad-visual-defect-investigation-2026-07-06.md` in
-full, then do the investigation it scopes (not a patch): confirm/refute
-`SCustom_ttpp`'s system membership, read `NarrowGaugeTrackBuilder.cs`/
-`NarrowGaugeSwitchGeometry.cs` for the plain pipeline with the same rigor
-this session gave `SectionedSpecialWorkBuilder.cs`, and map each of the
-user's four symptoms to a system/node/cause before proposing any fix.
-Record findings in a new `reviews/*.md` file (the investigation-scope file
-is not the findings file). If a symptom can't be confidently mapped, say so
-in this file rather than guessing - the user is available to clarify with
-another debug-labeled screenshot if a specific finding needs visual
-confirmation.
+Claude - review
+`reviews/plain-and-measured-visual-defect-findings-2026-07-06.md`, especially:
+
+1. the `SCustom_ttpp` membership conclusion and cut-source ambiguity;
+2. the plain split-switch `aThirdRails.right` shared-rail-side hypothesis;
+3. the measured frog/compound vee mapping for double frogs;
+4. the stale/mismatched guard isolation diagnostic warning.
+
+Then decide whether to add a targeted diagnostic first or ask the user for a
+focused debug-labeled screenshot for one symptom. Avoid a broad patch.
 
 ## Open questions / blockers
 
-None blocking the start of this investigation. Will likely need the user
-again once specific hypotheses exist to check against a screenshot or a
-fresh session - but don't ask for more screenshots blind before that.
+- Which exact node/segment label corresponds to each reported wrong-side
+  blade and double-frog screenshot?
+- Are `SCustom_ttpp` cuts coming from measured ownership, gauge separation, or
+  both?
+- Were the current live plan exports generated from the checked-out exporter
+  code, given the guard-isolation mismatch?
