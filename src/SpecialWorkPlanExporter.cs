@@ -471,6 +471,11 @@ namespace NarrowGaugeMod
                 Add(piece.Id, "Fixed", piece.Curve);
             }
 
+            foreach (RailPiece piece in plan.FrogPieces)
+            {
+                Add(piece.Id, "FrogPiece", piece.Curve);
+            }
+
             foreach (WingRailPlan wing in plan.WingRails)
             {
                 Add(wing.Id, "Wing", wing.Curve);
@@ -548,7 +553,12 @@ namespace NarrowGaugeMod
                     }
                 }
 
-                if (!anyConnected)
+                // Guard rails are built from a lead/trail length around the frog
+                // center (see BuildGuardRails), not sliced to meet another piece -
+                // both ends are always meant to be free-standing (tie-mounted, not
+                // rail-joined). Flagging them here would be a false positive on
+                // every switch, not a real defect.
+                if (!anyConnected && entry.Value[0].Category != "Guard")
                 {
                     Vector3 start = entry.Value[0].Position;
                     Vector3 end = entry.Value[1].Position;

@@ -399,3 +399,49 @@ both Codex fixes and the new diagnostic). Then read the fresh
 `ISOLATED`/`ANGLE MISMATCH` lines in each switch's `.txt` export alongside
 `Player.log` - that should let whoever's turn is next diagnose remaining
 visual defects without needing new screenshots for every iteration.
+
+### [Claude] 2026-07-06 01:35 - Fixed a real gap in the new diagnostic before trusting its first output
+
+User re-tested in-game with the previous deploy; still `objects=14,
+invalid=0`, but the new `GeometryContinuity` section flagged `ISOLATED`
+pieces on literally all 14 switches, including several `v2-guard:*` pieces
+on every single one. That pattern (100% of switches, same category every
+time) was suspicious enough to check the diagnostic itself before reporting
+any of it as a real bug.
+
+Found two real problems in `SpecialWorkPlanExporter.cs`'s new code:
+
+1. `CollectPieceEndpoints` never included `plan.FrogPieces` - a completely
+   separate `RailPiece` collection from `plan.Frogs` (the abstract
+   candidates) holding the actual frog casting geometry. Any fixed/wing
+   piece that legitimately connects to a frog casting would have been
+   falsely flagged `ISOLATED` purely because the frog geometry wasn't in the
+   connectivity graph at all. Fixed by adding a `FrogPiece` category loop.
+2. Guard rails (confirmed by reading `BuildGuardRails`/`GuardLeadLength`/
+   `GuardTrailLength` in `SectionedSpecialWorkBuilder.cs`) are built as a
+   fixed lead/trail length measured from the frog center, not sliced to
+   join any other piece - both ends are *always* meant to be free-standing
+   (tie-mounted alongside the rail, not rail-joined at either end, matching
+   real guard-rail construction). Flagging every guard rail as `ISOLATED`
+   was a guaranteed false positive on every switch, not a signal of
+   anything. Excluded the `Guard` category from the `ISOLATED` verdict
+   (still included in the connectivity graph as a candidate neighbor for
+   other pieces, just never itself flagged).
+
+Wing rails were checked too and left as-is: they're sliced from the frog
+point outward (`BuildWingRails`), so they legitimately connect at one end
+(the frog) and flare free at the other - the existing "flag only if *both*
+ends are unconnected" check already handles that correctly without change.
+
+Rebuilt and redeployed:
+`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+- 0 warnings/0 errors. The previous round's `ISOLATED` findings should not
+be treated as confirmed bugs - they were substantially (possibly entirely)
+an artifact of the tool's own coverage gap. Needs one more fresh in-game
+session before any `ISOLATED`/`ANGLE MISMATCH` finding from this tool is
+trusted.
+
+Next: user to re-test in-game one more time with this corrected build.
+Whoever reads the resulting `.txt` exports should treat only `Fixed`/
+`Blade`/`Closure`/`Wing`/`FrogPiece` category `ISOLATED` findings as real
+candidates now - `Guard` findings are suppressed as expected-by-design.
