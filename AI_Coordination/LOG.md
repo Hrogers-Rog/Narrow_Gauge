@@ -335,3 +335,67 @@ Verification: reran
 It succeeded with 0 warnings and 0 errors and deployed the DLL to the live
 mod folder. Still needs user in-game verification with fresh screenshots and
 `Player.log`.
+
+### [Claude] 2026-07-06 01:20 - Reviewed both Codex fixes; added geometry-continuity diagnostic tooling
+
+Reviewed Codex's two most recent commits by reading the actual diffs, not
+summaries. `2b6cef8`: `RehomeSharedDuplicateFrogRail`/`ResolveFrogHardwareRail`
+detects when a frog's rail was cut as a `SharedDuplicate` loser at that exact
+position and re-homes the frog hardware onto a nearby unsuppressed rail
+before frog/wing/guard geometry is built - a real match for "frog hardware
+attached to a rail that itself gets hidden," a strong candidate for the
+floating-fragment symptom. `ResolveDivergingFixedStockRail` now prefers the
+stock rail whose `SourceRouteIds` actually contains `narrow-reversed`
+instead of an arbitrary first match. `ReserveEndpointClosure` stops a blade
+root from consuming an entire route's remaining length. The two `Main.Warn`
+"Rendering anyway" checks are `yield return` failures again, exactly as
+asked. `916ee61` (landed by the time I checked back - user or a parallel
+Codex session ran a follow-up turn): `CollapseDuplicateFrogHardware` merges
+frog candidates that ended up rehomed onto the same physical rail pair
+(keeping the larger `CutHalfLength`), and reordered the rehoming tie-break to
+prefer closest physical rail over family. Both commits agreed - well-scoped,
+consistent with the stated problem, no disagreement raised. Independently
+rebuilt combined state (not just trusted either report): 0 warnings/0
+errors.
+
+User then relayed real domain feedback from in-game testing: defects cluster
+around K-frog castings, blade position, and rotation, and explicitly asked
+for better diagnostic tooling since neither agent can see the running game.
+Built this into `SpecialWorkPlanExporter.cs`'s per-switch `.txt` export
+(`NarrowGauge/SpecialWorkPlans/*.txt`):
+
+- `PieceEndpoints` section: world-space position + tangent direction for
+  every rendered piece's both endpoints (fixed rail pieces, wing rails,
+  guard rails, blade curves, and blade closure curves) - the export
+  previously only had rail-relative stationing, never actual 3D
+  position/orientation.
+- `GeometryContinuity` section: for every piece, checks whether each
+  endpoint actually meets another piece's endpoint in world space (within
+  0.12m) rather than trusting that contiguous station numbers mean
+  contiguous geometry. A piece with no connected neighbor at either end is
+  flagged `ISOLATED` - "this is almost certainly a disconnected floating
+  fragment in-game," directly matching the defect class from the user's
+  screenshots, readable from the exported `.txt` instead of inferred from a
+  screenshot. Where two pieces do join, compares tangent lines at the joint
+  and flags `ANGLE MISMATCH` past 20 degrees - a candidate for the
+  "rotational issues" the user described.
+
+Used `Core.LineCurve.Head`/`Tail` (each a `LinePoint` with `.point`/
+`.direction`) for endpoint geometry, not `EndPoint1`/`EndPoint2`/
+`GetDirection` - those exist on a different `LineCurve`-named type used
+elsewhere in this codebase (`SegmentProxy.Curve` in
+`NarrowGaugeSwitchGeometry.cs`); caught this from a real build failure, not
+assumed.
+
+Deliberately did not try to guess a fix for any specific remaining defect
+from this alone - the point was to build the instrument, not diagnose blind
+before it exists. Rebuilt and deployed the combined state:
+`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+- 0 warnings/0 errors, deployed successfully. Not in-game verified - this is
+new tooling; its own output hasn't been read against a real session yet.
+
+Next: user to launch Railroader and re-test in-game (this deploy includes
+both Codex fixes and the new diagnostic). Then read the fresh
+`ISOLATED`/`ANGLE MISMATCH` lines in each switch's `.txt` export alongside
+`Player.log` - that should let whoever's turn is next diagnose remaining
+visual defects without needing new screenshots for every iteration.

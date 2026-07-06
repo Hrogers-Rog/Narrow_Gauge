@@ -396,10 +396,180 @@ namespace NarrowGaugeMod
                 "Blades",
                 plan.SwitchBlades.Select(item =>
                     $"{item.Id} group={item.SwitchGroupId} node={item.NativeNodeId} stock={item.StockRail.Id} movable={item.MovableRail.Id} tip={item.TipDistance:0.000} root={item.RootDistance:0.000}"));
+            AppendSection(
+                text,
+                "PieceEndpoints",
+                CollectPieceEndpoints(plan).Select(item =>
+                    $"{item.PieceId} [{item.Category}] {(item.IsStart ? "start" : "end")} " +
+                    $"pos=({item.Position.x:0.000},{item.Position.y:0.000},{item.Position.z:0.000}) " +
+                    $"tangent=({item.Tangent.x:0.000},{item.Tangent.y:0.000},{item.Tangent.z:0.000})"));
+            AppendSection(
+                text,
+                "GeometryContinuity",
+                GeometryContinuitySummary(plan));
 
             File.WriteAllText(
                 Path.Combine(directory, SafeFileName(analysis.Definition.Id) + ".txt"),
                 text.ToString());
+        }
+
+        private readonly struct PieceEndpoint
+        {
+            public PieceEndpoint(
+                string pieceId,
+                string category,
+                bool isStart,
+                Vector3 position,
+                Vector3 tangent)
+            {
+                PieceId = pieceId;
+                Category = category;
+                IsStart = isStart;
+                Position = position;
+                Tangent = tangent;
+            }
+
+            public string PieceId { get; }
+            public string Category { get; }
+            public bool IsStart { get; }
+            public Vector3 Position { get; }
+            public Vector3 Tangent { get; }
+        }
+
+        // How close two endpoints from different pieces need to be to count as
+        // "joined". Slightly looser than SectionedSpecialWorkBuilder's
+        // CorridorTolerance (0.085m) to absorb minor curve-sampling error while
+        // still being far tighter than anything visible as a gap in-game.
+        private const float PieceJoinTolerance = 0.12f;
+
+        // Two pieces that share a joint but whose tangent lines differ by more
+        // than this are likely built from inconsistent orientation data (the
+        // "rotational issues" failure mode), not just ordinary curve bend.
+        private const float PieceAngleMismatchDegrees = 20f;
+
+        private static List<PieceEndpoint> CollectPieceEndpoints(SpecialWorkMeshPlan plan)
+        {
+            var endpoints = new List<PieceEndpoint>();
+            void Add(string id, string category, Core.LineCurve curve)
+            {
+                endpoints.Add(new PieceEndpoint(
+                    id,
+                    category,
+                    true,
+                    curve.Head.point,
+                    -curve.Head.direction));
+                endpoints.Add(new PieceEndpoint(
+                    id,
+                    category,
+                    false,
+                    curve.Tail.point,
+                    curve.Tail.direction));
+            }
+
+            foreach (RailPiece piece in plan.FixedRunningRails)
+            {
+                Add(piece.Id, "Fixed", piece.Curve);
+            }
+
+            foreach (WingRailPlan wing in plan.WingRails)
+            {
+                Add(wing.Id, "Wing", wing.Curve);
+            }
+
+            foreach (GuardRailPlan guard in plan.GuardRails)
+            {
+                Add(guard.Id, "Guard", guard.Curve);
+            }
+
+            foreach (SwitchBladePlan blade in plan.SwitchBlades)
+            {
+                Add(blade.Id + ":blade", "Blade", blade.BladeCurve);
+                Add(blade.Id + ":closure", "Closure", blade.ClosureCurve);
+            }
+
+            return endpoints;
+        }
+
+        /// <summary>
+        /// Reports, per rendered piece, whether each of its two endpoints
+        /// actually meets another piece's endpoint in world space (not just
+        /// whether their rail-relative distances look contiguous), and flags
+        /// tangent mismatches at joints that do connect. This is meant to let
+        /// an agent without eyes on the running game diagnose exactly the kind
+        /// of defect a screenshot shows directly - a disconnected floating rail
+        /// fragment is a piece with no connected neighbor at either end; a
+        /// piece that visually looks twisted/misplaced relative to its
+        /// neighbor is a joint with a large tangent mismatch.
+        /// </summary>
+        private static IEnumerable<string> GeometryContinuitySummary(SpecialWorkMeshPlan plan)
+        {
+            List<PieceEndpoint> endpoints = CollectPieceEndpoints(plan);
+            var byPiece = endpoints
+                .GroupBy(endpoint => endpoint.PieceId)
+                .ToDictionary(group => group.Key, group => group.ToArray());
+
+            foreach (KeyValuePair<string, PieceEndpoint[]> entry in byPiece)
+            {
+                bool anyConnected = false;
+                foreach (PieceEndpoint endpoint in entry.Value)
+                {
+                    PieceEndpoint? nearest = null;
+                    float nearestDistance = float.MaxValue;
+                    foreach (PieceEndpoint candidate in endpoints)
+                    {
+                        if (candidate.PieceId == endpoint.PieceId)
+                        {
+                            continue;
+                        }
+
+                        float distance = Vector3.Distance(candidate.Position, endpoint.Position);
+                        if (distance < nearestDistance)
+                        {
+                            nearestDistance = distance;
+                            nearest = candidate;
+                        }
+                    }
+
+                    if (nearest == null || nearestDistance > PieceJoinTolerance)
+                    {
+                        continue;
+                    }
+
+                    anyConnected = true;
+                    float angle = AcuteAngleBetweenLines(endpoint.Tangent, nearest.Value.Tangent);
+                    if (angle > PieceAngleMismatchDegrees)
+                    {
+                        yield return
+                            $"ANGLE MISMATCH: {entry.Key} [{endpoint.Category}] {(endpoint.IsStart ? "start" : "end")} " +
+                            $"joins {nearest.Value.PieceId} [{nearest.Value.Category}] " +
+                            $"{(nearest.Value.IsStart ? "start" : "end")} at " +
+                            $"({endpoint.Position.x:0.000},{endpoint.Position.y:0.000},{endpoint.Position.z:0.000}) " +
+                            $"but tangents differ by {angle:0.0} degrees - possible rotational bug.";
+                    }
+                }
+
+                if (!anyConnected)
+                {
+                    Vector3 start = entry.Value[0].Position;
+                    Vector3 end = entry.Value[1].Position;
+                    yield return
+                        $"ISOLATED: {entry.Key} has no connected neighbor at either endpoint " +
+                        $"(start=({start.x:0.000},{start.y:0.000},{start.z:0.000}) " +
+                        $"end=({end.x:0.000},{end.y:0.000},{end.z:0.000})) - " +
+                        $"this is almost certainly a disconnected floating fragment in-game.";
+                }
+            }
+        }
+
+        private static float AcuteAngleBetweenLines(Vector3 a, Vector3 b)
+        {
+            if (a.sqrMagnitude <= 0.0001f || b.sqrMagnitude <= 0.0001f)
+            {
+                return 0f;
+            }
+
+            float angle = Vector3.Angle(a.normalized, b.normalized);
+            return angle > 90f ? 180f - angle : angle;
         }
 
         private static IEnumerable<Vector3> SampleCurve(Core.LineCurve curve)
