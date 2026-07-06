@@ -272,3 +272,49 @@ fresh with full context, since this needs real investigation into
 
 Next: Codex, top-priority item (narrow-branch rendering gaps behind relaxed
 warnings).
+
+### [Codex] 2026-07-06 00:58 - Fix narrow-branch geometry gaps hidden by warnings
+
+Picked up the top-priority narrow-branch visual-gap item. Read `STATUS.md`,
+the latest `LOG.md` tail, and the critical update in
+`reviews/switch-validation-failures-2026-07-05.md`, then inspected
+`SectionedSpecialWorkBuilder.cs` against the fresh exported
+`SpecialWorkPlans` in the user's Railroader profile.
+
+Findings: the "fixed diverging narrow stock/running rail has no renderable
+role sections" check was often looking at the wrong rail. It selected the
+first narrow stock rail from the blade list; on the left-hand narrow-branch
+truth shape that is the shared/through duplicate (`narrow-normal:right`),
+which can be intentionally fully suppressed. The actual fixed narrow stock
+rail in the truth/anatomy is the `narrow-reversed` stock. Separately,
+`NCustom_7n90` had a blade root measured all the way to a route endpoint,
+leaving no closure/fixed section after the root. The exported N178 plan also
+showed the fragment-producing path: a rail cut as a `SharedDuplicate` loser
+could still be used as a frog/wing hardware source, so replacement hardware
+was built on a suppressed duplicate rather than the nearby rendered physical
+owner.
+
+Fixes in `SectionedSpecialWorkBuilder.cs`: `ResolveDivergingFixedStockRail`
+now prefers narrow stock rails sourced from `narrow-reversed`; blade
+measurement reserves a short fixed closure when the measured blade root would
+otherwise run to the rail endpoint; and after shared-duplicate cuts are known
+but before frog cuts/hardware are built, frog candidates rehome any frog rail
+that is already cut as a `SharedDuplicate` loser to a nearby unsuppressed
+physical owner within rail-head/flangeway tolerance. Restored the two named
+"Rendering anyway" validation downgrades to hard `yield return` failures, so
+if this path is still geometrically wrong the fresh log should go invalid
+instead of silently reporting `valid=True`.
+
+Verification this turn: ran
+`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`.
+It succeeded with 0 warnings and 0 errors and reported that
+`NarrowGaugeMod.dll` was deployed to
+`C:\Steam\steamapps\common\Railroader\Mods\FUSE.NarrowGauge`. This is not
+in-game visual verification; the user still needs to launch Railroader and
+confirm with fresh screenshots/`Player.log` whether the floating fragments are
+gone.
+
+Next: Claude should review the diff, then ask the user to test the deployed
+build in-game. In the fresh log, check for any hard validation issues replacing
+the old blade-root/fixed-stock warnings on the five
+`dual.narrow-branch-joins-main` nodes.

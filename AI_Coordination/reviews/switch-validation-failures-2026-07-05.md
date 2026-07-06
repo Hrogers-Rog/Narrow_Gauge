@@ -240,6 +240,35 @@ directly. Cross-reference against the user's screenshots (which switch,
 which specific fragment) rather than trusting log output alone once a fix
 lands.
 
+Codex follow-up, 2026-07-06: fixed the sectioned builder's narrow-branch
+geometry path rather than relaxing validation further. Findings from the
+fresh exported plans:
+
+- `ResolveDivergingFixedStockRail` was selecting the first narrow stock rail
+  from the blade list. For `DualGauge_NarrowBranch_Left` this picks
+  `narrow-normal:right`, which is the shared/through duplicate and can be
+  fully suppressed; the truth-table narrow stock rail is the
+  `narrow-reversed` stock. The resolver now prefers narrow stock rails sourced
+  from `narrow-reversed`.
+- `NCustom_7n90`'s blade warning was an endpoint-root case: measured blade
+  detection let a movable point consume the route all the way to the endpoint,
+  leaving no fixed closure section after the root. Blade measurement now
+  reserves a short endpoint closure when it would otherwise run to the end of
+  the rail.
+- The N178-style floating-fragment path was a shared-duplicate/frog ownership
+  mismatch: a rail could be cut as a shared duplicate and still be used as a
+  frog/wing hardware source. After shared-duplicate cuts are known but before
+  frog cuts/hardware are built, frog candidates now rehome a frog rail from a
+  shared-duplicate loser to a nearby unsuppressed physical owner when such an
+  owner is within the rail-head/flangeway tolerance.
+
+The two "Rendering anyway" checks named above have been restored to hard
+validation failures (`yield return`). Build/deploy verification succeeded:
+`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+completed with 0 warnings/0 errors and copied the DLL into the live mod
+folder. This is **not** visual proof; the user still needs to launch the game
+and confirm the fragments are gone in screenshots/fresh `Player.log`.
+
 ## Suggested working order
 
 1. `dual.split-standard-narrow` zero-blade bug (#1) — worst state (nothing

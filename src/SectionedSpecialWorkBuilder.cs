@@ -23,6 +23,7 @@ namespace NarrowGaugeMod
         private const float MaximumFrogSetback = 2.5f;
         private const float CorridorTolerance = 0.085f;
         private const float MinimumFrogAngle = 3f;
+        private const float EndpointClosureReserve = MinimumPieceLength + 0.05f;
 
         private static readonly SpecialWorkGeometryParameters Parameters =
             new SpecialWorkGeometryParameters(
@@ -142,6 +143,11 @@ namespace NarrowGaugeMod
             AddSharedSuppressions(definition, rails, shared, blades, frogs, cuts, suppressions);
             AddCrossFamilySharedSuppressions(definition, rails, blades, frogs, cuts, suppressions);
             AddBladeCorridorSuppressions(definition, rails, blades, cuts, suppressions);
+            frogs = RehomeSharedDuplicateFrogRails(
+                rails,
+                cuts,
+                frogs,
+                blades).ToArray();
             AddFrogSuppressions(rails, frogs, cuts, suppressions);
             if (IsDualBothDivergePreset(definition))
             {
@@ -1668,6 +1674,192 @@ namespace NarrowGaugeMod
             }
         }
 
+        private static IEnumerable<FrogCandidate> RehomeSharedDuplicateFrogRails(
+            IReadOnlyList<RailCenterline> rails,
+            IReadOnlyList<RailCut> cuts,
+            IEnumerable<FrogCandidate> frogs,
+            IReadOnlyList<SwitchBladePlan> blades)
+        {
+            foreach (FrogCandidate frog in frogs)
+            {
+                yield return RehomeSharedDuplicateFrogRail(rails, cuts, frog, blades);
+            }
+        }
+
+        private static FrogCandidate RehomeSharedDuplicateFrogRail(
+            IReadOnlyList<RailCenterline> rails,
+            IReadOnlyList<RailCut> cuts,
+            FrogCandidate frog,
+            IReadOnlyList<SwitchBladePlan> blades)
+        {
+            RailCenterline railA = ResolveFrogHardwareRail(
+                rails,
+                cuts,
+                frog.Intersection.RailA,
+                frog.Intersection.RailB,
+                frog.Intersection.DistanceA,
+                frog.Intersection.Position,
+                blades,
+                out float distanceA,
+                out Vector3 tangentA,
+                out bool changedA);
+            RailCenterline railB = ResolveFrogHardwareRail(
+                rails,
+                cuts,
+                frog.Intersection.RailB,
+                railA,
+                frog.Intersection.DistanceB,
+                frog.Intersection.Position,
+                blades,
+                out float distanceB,
+                out Vector3 tangentB,
+                out bool changedB);
+
+            if ((!changedA && !changedB) || railA == railB)
+            {
+                return frog;
+            }
+
+            var intersection = new RailIntersection(
+                frog.Intersection.Id,
+                railA,
+                railB,
+                distanceA,
+                distanceB,
+                frog.Intersection.LocalPoint,
+                frog.Intersection.Position,
+                Tangent2D(tangentA),
+                Tangent2D(tangentB),
+                tangentA,
+                tangentB,
+                AcuteAngleDegrees(tangentA, tangentB),
+                frog.Intersection.Kind);
+
+            string ownerRoute = frog.OwnerRouteId;
+            string crossingRoute = frog.CrossingRouteId;
+            string protectedRoute = frog.ProtectedRouteId;
+            if (TryResolveFrogOwnership(
+                    intersection,
+                    out string resolvedOwner,
+                    out string resolvedCrossing,
+                    out string resolvedProtected))
+            {
+                ownerRoute = resolvedOwner;
+                crossingRoute = resolvedCrossing;
+                protectedRoute = resolvedProtected;
+            }
+
+            if (changedA)
+            {
+                Main.Log(
+                    $"[FrogOwner] {frog.Id} rehomed railA " +
+                    $"{frog.Intersection.RailA.Id}@{frog.Intersection.DistanceA:0.000} " +
+                    $"to {railA.Id}@{distanceA:0.000}.");
+            }
+
+            if (changedB)
+            {
+                Main.Log(
+                    $"[FrogOwner] {frog.Id} rehomed railB " +
+                    $"{frog.Intersection.RailB.Id}@{frog.Intersection.DistanceB:0.000} " +
+                    $"to {railB.Id}@{distanceB:0.000}.");
+            }
+
+            return new FrogCandidate(
+                frog.Id,
+                intersection,
+                frog.NoseDirection,
+                frog.HeelDirection,
+                frog.Handedness,
+                frog.RailHeadSetback,
+                frog.FlangewaySetback,
+                frog.CutHalfLength,
+                ownerRoute,
+                crossingRoute,
+                protectedRoute);
+        }
+
+        private static RailCenterline ResolveFrogHardwareRail(
+            IReadOnlyList<RailCenterline> rails,
+            IReadOnlyList<RailCut> cuts,
+            RailCenterline rail,
+            RailCenterline otherFrogRail,
+            float distance,
+            Vector3 position,
+            IReadOnlyList<SwitchBladePlan> blades,
+            out float resolvedDistance,
+            out Vector3 resolvedTangent,
+            out bool changed)
+        {
+            resolvedDistance = distance;
+            resolvedTangent = rail.Curve.LinePointAtDistance(
+                Mathf.Clamp(distance, 0f, rail.Curve.Length)).direction;
+            changed = false;
+
+            if (!HasSharedDuplicateCutAt(cuts, rail, distance))
+            {
+                return rail;
+            }
+
+            RailCenterline? owner = rails
+                .Where(candidate => candidate != rail && candidate != otherFrogRail)
+                .Select(candidate => new
+                {
+                    Rail = candidate,
+                    Distance = candidate.Curve.DistanceTo(position),
+                    Separation = DistancePointToCurve(position, candidate.Curve)
+                })
+                .Where(candidate =>
+                    candidate.Separation <= RailHeadWidth + FlangewayWidth
+                    && !HasSharedDuplicateCutAt(cuts, candidate.Rail, candidate.Distance)
+                    && ChooseSharedOwner(rail, candidate.Rail, blades) == candidate.Rail)
+                .OrderBy(candidate => candidate.Rail.Family == GaugeGraphFamily.Standard ? 0 : 1)
+                .ThenBy(candidate => candidate.Separation)
+                .Select(candidate => candidate.Rail)
+                .FirstOrDefault();
+            if (owner == null)
+            {
+                return rail;
+            }
+
+            resolvedDistance = owner.Curve.DistanceTo(position);
+            resolvedTangent = owner.Curve.LinePointAtDistance(
+                Mathf.Clamp(resolvedDistance, 0f, owner.Curve.Length)).direction;
+            changed = true;
+            return owner;
+        }
+
+        private static bool HasSharedDuplicateCutAt(
+            IReadOnlyList<RailCut> cuts,
+            RailCenterline rail,
+            float distance)
+        {
+            return cuts.Any(cut =>
+                cut.Rail == rail
+                && cut.Kind == RailCutKind.SharedDuplicate
+                && cut.StartDistance <= distance + CorridorTolerance
+                && cut.EndDistance >= distance - CorridorTolerance);
+        }
+
+        private static Vector2 Tangent2D(Vector3 tangent)
+        {
+            var result = new Vector2(tangent.x, tangent.z);
+            return result.sqrMagnitude <= 0.0001f ? Vector2.up : result.normalized;
+        }
+
+        private static float AcuteAngleDegrees(Vector3 a, Vector3 b)
+        {
+            a.y = 0f;
+            b.y = 0f;
+            if (a.sqrMagnitude <= 0.0001f || b.sqrMagnitude <= 0.0001f)
+            {
+                return 0f;
+            }
+
+            float angle = Vector3.Angle(a, b);
+            return angle > 90f ? 180f - angle : angle;
+        }
+
         private static IReadOnlyDictionary<string, RailCenterline> BuildSharedCorridorOwners(
             IReadOnlyList<RailCenterline> rails,
             IReadOnlyList<SharedRailInterval> shared,
@@ -2550,9 +2742,9 @@ namespace NarrowGaugeMod
                     blade.RootDistance,
                     before: false))
                 {
-                    Main.Warn(
-                        $"[Validation] Blade '{blade.Id}' does not connect into a rendered closure/fixed section " +
-                        $"after root {blade.RootDistance:0.000}. Rendering anyway.");
+                    yield return
+                        $"Blade '{blade.Id}' does not connect into a rendered closure/fixed section " +
+                        $"after root {blade.RootDistance:0.000}.";
                 }
             }
 
@@ -2573,7 +2765,7 @@ namespace NarrowGaugeMod
                         && section.Role != RailRole.SuppressedRail
                         && section.StartDistance < section.EndDistance))
                     {
-                        Main.Warn("[Validation] Fixed diverging narrow stock/running rail has no renderable role sections. Rendering anyway.");
+                        yield return "Fixed diverging narrow stock/running rail has no renderable role sections.";
                     }
 
                     RailCut? firstFrogCut = cuts
@@ -2972,10 +3164,18 @@ namespace NarrowGaugeMod
             IReadOnlyList<RailCenterline> rails,
             IReadOnlyList<SwitchBladePlan> blades)
         {
-            return blades
+            RailCenterline[] stockRails = blades
                 .Where(blade => blade.StockRail.Family == GaugeGraphFamily.Narrow)
                 .Select(blade => blade.StockRail)
-                .FirstOrDefault();
+                .Distinct()
+                .ToArray();
+            return stockRails
+                .Where(rail => rail.SourceRouteIds.Contains(
+                    "narrow-reversed",
+                    StringComparer.OrdinalIgnoreCase))
+                .OrderBy(rail => rail.Side == RailSide.Left ? 0 : 1)
+                .FirstOrDefault()
+                ?? stockRails.FirstOrDefault();
         }
 
         private static IEnumerable<string> ValidateSuppressionCoverage(
@@ -3309,6 +3509,7 @@ namespace NarrowGaugeMod
                 tipDistance + direction * bladeLength,
                 0f,
                 movableCurve.Length);
+            endpoint = ReserveEndpointClosure(movableCurve, tipDistance, endpoint, direction);
             if (direction > 0)
             {
                 tip = tipDistance;
@@ -3321,6 +3522,29 @@ namespace NarrowGaugeMod
             }
 
             return root - tip >= MinimumPieceLength;
+        }
+
+        private static float ReserveEndpointClosure(
+            LineCurve curve,
+            float tipDistance,
+            float endpoint,
+            int direction)
+        {
+            if (direction > 0
+                && curve.Length - endpoint < EndpointClosureReserve
+                && curve.Length - tipDistance >= MinimumPieceLength + EndpointClosureReserve)
+            {
+                return curve.Length - EndpointClosureReserve;
+            }
+
+            if (direction < 0
+                && endpoint < EndpointClosureReserve
+                && tipDistance >= MinimumPieceLength + EndpointClosureReserve)
+            {
+                return EndpointClosureReserve;
+            }
+
+            return endpoint;
         }
 
         private static bool TryFindBaseGameBladeLengthFromFrog(
