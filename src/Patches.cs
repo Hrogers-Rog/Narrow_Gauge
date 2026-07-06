@@ -63,13 +63,8 @@ namespace NarrowGaugeMod
         {
             bool aHiddenControl = SpecialWorkTopologySynchronizer.IsHiddenControlSegment(a.Segment);
             bool bHiddenControl = SpecialWorkTopologySynchronizer.IsHiddenControlSegment(b.Segment);
-            bool aVisibleGhost =
-                NarrowGaugeManager.IsGeneratedGhost(a.Segment) && !aHiddenControl;
-            bool bVisibleGhost =
-                NarrowGaugeManager.IsGeneratedGhost(b.Segment) && !bHiddenControl;
             if (SpecialWorkTopologySynchronizer.IsGaugeSeparationControlNode(node)
-                && (aHiddenControl && bVisibleGhost
-                    || bHiddenControl && aVisibleGhost))
+                && aHiddenControl != bHiddenControl)
             {
                 __result = NarrowGaugeSwitchGeometry.CalculateControlShell(
                     node,

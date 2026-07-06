@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Core;
 using FUSE.Authoring.Data;
 using FUSE.Runtime.API;
 using Track;
@@ -351,11 +352,19 @@ namespace NarrowGaugeMod
                             GetTaggedSourceNodeId(segment),
                             sourceNodeId,
                             StringComparison.OrdinalIgnoreCase)));
-                if (ghostNode == null || branch == null)
+                TrackSegment? ghostDual = allSegments.FirstOrDefault(segment =>
+                    GhostGraphSynchronizer.IsGeneratedGhostSegmentId(segment.id)
+                    && !IsHiddenControlSegment(segment)
+                    && SegmentTouchesNode(segment, ghostNodeId));
+                TrackSegment? standardContinuation = allSegments.FirstOrDefault(segment =>
+                    IsStandardOnly(segment)
+                    && SegmentTouchesNode(segment, sourceNodeId));
+                if (ghostNode == null || branch == null || ghostDual == null || standardContinuation == null)
                 {
                     Main.Warn(
                         $"Gauge-separation source '{sourceNodeId}' could not create its runtime control: " +
-                        $"ghostNode={(ghostNode != null)}, narrowBranch={(branch != null)}.");
+                        $"ghostNode={(ghostNode != null)}, narrowBranch={(branch != null)}, " +
+                        $"ghostDual={(ghostDual != null)}, standardContinuation={(standardContinuation != null)}.");
                     continue;
                 }
 
@@ -365,9 +374,12 @@ namespace NarrowGaugeMod
                 string controlSegmentId = GhostGraphSynchronizer.GeneratedSegmentPrefix
                     + sourceNodeId
                     + ":control";
-                Vector3 controlPosition = ghostNode.transform.localPosition
-                    + ghostNode.transform.localRotation * Vector3.forward * GhostControlLength;
-                Vector3 controlRotation = ghostNode.transform.localRotation.eulerAngles;
+                BuildGhostControlPose(
+                    sourceNode,
+                    ghostNode,
+                    standardContinuation,
+                    out Vector3 controlPosition,
+                    out Vector3 controlRotation);
 
                 var controlNodeDef = new FuseNode
                 {
@@ -410,7 +422,7 @@ namespace NarrowGaugeMod
                         HiddenControlTag,
                         GhostControlTag,
                         SourceNodeTagPrefix + sourceNodeId,
-                        PresetTagPrefix + SpecialWorkPresetIds.DualNarrowBranch
+                        PresetTagPrefix + SpecialWorkPresetIds.DualSplit
                     }
                 };
 
@@ -429,6 +441,54 @@ namespace NarrowGaugeMod
                     TrackAPI.AddSegment(controlSegmentId, definition);
                 }
             }
+        }
+
+        private static void BuildGhostControlPose(
+            TrackNode sourceNode,
+            TrackNode ghostNode,
+            TrackSegment standardContinuation,
+            out Vector3 controlPosition,
+            out Vector3 controlRotation)
+        {
+            Vector3 origin = ghostNode.transform.localPosition;
+            Vector3 direction = DirectionFromNodeAlongSegment(standardContinuation, sourceNode);
+            direction.y = 0f;
+            if (direction.sqrMagnitude <= 0.0001f)
+            {
+                direction = ghostNode.transform.localRotation * Vector3.forward;
+                direction.y = 0f;
+            }
+
+            if (direction.sqrMagnitude <= 0.0001f)
+            {
+                direction = Vector3.forward;
+            }
+
+            direction.Normalize();
+            controlPosition = origin + direction * GhostControlLength;
+            controlRotation = Quaternion.LookRotation(direction, Vector3.up).eulerAngles;
+        }
+
+        private static Vector3 DirectionFromNodeAlongSegment(TrackSegment segment, TrackNode node)
+        {
+            LineCurve curve = new LineCurve(
+                segment.Curve.Approximate(1.000005f, 0.25f, 16, 20f),
+                Hand.Left);
+            bool curveRunsAtoB = DualGaugeSharedRailRegistry.CurveRunsAtoB(segment);
+            bool nodeAtCurveStart = string.Equals(segment.a?.id, node.id, StringComparison.OrdinalIgnoreCase)
+                ? curveRunsAtoB
+                : !curveRunsAtoB;
+            LinePoint first = nodeAtCurveStart ? curve.Head : curve.Tail;
+            LinePoint second = nodeAtCurveStart
+                ? curve.LinePointAtDistance(Mathf.Min(curve.Length, 0.5f))
+                : curve.LinePointAtDistance(Mathf.Max(0f, curve.Length - 0.5f));
+            Vector3 direction = nodeAtCurveStart
+                ? second.point - first.point
+                : first.point - second.point;
+            direction.y = 0f;
+            return direction.sqrMagnitude > 0.0001f
+                ? direction.normalized
+                : Vector3.forward;
         }
 
         private static bool IsGaugeSeparationTopology(

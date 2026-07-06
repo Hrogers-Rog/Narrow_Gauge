@@ -410,6 +410,7 @@ namespace NarrowGaugeMod
             IReadOnlyList<SharedRailInterval> shared,
             IReadOnlyList<RailIntersection> intersections)
         {
+            bool yieldedAny = false;
             foreach (BladeSpec spec in BuildBladeSpecs(graph, definition, rails, intersections))
             {
                 RailCenterline? movable = FindRail(rails, spec.MovableRouteId, spec.MovableSide);
@@ -469,7 +470,165 @@ namespace NarrowGaugeMod
                     root,
                     Slice(movable.Curve, tip, root),
                     closureCurve);
+                yieldedAny = true;
             }
+
+            if (!yieldedAny
+                && TryBuildMeasuredDualSplitBlade(
+                    graph,
+                    definition,
+                    rails,
+                    intersections,
+                    out SwitchBladePlan? splitBlade))
+            {
+                yield return splitBlade!;
+            }
+        }
+
+        private static bool TryBuildMeasuredDualSplitBlade(
+            Graph graph,
+            SpecialWorkDefinition definition,
+            IReadOnlyList<RailCenterline> rails,
+            IReadOnlyList<RailIntersection> intersections,
+            out SwitchBladePlan? blade)
+        {
+            blade = null;
+            if (!IsDualSplitPreset(definition))
+            {
+                return false;
+            }
+
+            TrackNode? switchNode = definition.SwitchGroups
+                .Where(group => string.Equals(
+                    group.Id,
+                    "narrow-separation",
+                    StringComparison.OrdinalIgnoreCase))
+                .SelectMany(group => group.NativeNodeIds)
+                .Select(graph.GetNode)
+                .FirstOrDefault(node => node != null)
+                ?? definition.NativeSwitchNodeIds
+                    .Select(graph.GetNode)
+                    .FirstOrDefault(node => node != null);
+            if (switchNode == null)
+            {
+                return false;
+            }
+
+            Vector3 switchPoint = switchNode.transform.localPosition;
+            DualSplitBladeCandidate? best = null;
+            foreach (RailSide side in new[] { RailSide.Left, RailSide.Right })
+            {
+                RailCenterline? standard = FindRail(rails, "standard-through", side);
+                RailCenterline? narrowThrough = FindRail(rails, "narrow-through", side);
+                RailCenterline? narrowDiverge = FindRail(rails, "narrow-diverge", side);
+                if (narrowDiverge == null)
+                {
+                    continue;
+                }
+
+                var pairs = new List<(RailCenterline Movable, RailCenterline Stock)>();
+                if (standard != null)
+                {
+                    pairs.Add((narrowDiverge, standard));
+                    pairs.Add((standard, narrowDiverge));
+                }
+
+                if (narrowThrough != null)
+                {
+                    pairs.Add((narrowDiverge, narrowThrough));
+                    pairs.Add((narrowThrough, narrowDiverge));
+                }
+
+                foreach ((RailCenterline Movable, RailCenterline Stock) pair in pairs)
+                {
+                    if (!TryFindBladeDistances(
+                            pair.Stock,
+                            pair.Movable,
+                            switchPoint,
+                            intersections,
+                            out float tip,
+                            out float root))
+                    {
+                        continue;
+                    }
+
+                    var candidate = new DualSplitBladeCandidate(
+                        pair.Movable,
+                        pair.Stock,
+                        side,
+                        tip,
+                        root,
+                        ScoreDualSplitBlade(pair.Movable, pair.Stock, switchPoint, intersections));
+                    if (!best.HasValue || candidate.Score > best.Value.Score)
+                    {
+                        best = candidate;
+                    }
+                }
+            }
+
+            if (!best.HasValue)
+            {
+                return false;
+            }
+
+            DualSplitBladeCandidate selected = best.Value;
+            float switchDist = selected.MovableRail.Curve.DistanceTo(switchPoint);
+            bool bladeExtendsForward = selected.RootDistance > switchDist;
+            LineCurve closureCurve = bladeExtendsForward
+                ? Slice(selected.MovableRail.Curve, selected.RootDistance, selected.MovableRail.Curve.Length)
+                : Slice(selected.MovableRail.Curve, 0f, selected.TipDistance);
+
+            string sideId = selected.Side.ToString().ToLowerInvariant();
+            blade = new SwitchBladePlan(
+                "v2-blade:gauge-separation:" + sideId,
+                switchNode.id,
+                "narrow-separation",
+                selected.StockRail,
+                selected.MovableRail,
+                selected.TipDistance,
+                selected.RootDistance,
+                Slice(selected.MovableRail.Curve, selected.TipDistance, selected.RootDistance),
+                closureCurve);
+            Main.Log(
+                $"[BladeSpecs] Measured dual split blade movable={selected.MovableRail.Id} " +
+                $"stock={selected.StockRail.Id} side={selected.Side} " +
+                $"{selected.TipDistance:0.000}-{selected.RootDistance:0.000}");
+            return true;
+        }
+
+        private static float ScoreDualSplitBlade(
+            RailCenterline movable,
+            RailCenterline stock,
+            Vector3 switchPoint,
+            IReadOnlyList<RailIntersection> intersections)
+        {
+            float score = 0f;
+            bool movableHasFrog = RailParticipatesInIntersection(movable, intersections);
+            bool stockHasFrog = RailParticipatesInIntersection(stock, intersections);
+            if (movableHasFrog != stockHasFrog)
+            {
+                score += movableHasFrog ? 1000f : -1000f;
+            }
+
+            if (movable.SourceRouteIds.Contains("narrow-diverge", StringComparer.OrdinalIgnoreCase))
+            {
+                score += 100f;
+            }
+
+            Vector3 movablePoint =
+                movable.Curve.LinePointAtDistance(movable.Curve.DistanceTo(switchPoint)).point;
+            score -= StockSeparation(stock.Curve, movablePoint);
+            return score;
+        }
+
+        private static bool RailParticipatesInIntersection(
+            RailCenterline rail,
+            IEnumerable<RailIntersection> intersections)
+        {
+            return intersections.Any(intersection =>
+                IsFrogCandidateIntersection(intersection)
+                && intersection.AcuteAngleDegrees >= MinimumFrogAngle
+                && (intersection.RailA == rail || intersection.RailB == rail));
         }
 
         private static void AddBladeCutsAndSuppressions(
@@ -530,6 +689,11 @@ namespace NarrowGaugeMod
                     }
                 }
 
+                yield break;
+            }
+
+            if (IsDualSplitPreset(definition))
+            {
                 yield break;
             }
 
@@ -3631,6 +3795,32 @@ namespace NarrowGaugeMod
             public RailSide MovableSide { get; }
             public string StockRouteId { get; }
             public RailSide StockSide { get; }
+        }
+
+        private readonly struct DualSplitBladeCandidate
+        {
+            public DualSplitBladeCandidate(
+                RailCenterline movableRail,
+                RailCenterline stockRail,
+                RailSide side,
+                float tipDistance,
+                float rootDistance,
+                float score)
+            {
+                MovableRail = movableRail;
+                StockRail = stockRail;
+                Side = side;
+                TipDistance = tipDistance;
+                RootDistance = rootDistance;
+                Score = score;
+            }
+
+            public RailCenterline MovableRail { get; }
+            public RailCenterline StockRail { get; }
+            public RailSide Side { get; }
+            public float TipDistance { get; }
+            public float RootDistance { get; }
+            public float Score { get; }
         }
     }
 }

@@ -121,7 +121,7 @@ namespace NarrowGaugeMod
                     3,
                     GaugeAvailability.Dual,
                     true,
-                    Expect(0, null, 0, null, SharedRailRequirement.GaugeShared, 0)),
+                    Expect(0, null, 0, null, SharedRailRequirement.GaugeShared, 1)),
                 new SpecialWorkPresetDefinition(
                     SpecialWorkPresetIds.DualSharedRailFlip,
                     "Dual-Gauge Shared-Rail Side Transition",
