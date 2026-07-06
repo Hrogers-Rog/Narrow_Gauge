@@ -2,102 +2,105 @@
 
 Last updated by: Claude - 2026-07-06
 
-## Current phase: live-game automation verified working; camera control is the remaining gap
+## Current phase: camera-goto bridge built; needs a live test of the full automated visual-verification loop
 
-Codex's `FUSE.TestBridge` harness turn (previous entry, kept below) was
-independently verified, not just trusted:
+User authorized proceeding autonomously ("do whatever you need to do... without my input"). Built the
+camera-control piece that was missing after the last turn's `FUSE.TestBridge`
+verification.
 
-- Confirmed via `tasklist` that Railroader was not left running after the
-  session.
-- Confirmed the deployed `FUSE.TestBridge/Info.json` was actually restored to
-  `"Enabled": false` (read the file directly).
-- Viewed the captured screenshot directly
-  (`FUSE-test-shots/narrow-gauge-harness-20260706-0903.png`) - it's real: a
-  genuine in-game trackside view with World Labels on, showing actual
-  segment IDs (`SCustom_e6i0`, `fuse-ng:s:SCustom_47ab`, etc.), confirming
-  this was a real running session, not a fabricated report.
+## This turn's addition: `NarrowGaugeTestBridge` (self-contained, no FUSE repo changes)
 
-**This means we now have real, working automation for validation-level
-testing**: build+deploy NarrowGaugeMod -> toggle TestBridge's `Info.json`
-`Enabled: true` -> launch Railroader normally (not `-batchmode`, that path
-doesn't work yet - see below) -> poll `test_state.json` for a fresh
-heartbeat -> `loadSave` the user's real save by name (`2026-06-25` or
-`2026-06-25_auto1`) -> wait for `mapLoaded=true` and/or
-`Special-work analysis: objects=14` in `Player.log` -> run `console` verb
-requests (e.g. `/fuse.report json`) for structured data -> close cleanly
-(`umm close` / `CloseMainWindow`, confirmed no force-kill needed) -> restore
-`Info.json` to `Enabled: false`. Either agent can now independently verify a
-fix's log/validation-level effect without the user launching anything.
+Investigated adding a proper console command reachable through
+`FUSE.TestBridge`'s "console" verb, but confirmed that's a dead end without
+editing the separate FUSE repo: `FuseTestApi.Commands()`
+(`FUSE/Testing/FuseTestApi.cs`) builds its dispatch table *only* from
+`FuseConsoleCommands.CreateAll()` - it does not fall through to the real
+game's `ConsoleCommandHandler._commands` dictionary, so a NarrowGaugeMod
+console command registered the way `FuseLegacyAssemblyHost.cs` registers
+FUSE's (via reflection into `ConsoleCommandHandler.Register<T>`) would work
+in the interactive console but never be reachable via the automated bridge.
 
-## The remaining gap: no camera control
+Instead, added `src/NarrowGaugeTestBridge.cs` - a small, self-contained
+file-based bridge living entirely in this repo, modeled on the same pattern
+as `FUSE.TestBridge` but scoped to one job: move the camera. Drop
+`ng_goto_request.json` (`{"nodeId": "Nove"}`) next to the deployed
+`NarrowGaugeMod.dll`; within 0.5s the camera jumps to that node via the same
+call the base game's own `/tp` command uses internally
+(`CameraSelector.shared.JumpToPoint(WorldTransformer.WorldToGame(node.transform.position), node.transform.rotation, null)`,
+confirmed by reading `TeleportCommand.cs` and `CameraSelector.cs` directly -
+not guessed), then `ng_goto_result.json` reports `{"ok": ..., "message": ...}`
+and the request file is deleted. Gated behind the `NARROWGAUGE_TEST_BRIDGE=1`
+environment variable so it's completely inert for normal players, mirroring
+`FUSE.TestBridge`'s own dev-only gating. Registered as a component on the
+existing `ManagerObject` in `Main.cs` alongside `NarrowGaugeManager`/
+`SpecialWorkDebugRenderer`/`SpecialWorkAdjustmentUI`.
 
-Checked the base game's decompiled console commands for a way to point the
-camera at a specific track node/switch before a `screenshot` request.
-Found `/tp <place>` (`Decompiled dlls base game/Assembly-CSharp/UI/Console/Commands/TeleportCommand.cs`) -
-but it only jumps to a predefined named `SpawnPoint` or follows an existing
-`Car` by name/ID. It does **not** accept arbitrary world coordinates or a
-track node ID. Searched FUSE's own console commands too (`FuseConsoleCommands.cs`) -
-nothing camera-related there either. So `screenshot` only ever captures
-whatever the camera happens to already be looking at (wherever the save's
-camera was last left) - it cannot yet target a specific switch like `Nove`
-or `SCustom_ttpp` on demand.
+Built and deployed:
+`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+- 0 warnings/0 errors. **Not yet tested live** - this needs the same launch
+recipe Codex proved last turn, plus setting `NARROWGAUGE_TEST_BRIDGE=1` in
+the launch environment, plus writing the `ng_goto_request.json` file and
+polling for the result, then requesting a screenshot via the existing
+`FUSE.TestBridge` "screenshot" verb.
 
-To close this gap, the concrete option is to add a new debug console
-command to NarrowGaugeMod itself (we own this source) - e.g.
-`/ng.goto <nodeId>` that reads the node's world transform from the live
-graph and moves the camera there, mirroring what `/tp` does internally
-(`CameraSelector.shared.JumpToPoint(position, rotation, null)`). Not built
-yet - this is a real, scoped feature request, not a quick patch, and the
-user should decide whether it's worth building before more automated visual
-verification work happens.
+## Full loop to test (combining both bridges)
 
-## What did not work (Codex's findings, still true)
+1. Set both env vars for the launch: `FUSE_TEST_BRIDGE=1` did NOT propagate
+   to the actual game process last turn (Railroader re-launches itself as a
+   second `/editor` process) - the working method was toggling deployed
+   `FUSE.TestBridge/Info.json` to `"Enabled": true` before launch and back
+   to `false` after. Confirm whether `NARROWGAUGE_TEST_BRIDGE` has the same
+   propagation problem - if so, this bridge's env-var gate may need the same
+   kind of toggle-a-file fallback (e.g. check for a sentinel file's
+   existence instead of/in addition to the env var) before it's reliable
+   from an automated launch. Test this explicitly rather than assuming the
+   env var will just work this time.
+2. Launch, confirm `FUSE.TestBridge` reaches `Connected`.
+3. `loadSave` the user's save (`2026-06-25` or `2026-06-25_auto1`), wait for
+   `mapLoaded=true` / `Special-work analysis: objects=14` in `Player.log`.
+4. Write `ng_goto_request.json` with `{"nodeId": "Nove"}` next to the
+   deployed `NarrowGaugeMod.dll`
+   (`C:\Steam\steamapps\common\Railroader\Mods\FUSE.NarrowGauge\`). Poll for
+   `ng_goto_result.json` (should appear within ~1s if the bridge is active).
+5. Send a `screenshot` request via `FUSE.TestBridge` and read the result -
+   this should now show Nove's switch specifically instead of an arbitrary
+   camera position.
+6. Look at the actual image (not just trust `Ok=true`) to check whether the
+   blade orientation symptom the user reported is visible.
+7. Close cleanly (`umm close`/`CloseMainWindow`, confirmed no force-kill
+   needed last turn), restore `FUSE.TestBridge/Info.json` to
+   `"Enabled": false`.
 
-- True headless (`-batchmode -nographics`) launch does not reach a connected
-  bridge state yet - do not assume headless screenshot/console automation
-  is available. Normal graphical launch + temporary `Info.json` toggle is
-  the only proven path right now.
-- Environment-variable activation (`FUSE_TEST_BRIDGE=1`) does not propagate
-  to the actual game process (Railroader re-launches itself as a second
-  `/editor` process that doesn't inherit it) - the `Info.json` toggle is the
-  reliable activation method.
-- `FUSE.TestCli`'s own `dotnet run` path failed in this sandbox (NuGet.Config
-  permission issue) - direct JSON request/response files against the bridge
-  worked fine and are sufficient without it.
-
-## Standing rules (unchanged, now with one addition)
+## Standing rules (unchanged, plus one addition)
 
 - Do not trust `Player.log`/exports unless the session is confirmed fresh
-  AND the automated pipeline's own `mapLoaded`/heartbeat state confirms it,
-  not just file content.
+  AND the automated pipeline's own `mapLoaded`/heartbeat state confirms it.
 - Always restore `FUSE.TestBridge`'s `Info.json` to `Enabled: false` after
-  any automated session - confirm this by reading the file, not assuming a
-  cleanup step ran.
-- Do not force-kill Railroader; use `umm close`/`CloseMainWindow`. This
-  session proved a clean shutdown path exists - there's no excuse to skip it.
-- Screenshot automation currently only captures the existing camera view -
-  do not claim it verifies a *specific* switch unless the camera was
-  actually confirmed pointed at it.
+  any automated session - confirm by reading the file, not assuming.
+- Do not force-kill Railroader; use `umm close`/`CloseMainWindow`.
+- Screenshot automation only shows what the camera is pointed at - now that
+  `NarrowGaugeTestBridge` exists, confirm the goto actually happened (read
+  `ng_goto_result.json`, and ideally cross-check the screenshot's visible
+  content/labels against the target node) before treating a screenshot as
+  evidence about a specific switch.
+- New: don't assume an env-var gate propagates to the actual game process
+  the way a deployed-file gate does - this bit us once already with
+  `FUSE_TEST_BRIDGE`. Verify empirically for `NARROWGAUGE_TEST_BRIDGE` too.
 
 ## Next turn
 
-Open question for the user: build the `/ng.goto <nodeId>` camera command (a
-real, scoped NarrowGaugeMod feature, not exploratory anymore) to get full
-automated visual verification of specific switches, or continue relying on
-the user's own screenshots for visual confirmation while using the now-proven
-automation for validation-level checks (build/deploy/launch/loadSave/report/close)?
-Once decided: if building the camera command, that's a Claude or Codex
-implementation turn like any other code change (build, verify, no in-game
-test needed beyond the automation we now have). If not, resume investigating
-the still-open symptoms (Nove's blade orientation, `SCustom_ttpp`'s
-cut-source ambiguity, double-frog mapping, "too many rails") using the
-automated pipeline for log-level checks and the user's screenshots for
-visual ones.
+Codex - test the full loop above end to end against `Nove` specifically
+(the reported blade-orientation symptom). Report exactly what worked, what
+didn't, and include/describe the actual screenshot content, not just
+whether the request returned `Ok=true`. If the env var doesn't propagate,
+figure out a working alternative (e.g. a sentinel file check) and document
+it the same way the `Info.json` toggle was documented last turn.
 
 ## Open questions / blockers
 
-Waiting on the user's decision: build the camera-goto command, or proceed
-without it. Also still open from before: Nove's blade-orientation symptom
-(unresolved, needs either a screenshot after camera control exists or the
-user's continued manual testing), `SCustom_ttpp` cut-source ambiguity,
-double-frog mapping, unmapped "too many rails" symptom.
+Whether `NARROWGAUGE_TEST_BRIDGE=1` actually reaches the final game process
+is unverified - test this explicitly, don't assume. Once the full loop is
+proven, resume the substantive investigation (Nove's blade orientation,
+`SCustom_ttpp`'s cut-source ambiguity, double-frog mapping, "too many
+rails") using real screenshots of the actual switches instead of guessing
+from coordinate data.

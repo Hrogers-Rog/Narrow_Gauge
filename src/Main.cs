@@ -44,6 +44,7 @@ namespace NarrowGaugeMod
             ManagerObject.AddComponent<NarrowGaugeManager>();
             ManagerObject.AddComponent<SpecialWorkDebugRenderer>();
             ManagerObject.AddComponent<SpecialWorkAdjustmentUI>();
+            ManagerObject.AddComponent<NarrowGaugeTestBridge>();
 
             foreach (string issue in SpecialWorkPresetCatalog.ValidateCatalog())
             {

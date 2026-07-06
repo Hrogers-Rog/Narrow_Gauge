@@ -746,3 +746,54 @@ Next: waiting on the user - build the camera-goto command for full
 automated visual verification, or proceed with the now-proven
 validation-level automation and continue relying on the user's own
 screenshots for anything visual.
+
+### [Claude] 2026-07-06 09:25 - Built the camera-goto bridge; user authorized full autonomy
+
+User authorized proceeding without further check-ins ("do whatever you need
+to do to keep working on this, without my input"). Also asked whether the
+automation was running headless - corrected this: the successful runs used
+a normal graphical launch with the `Info.json` toggle, not true
+`-batchmode`/`-nographics` (that path was tried and didn't reach a
+connected bridge state, per the previous turn's findings).
+
+Investigated wiring a real console command into `FUSE.TestBridge`'s
+automation for camera control, and found a real dead end rather than
+guessing: `FuseTestApi.Commands()` (`FUSE/Testing/FuseTestApi.cs`) builds
+its dispatch table only from `FuseConsoleCommands.CreateAll()` - confirmed
+by reading the method - so it never reaches the real game's
+`ConsoleCommandHandler._commands` dictionary at all. A NarrowGaugeMod
+command registered the way FUSE registers its own (reflection into
+`ConsoleCommandHandler.Register<T>`, per `FuseLegacyAssemblyHost.cs`) would
+work in the interactive console but be invisible to the automated bridge.
+Making it reachable through the bridge would require editing the separate
+FUSE repo - out of scope to do unasked.
+
+Built a self-contained alternative instead, entirely within this repo:
+`src/NarrowGaugeTestBridge.cs`, a small file-based bridge modeled on
+`FUSE.TestBridge`'s own request/result-file pattern but scoped to one job -
+move the camera to a named track node. Verified the exact camera API by
+reading `TeleportCommand.cs` and `CameraSelector.cs` directly rather than
+guessing: `CameraSelector.shared.JumpToPoint(gamePoint, rotation, null)`,
+where `gamePoint` is `Helpers.WorldTransformer.WorldToGame(node.transform.position)`
+- confirmed `WorldToGame` is a real public static method, not assumed.
+Drop `ng_goto_request.json` (`{"nodeId": "Nove"}`) next to the deployed
+`NarrowGaugeMod.dll`; the bridge polls every 0.5s, resolves the node via
+`Graph.Shared.GetNode(nodeId)`, jumps the camera, deletes the request file,
+and writes `ng_goto_result.json` with `{"ok": ..., "message": ...}`. Gated
+behind `NARROWGAUGE_TEST_BRIDGE=1` so it's inert for normal players,
+mirroring `FUSE.TestBridge`'s own dev-only gate. Registered it as a new
+component on the existing `ManagerObject` in `Main.cs`.
+
+Built and deployed:
+`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+- 0 warnings/0 errors. Not yet tested live - flagged a real risk in
+`STATUS.md` before handing off: the `FUSE_TEST_BRIDGE` env var didn't
+propagate to the actual game process last turn (a re-launch hop dropped
+it), so `NARROWGAUGE_TEST_BRIDGE` might have the identical problem and
+needs to be verified empirically, not assumed to work just because the
+code is gated the same way conceptually.
+
+Next: Codex, test the full loop (launch, load save, goto Nove, screenshot,
+look at the actual image, close cleanly) end to end and report exactly what
+happened - including describing the screenshot's real content, not just
+whether requests returned Ok=true.
