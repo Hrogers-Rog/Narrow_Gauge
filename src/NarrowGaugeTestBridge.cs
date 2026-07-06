@@ -24,6 +24,7 @@ namespace NarrowGaugeMod
     internal sealed class NarrowGaugeTestBridge : MonoBehaviour
     {
         private const string EnableEnvVar = "NARROWGAUGE_TEST_BRIDGE";
+        private const string EnableSentinelFileName = "ng_test_bridge_enabled";
         private const string RequestFileName = "ng_goto_request.json";
         private const string ResultFileName = "ng_goto_result.json";
         private const float PollIntervalSeconds = 0.5f;
@@ -33,15 +34,21 @@ namespace NarrowGaugeMod
 
         private void Awake()
         {
-            if (Environment.GetEnvironmentVariable(EnableEnvVar) != "1")
+            _folder = Path.GetDirectoryName(
+                System.Reflection.Assembly.GetExecutingAssembly().Location);
+
+            bool enabledByEnv = Environment.GetEnvironmentVariable(EnableEnvVar) == "1";
+            bool enabledBySentinel = _folder != null
+                && File.Exists(Path.Combine(_folder, EnableSentinelFileName));
+            if (!enabledByEnv && !enabledBySentinel)
             {
                 enabled = false;
                 return;
             }
 
-            _folder = Path.GetDirectoryName(
-                System.Reflection.Assembly.GetExecutingAssembly().Location);
-            Main.Log($"[TestBridge] NarrowGaugeTestBridge enabled - watching '{_folder}' for '{RequestFileName}'.");
+            Main.Log(
+                $"[TestBridge] NarrowGaugeTestBridge enabled via {(enabledByEnv ? EnableEnvVar : EnableSentinelFileName)}"
+                + $" - watching '{_folder}' for '{RequestFileName}'.");
         }
 
         private void Update()

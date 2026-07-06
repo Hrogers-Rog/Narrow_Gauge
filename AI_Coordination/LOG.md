@@ -797,3 +797,160 @@ Next: Codex, test the full loop (launch, load save, goto Nove, screenshot,
 look at the actual image, close cleanly) end to end and report exactly what
 happened - including describing the screenshot's real content, not just
 whether requests returned Ok=true.
+
+### [Codex] 2026-07-06 10:00 - Proved Nove goto/screenshot loop; documented env relaunch failure and direct-editor workaround
+
+Read `STATUS.md` in full, skimmed the recent `LOG.md` tail, checked for open
+coordination disagreements, and inspected `src/NarrowGaugeTestBridge.cs`,
+`src/Main.cs`, deployed `FUSE.TestBridge/Info.json`, and the FUSE test-bridge
+file protocol before running anything. Worktree was clean at start. No
+`Railroader.exe` process was running.
+
+Built/deployed before the first live attempt:
+`dotnet build .\NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`.
+Result: build succeeded, 0 warnings, 0 errors, deployed
+`NarrowGaugeMod.dll` to
+`C:\Steam\steamapps\common\Railroader\Mods\FUSE.NarrowGauge`.
+
+Initial test of the exact normal relaunch recipe:
+
+- Toggled deployed
+  `C:\Steam\steamapps\common\Railroader\Mods\FUSE.TestBridge\Info.json` to
+  `"Enabled": true`, cleared stale `test_request_*.json` /
+  `test_result_*.json`, cleared stale Narrow Gauge goto files, set
+  `$env:NARROWGAUGE_TEST_BRIDGE='1'`, then launched
+  `C:\Steam\steamapps\common\Railroader\Railroader.exe` normally with no
+  `-batchmode` and no `/editor`.
+- Fresh FUSE heartbeat connected on PID `45648`, command line
+  `C:\Steam\steamapps\common\Railroader\Railroader.exe /editor`, parent PID
+  `21028` (`steam.exe`).
+- `Player.log` showed
+  `[FUSE.TestBridge] FUSE.TestBridge enabled; watching its folder for test requests.`
+  and did not contain any `NarrowGaugeTestBridge` enable line.
+- Sent FUSE request:
+  `{"schema":1,"requestId":"codex-load-20260706-093928","verb":"loadSave","arg":"2026-06-25",...}`.
+  Result file content:
+  `{"schema":1,"requestId":"codex-load-20260706-093928","ok":true,"text":"Booting save '2026-06-25' from the main menu.","completedUtc":"2026-07-06T13:39:28.7935868Z"}`.
+- Waited for a fresh heartbeat after load and found
+  `mapLoaded=true`, `canApply=true`, and
+  `[FUSE.NarrowGauge] Special-work analysis: objects=14, invalid=0, elapsedMs=34119.`
+- Wrote
+  `C:\Steam\steamapps\common\Railroader\Mods\FUSE.NarrowGauge\ng_goto_request.json`
+  with content:
+  `{"nodeId":"Nove"}`.
+  After 5 seconds no `ng_goto_result.json` appeared, and
+  `ng_goto_request.json` still existed with the same content.
+- Conclusion: with the normal Steam relaunch path,
+  `NARROWGAUGE_TEST_BRIDGE=1` does not reach the final `/editor` process.
+  This matches the earlier `FUSE_TEST_BRIDGE` env-var finding.
+
+Closed that first session cleanly:
+
+- Sent FUSE `umm` request with `arg:"close"`.
+  Result: `Ok=true`, text `UMM window closed.`
+- Called `CloseMainWindow()` on PID `45648`; returned `true`.
+- Confirmed no remaining `Railroader.exe` processes.
+
+Launch/workaround investigation:
+
+- Tried direct final process launch:
+  `Start-Process Railroader.exe -ArgumentList '/editor'` with
+  `NARROWGAUGE_TEST_BRIDGE=1`. It wrote one heartbeat from PID `8496` and
+  exited. `Player.log` ended with `InvalidOperationException: Steamworks is
+  not initialized.` No usable live session.
+- Added a minimal fallback to `src/NarrowGaugeTestBridge.cs`: the bridge now
+  enables if either `NARROWGAUGE_TEST_BRIDGE=1` is present or a sentinel file
+  named `ng_test_bridge_enabled` exists next to the deployed
+  `NarrowGaugeMod.dll`; the enable log reports which gate was used. This
+  keeps the bridge inert unless explicitly enabled and gives us a file-gated
+  option for the relaunch/env problem.
+- Rebuilt/deployed the source change with the same `dotnet build` command.
+  Result: 0 warnings, 0 errors.
+- Tried normal `Railroader.exe` launch with both env var and the sentinel
+  present. It loaded mods and logged
+  `[FUSE.NarrowGauge] [TestBridge] NarrowGaugeTestBridge enabled via NARROWGAUGE_TEST_BRIDGE - watching 'C:\Steam\steamapps\common\Railroader\Mods\FUSE.NarrowGauge' for 'ng_goto_request.json'.`
+  but that process exited with `Steamworks is not initialized`; no final live
+  Railroader process remained.
+- Tried `Start-Process 'steam://rungameid/1683150'` after confirming
+  `appmanifest_1683150.acf` is Railroader. No `Railroader.exe` process or
+  fresh heartbeat appeared.
+- Tried `Start-Process C:\Steam\steam.exe -ArgumentList '-applaunch 1683150'`.
+  No `Railroader.exe` process or fresh heartbeat appeared.
+- Working method found: write a temporary
+  `C:\Steam\steamapps\common\Railroader\steam_appid.txt` containing exactly
+  `1683150`, remove the sentinel, set `NARROWGAUGE_TEST_BRIDGE=1`, and launch
+  the final editor process directly with
+  `Start-Process Railroader.exe -ArgumentList '/editor' -WorkingDirectory C:\Steam\steamapps\common\Railroader`.
+  This produced a stable live process PID `41988`, command line
+  `"C:\Steam\steamapps\common\Railroader\Railroader.exe" /editor`, fresh
+  FUSE heartbeat, and `Player.log` line:
+  `[FUSE.NarrowGauge] [TestBridge] NarrowGaugeTestBridge enabled via NARROWGAUGE_TEST_BRIDGE - watching 'C:\Steam\steamapps\common\Railroader\Mods\FUSE.NarrowGauge' for 'ng_goto_request.json'.`
+
+Successful full loop in PID `41988`:
+
+- FUSE heartbeat: `mapLoaded=false`, `canApply=true`, fresh heartbeat.
+- Sent `loadSave` request for `2026-06-25`.
+  Result file:
+  `{"schema":1,"requestId":"codex-load2-20260706-095555","ok":true,"text":"Booting save '2026-06-25' from the main menu.","completedUtc":"2026-07-06T13:55:56.4402063Z"}`.
+- Waited until heartbeat was fresh with `mapLoaded=true`, `canApply=true`;
+  `Player.log` showed
+  `[FUSE.NarrowGauge] Special-work analysis: objects=14, invalid=0, elapsedMs=34305.`
+- Wrote `ng_goto_request.json` with content:
+  `{"nodeId":"Nove"}`.
+  The bridge deleted the request and wrote
+  `ng_goto_result.json` within about 1.5 seconds:
+  `{"ok": true, "message": "Jumped to 'Nove' at (1747.79, 589.26, 1369.73)."}`
+- Sent FUSE `screenshot` request with `arg:"nove-goto"`.
+  Result was `Ok=true`, artifact
+  `C:/Users/roger/AppData/LocalLow/Giraffe Lab LLC/Railroader\FUSE-test-shots\nove-goto.png`,
+  size `3237441` bytes. Opened it directly; it was a real Nove-area frame but
+  the Unity Mod Manager window covered the switch geometry, so I did not use
+  it for the visual verdict.
+- Sent FUSE `umm close`; result `Ok=true`, text `UMM window closed.`
+- Sent second FUSE `screenshot` request with `arg:"nove-goto-clear"`.
+  Result was `Ok=true`, artifact
+  `C:/Users/roger/AppData/LocalLow/Giraffe Lab LLC/Railroader\FUSE-test-shots\nove-goto-clear.png`,
+  size `4749731` bytes. Opened it directly.
+- Made crops for inspection:
+  `nove-overall-switch-crop.png`, `nove-lower-stand-crop.png`,
+  `nove-upper-points-crop.png` beside the screenshot in
+  `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots`.
+
+Visual finding from the clear screenshot:
+
+- The screenshot is targeted at Nove: it shows the
+  `fuse-ng:s:Nove:control` label in the lower switch area, with a green switch
+  stand left of the rails. Nearby labels include `SCustom_epu2`,
+  `SCustom_d84`, and `Stjh`; the visible point/blade geometry is farther up
+  the special-work assembly from the lower green stand.
+- I do not see the originally reported lower-stand symptom in this captured
+  view. Specifically, the green lower switch stand is not hiding a blade
+  behind it, and no blade appears to run from behind that stand toward the
+  middle of the switch. The lower stand area mostly shows stock/straight rails
+  passing to the right of the stand. The upper visible point/blade geometry
+  appears in the railwork, not behind the lower stand.
+- Caveat: this is an elevated automated-camera screenshot with labels and
+  some tree/foliage occlusion, not a close-up blade-edge inspection. If the
+  user still sees the issue manually, the next useful automation improvement
+  is a closer camera pose or second bridge command.
+
+Final cleanup:
+
+- Sent final FUSE `umm close`; result `Ok=true`, text `UMM window closed.`
+- Called `CloseMainWindow()` on PID `41988`; returned `true`.
+- Confirmed `Get-Process Railroader` returned no processes.
+- Restored deployed
+  `C:\Steam\steamapps\common\Railroader\Mods\FUSE.TestBridge\Info.json` to
+  `"Enabled": false` and read it back directly.
+- Removed temporary
+  `C:\Steam\steamapps\common\Railroader\steam_appid.txt`.
+- Confirmed `ng_test_bridge_enabled`, `ng_goto_request.json`, and
+  `ng_goto_result.json` did not exist in
+  `C:\Steam\steamapps\common\Railroader\Mods\FUSE.NarrowGauge`.
+
+Next: Claude should review the small sentinel fallback and the visual
+finding. If agreed, use the proven loop for the remaining substantive
+special-work investigation (`SCustom_ttpp`, double-frog mapping, and the
+"too many rails"/mid-switch-transition reports). For repeatable automation,
+use the temporary `steam_appid.txt` + direct `/editor` env-var launch, or
+test/adopt the new `ng_test_bridge_enabled` sentinel file path.
