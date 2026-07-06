@@ -642,3 +642,66 @@ Next: waiting on the user's report. If Nove's blade issue persists,
 investigate `SpecialWorkHardwareRenderer.CalculateBladeOpenRotation`/
 `CreatePointBlade` for the narrow-branch preset - a different code area
 than anything patched this session so far.
+
+### [Codex] 2026-07-06 09:05 - Proved FUSE.TestBridge live-game pipeline, with headless/env caveats
+
+Built and deployed the sibling repo's `FUSE.TestBridge` into the live
+Railroader install from
+`C:\Hrogers_Railroader_mods_Projects\FUSE\FUSE.TestBridge`:
+`dotnet build FUSE.TestBridge.csproj -p:EnableTestBridgeDeploy=true -p:GameDir="C:\Steam\steamapps\common\Railroader"`.
+Build succeeded with 0 warnings and 0 errors. Confirmed from `Main.cs` and
+the deployed `Info.json` that the runtime gate is either
+`FUSE_TEST_BRIDGE=1` or deployed `Info.json` `"Enabled": true`.
+
+Tried the requested headless path first: launched with
+`FUSE_TEST_BRIDGE=1` plus `-batchmode -nographics`. It wrote one
+`test_state.json` heartbeat from PID `21440`, then the heartbeat went stale
+and a later `Railroader.exe -batchmode -nographics /editor` process had no
+live bridge. Closed that failed attempt by `CloseMainWindow`/posted Windows
+close messages; no force kill was used. Tried a normal graphics launch with
+only `$env:FUSE_TEST_BRIDGE='1'`; that also did not enable the final process.
+Railroader appears to hand off to a second `Railroader.exe /editor`, and the
+final `Player.log` said `FUSE.TestBridge present but disabled`. Closed that
+disabled session cleanly with `CloseMainWindow`.
+
+The successful path was to temporarily set the deployed
+`C:\Steam\steamapps\common\Railroader\Mods\FUSE.TestBridge\Info.json`
+to `"Enabled": true`, launch `Railroader.exe` normally, then restore it to
+`"Enabled": false` after shutdown. That produced a fresh connected heartbeat
+from live PID `27828`. `FUSE.TestCli` could not be used from this sandbox
+because `dotnet run` failed reading
+`C:\Users\roger\AppData\Roaming\NuGet\NuGet.Config` with access denied, so I
+used the documented file protocol directly (`test_request_<id>.json` /
+`test_result_<id>.json`) and deleted result files after reading them.
+
+Direct bridge requests worked:
+`saves` returned `2026-06-25_auto1` and `2026-06-25`.
+`loadSave` with arg `2026-06-25` returned `Ok=true` and
+`Booting save '2026-06-25' from the main menu.` After load, `test_state.json`
+showed `mapLoaded=true`, `canApply=true`, and a fresh heartbeat; `Player.log`
+showed `[FUSE.NarrowGauge] Special-work analysis: objects=14, invalid=0,
+elapsedMs=34074.` A `console` request running `/fuse.report json` returned
+`Ok=true` with 17,586 bytes of JSON text, summary prefix
+`FUSE: 20 loaded | faults 1 | conflicts 0 | assets 29 | graph 2 | transfers 0 | suppressions 130 | orphans 0 | /fuse.report`.
+`umm close` returned `UMM window closed.` `screenshot` returned `Ok=true` and
+artifact
+`C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\narrow-gauge-harness-20260706-0903.png`
+(3,686,542 bytes). I opened it: it captures the current in-game camera
+exactly as-is, a trackside view with world labels and the top HUD; the
+protocol has no camera-position argument. `cleanup` returned `Ok=true` /
+`Removed 0 test save(s).`
+
+Closed the successful Railroader session cleanly with `CloseMainWindow`; no
+`Stop-Process`, `taskkill`, or forced termination was used. After shutdown,
+the final successful `Player.log` freshness check passed: exactly one
+`Initialize engine version` line, exactly one `[FUSE.NarrowGauge] Version`
+line, exactly one `FUSE.TestBridge enabled; watching its folder for test
+requests.` line, and exactly one `Special-work analysis: objects=14` line.
+Restored the deployed bridge `Info.json` to `"Enabled": false` so normal
+future launches stay inert.
+
+No NarrowGauge source changed this turn. Next: Claude can build on this by
+adding a small local harness/wrapper if desired; it should toggle deployed
+`Info.json` true before launch and false after shutdown unless a better
+environment-propagation path is found. Do not assume true `-batchmode
+-nographics` works yet, and do not assume screenshots are camera-controlled.
