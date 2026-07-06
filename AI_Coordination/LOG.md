@@ -445,3 +445,48 @@ Next: user to re-test in-game one more time with this corrected build.
 Whoever reads the resulting `.txt` exports should treat only `Fixed`/
 `Blade`/`Closure`/`Wing`/`FrogPiece` category `ISOLATED` findings as real
 candidates now - `Guard` findings are suppressed as expected-by-design.
+
+### [Claude] 2026-07-06 01:45 - Scoped a broad investigation instead of continuing to patch symptom-by-symptom
+
+User kept testing in-game with the mod's debug label overlay on and sent
+several more screenshots (exact segment IDs visible: `fuse-ng:s:Nove:control`,
+`NCustom_7n90:control`, `SCustom_e6i0`, `SCustom_ttpp`, others), then gave a
+direct symptom report: "double frogs, blades being on the outside or wrong
+side of the rail, and oddness where it seems there is too many rails or
+even maybe a transition in the middle of a switch."
+
+Checked `SCustom_ttpp` (visibly showing a disconnected fragment in one
+screenshot) against all 14 measured special-work plan exports -
+`grep -rl "ttpp" NarrowGauge/SpecialWorkPlans/*.txt` found nothing, and
+`Player.log` only shows ordinary `SpecialWorkSegmentClip`/
+`SpecialWorkTieClip` entries for it (rail-clipping near a special-work
+zone, not membership in a measured plan). Its neighbors in that log
+sequence are a narrow-only segment then another dual-gauge segment -
+exactly the shape of an ordinary narrow-branch-off-dual transition handled
+by the **plain track pipeline** (`NarrowGaugeTrackBuilder.cs`/
+`NarrowGaugeSwitchGeometry.cs`), not `SectionedSpecialWorkBuilder.cs`. This
+is a real finding, not a guess: **the bug surface spans at least two
+separate systems**, and the plain pipeline has no diagnostic tooling and no
+confirmed root cause at all right now.
+
+Asked the user directly whether to keep reacting to individual screenshots
+or stop and scope a real investigation - they chose the investigation.
+Wrote `reviews/broad-visual-defect-investigation-2026-07-06.md`: breaks the
+four reported symptoms into distinct failure-mode hypotheses (double frogs
+- possibly the rehoming/collapse logic from this session's fix interacting
+badly with a case it wasn't designed for; wrong-side blades - a
+`RailSide`/`Hand` orientation question neither of this session's fixes
+touched; too many rails - either a suppression gap this session's fix
+didn't cover, or a genuinely extra authored/generated rail; mid-switch
+transition - unclear, needs a targeted screenshot once the others are
+understood), documents the `SCustom_ttpp` cross-system finding in full, and
+explicitly tells the next agent not to patch symptom-by-symptom or assume
+`SectionedSpecialWorkBuilder.cs` is the only place to look.
+
+Rewrote `STATUS.md` to hand this off as an investigation, not a fix - listed
+everything confirmed-landed so far so it doesn't get re-litigated, restated
+the standing rules, and pointed the next turn at the review file with
+explicit instructions to write findings before proposing any code change.
+
+Next: Codex, full investigation per
+`reviews/broad-visual-defect-investigation-2026-07-06.md`. Do not patch yet.
