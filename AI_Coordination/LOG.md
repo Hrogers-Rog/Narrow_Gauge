@@ -1176,3 +1176,51 @@ right, or the user's own confirmation, counts.
 Next: live-verify this fix with a close screenshot of an affected
 both-diverge switch's vee frog area (may need tighter camera framing than
 used so far), then investigate `S4u5` and `e6i0` as separate symptoms.
+
+### [Claude] 2026-07-06 15:15 - Two more leads found, handed to Codex (unblocked)
+
+Ran a live verification session for the both-diverge duplicate-rail fix:
+`objects=14, invalid=0` held, and a medium-distance screenshot of
+`NCustom_u6n0` didn't show obvious fragments - recorded as inconclusive
+(not close-up), not proven, per the standing rule.
+
+User then confirmed no photos had come through on a prior message, resent
+one: an extreme close-up of `dkzn` showing multiple distinct
+disconnected/kinked rail fragments near a crossing - messier than a single
+clean gap. Traced ownership via the `SpecialWorkOwnershipCutClaim`
+diagnostic (already in `Player.log` from the prior session, no new launch
+needed): `dkzn` is claimed solely by `NCustom_p997` (`dual.both-diverge`),
+no double-claim conflict this time. Read
+`CreateCompoundVeeFrogAssembly`/`CreateVeeFrogAssembly`/`CreateVeeWingRail`/
+`TryResolveCompoundVeeRails` (`src/SpecialWorkHardwareRenderer.cs`
+~1380-1700) looking for the same hardcoded-orientation bug class as last
+turn's fix - found none; `TryResolveCompoundVeeRails` matches the shared
+rail by actual object identity, not a hardcoded Left/Right string, so it's
+structurally different from the bug already fixed. Grepped the whole file
+for other hardcoded `"narrow-*"`/`"standard-*"` rail-id literals - found
+exactly one, and it's a debug-log filter condition
+(`LogDualBothDivergeNarrowClosureFrame`), not something affecting rendered
+geometry. Concluded `dkzn`'s defect is a different, deeper bug - likely in
+the actual heel-point/wing-rail geometry math, not a quick grep-and-fix.
+
+Also traced `S4u5` (user: blades on the wrong rails, should be
+left-diverge/right-through, are left-through/right-diverge) - claimed by
+`N178`, same `dual.narrow-branch-joins-main` preset as `Nove` (which the
+user has now twice confirmed still shows a backwards blade). Compared their
+`[Blades]` plan data: the stock/movable pairing is a mirror image between
+the two switches. Flagged as ambiguous rather than guessed at: this could
+be a legitimate opposite-hand pairing (the log shows each switch selecting
+a different truth table, `DualGauge_NarrowBranch_Left` vs `_Right`), or the
+truth-table *selection* itself could be picking the wrong hand for one of
+them based on actual measured geometry - didn't have time to determine
+which, and didn't want to guess at a fix without knowing.
+
+Confirmed Codex's usage-limit block cleared (no-op check: "I'm available").
+Since both remaining leads need careful, uninterrupted geometric tracing
+(not another quick grep), handed both to Codex as a real investigation with
+full context in `STATUS.md` rather than continuing to grind solo.
+
+Next: Codex - investigate the `dkzn`/`p997` compound-vee-frog geometry and
+the `S4u5`/`N178`/`Nove` truth-table hand-selection question. Verify any
+fix with a close-up screenshot via the proven live-game pipeline before
+claiming either is resolved.
