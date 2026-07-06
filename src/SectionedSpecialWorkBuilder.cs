@@ -143,11 +143,12 @@ namespace NarrowGaugeMod
             AddSharedSuppressions(definition, rails, shared, blades, frogs, cuts, suppressions);
             AddCrossFamilySharedSuppressions(definition, rails, blades, frogs, cuts, suppressions);
             AddBladeCorridorSuppressions(definition, rails, blades, cuts, suppressions);
-            frogs = RehomeSharedDuplicateFrogRails(
-                rails,
-                cuts,
-                frogs,
-                blades).ToArray();
+            frogs = CollapseDuplicateFrogHardware(
+                RehomeSharedDuplicateFrogRails(
+                    rails,
+                    cuts,
+                    frogs,
+                    blades)).ToArray();
             AddFrogSuppressions(rails, frogs, cuts, suppressions);
             if (IsDualBothDivergePreset(definition))
             {
@@ -1779,6 +1780,42 @@ namespace NarrowGaugeMod
                 protectedRoute);
         }
 
+        private static IEnumerable<FrogCandidate> CollapseDuplicateFrogHardware(
+            IEnumerable<FrogCandidate> frogs)
+        {
+            var result = new List<FrogCandidate>();
+            foreach (FrogCandidate frog in frogs)
+            {
+                int duplicateIndex = result.FindIndex(existing => SameFrogHardware(existing, frog));
+                if (duplicateIndex < 0)
+                {
+                    result.Add(frog);
+                    continue;
+                }
+
+                FrogCandidate existing = result[duplicateIndex];
+                if (frog.CutHalfLength > existing.CutHalfLength)
+                {
+                    result[duplicateIndex] = frog;
+                }
+
+                Main.Log(
+                    $"[FrogOwner] Collapsed duplicate frog hardware {existing.Id}/{frog.Id} " +
+                    $"on {existing.Intersection.RailA.Id}/{existing.Intersection.RailB.Id}.");
+            }
+
+            return result;
+        }
+
+        private static bool SameFrogHardware(FrogCandidate first, FrogCandidate second)
+        {
+            return first.Intersection.Kind == second.Intersection.Kind
+                && PairKey(first.Intersection.RailA.Id, first.Intersection.RailB.Id)
+                    == PairKey(second.Intersection.RailA.Id, second.Intersection.RailB.Id)
+                && Vector3.Distance(first.Intersection.Position, second.Intersection.Position)
+                    <= CorridorTolerance * 2f;
+        }
+
         private static RailCenterline ResolveFrogHardwareRail(
             IReadOnlyList<RailCenterline> rails,
             IReadOnlyList<RailCut> cuts,
@@ -1813,8 +1850,8 @@ namespace NarrowGaugeMod
                     candidate.Separation <= RailHeadWidth + FlangewayWidth
                     && !HasSharedDuplicateCutAt(cuts, candidate.Rail, candidate.Distance)
                     && ChooseSharedOwner(rail, candidate.Rail, blades) == candidate.Rail)
-                .OrderBy(candidate => candidate.Rail.Family == GaugeGraphFamily.Standard ? 0 : 1)
-                .ThenBy(candidate => candidate.Separation)
+                .OrderBy(candidate => candidate.Separation)
+                .ThenBy(candidate => candidate.Rail.Family == GaugeGraphFamily.Standard ? 0 : 1)
                 .Select(candidate => candidate.Rail)
                 .FirstOrDefault();
             if (owner == null)

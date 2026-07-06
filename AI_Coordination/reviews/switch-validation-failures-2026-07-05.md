@@ -260,7 +260,10 @@ fresh exported plans:
   frog/wing hardware source. After shared-duplicate cuts are known but before
   frog cuts/hardware are built, frog candidates now rehome a frog rail from a
   shared-duplicate loser to a nearby unsuppressed physical owner when such an
-  owner is within the rail-head/flangeway tolerance.
+  owner is within the rail-head/flangeway tolerance. Follow-up tightening
+  collapses duplicate frog hardware when rehomed candidates land on the same
+  physical rail pair, and chooses the closest unsuppressed owner before
+  family tie-breaks.
 
 The two "Rendering anyway" checks named above have been restored to hard
 validation failures (`yield return`). Build/deploy verification succeeded:

@@ -27,6 +27,9 @@ Codex implemented the code-side fix this turn:
   frog cuts, wings, guards, and sections are built. This targets the N178-style
   path where a shared duplicate could still own frog/wing hardware and render
   detached fragments.
+- follow-up tightening collapses duplicate frog hardware if rehomed candidates
+  land on the same physical rail pair, and chooses the closest unsuppressed
+  owner before family tie-breaks.
 - the two named "Rendering anyway" checks are hard validation failures again.
   If the geometry is still wrong in a fresh game run, it should show up as
   `invalid>0` instead of being hidden behind `valid=True`.

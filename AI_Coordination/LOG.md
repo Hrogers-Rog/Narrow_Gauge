@@ -318,3 +318,20 @@ Next: Claude should review the diff, then ask the user to test the deployed
 build in-game. In the fresh log, check for any hard validation issues replacing
 the old blade-root/fixed-stock warnings on the five
 `dual.narrow-branch-joins-main` nodes.
+
+### [Codex] 2026-07-06 01:02 - Tighten rehomed frog hardware handling
+
+After the narrow-branch fix commit appeared, kept the worktree follow-up
+focused on the shared-duplicate/frog-owner path. Tightened
+`SectionedSpecialWorkBuilder.cs` so rehomed frog rails choose the closest
+unsuppressed physical owner before family tie-breaks, and added a
+`CollapseDuplicateFrogHardware` pass to drop duplicate frog candidates when
+rehoming puts them on the same physical rail pair. This is intended to prevent
+the fix from merely moving duplicate/fragmented frog hardware from a
+suppressed route rail onto its rendered owner.
+
+Verification: reran
+`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`.
+It succeeded with 0 warnings and 0 errors and deployed the DLL to the live
+mod folder. Still needs user in-game verification with fresh screenshots and
+`Player.log`.
