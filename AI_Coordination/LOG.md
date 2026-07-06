@@ -954,3 +954,72 @@ special-work investigation (`SCustom_ttpp`, double-frog mapping, and the
 "too many rails"/mid-switch-transition reports). For repeatable automation,
 use the temporary `steam_appid.txt` + direct `/editor` env-var launch, or
 test/adopt the new `ng_test_bridge_enabled` sentinel file path.
+
+### [Claude] 2026-07-06 10:20 - Drove the live-game pipeline myself after Codex hit its usage limit again
+
+Handed Codex a follow-up turn (screenshot the three "double frog" nodes:
+`NCustom_fl15`, `NCustom_ltci`, `NCustom_fc97`) but it hit its usage limit
+mid-turn ("try again at 1:52 PM" - a shorter block than the earlier
+multi-day one). Since the user authorized working autonomously, drove the
+proven pipeline myself directly via Bash rather than waiting: toggled
+`FUSE.TestBridge/Info.json` to `Enabled: true`, wrote the temporary
+`steam_appid.txt` (`1683150`), launched `Railroader.exe /editor` directly
+with `NARROWGAUGE_TEST_BRIDGE=1` set on that process, confirmed a connected
+heartbeat, `loadSave`'d `2026-06-25`, confirmed `Special-work analysis:
+objects=14, invalid=0` in `Player.log`.
+
+Learned the request schema is camelCase by reading `BridgeIo.cs` directly
+(`CamelCasePropertyNamesContractResolver`) rather than guessing. Hit one
+real snag: sent `{"verb":"console","commandLine":"umm close"}` to close the
+UMM window (mirroring what I assumed Codex's turn had done) and got back
+"unknown console command 'umm'" - turned out `umm` is its own top-level
+verb (`BridgeProtocol.TestVerbUmm`), not a console command string. Fixed to
+`{"verb":"umm","arg":"close"}`, which worked.
+
+Goto'd and screenshotted `NCustom_fl15`, `NCustom_ltci` (twice - once
+immediately after the goto result, once after an explicit 6s wait, to test
+a hypothesis), and `NCustom_fc97`. Found and confirmed a real methodology
+gotcha: `CameraSelector.JumpToPoint` runs as an async Unity coroutine
+(confirmed by reading `CameraSelector.cs` - it calls
+`base.StartCoroutine(this._JumpToPoint(...))` and returns immediately), so
+`NarrowGaugeTestBridge`'s result file can be written before the camera
+actually finishes panning. Initially suspected this explained why
+`fl15`/`ltci`'s screenshots looked near-identical despite very different
+reported coordinates - but re-shooting `ltci` with a 6s settle delay
+produced the *same* near-identical frame, so that wasn't the actual
+explanation. The real explanation: `Nove`, `fl15`, `ltci`, and `fc97` are
+all part of the same clustered DeHart yard installation (all four
+screenshots show the same yellow station building and mostly the same
+`SCustom_*` labels) - a wide elevated camera view from nearby positions in
+a dense yard legitimately looks similar. `fc97`'s screenshot genuinely
+differed (different angle, turntable visible), confirming the camera does
+move correctly; the settle-delay lesson is still worth keeping for future
+turns since it's a real race condition even if it wasn't the cause here.
+
+Visual finding: `fc97`'s screenshot shows small white curved fragments near
+the lower-middle parallel tracks that look disconnected from the main
+rails - a plausible match for the reported defects, but the view is still
+too wide/elevated to call this confirmed. None of the three screenshots
+resolved the double-frog question either way - the camera framing isn't
+tight enough to distinguish two close frog castings from one legitimate
+compound assembly.
+
+Cleaned up and verified directly (not assumed): `tasklist` shows no
+`Railroader.exe` process; `FUSE.TestBridge/Info.json` read back as
+`"Enabled": false`; `steam_appid.txt` removed; no leftover
+`ng_goto_request.json`/`ng_goto_result.json`/`ng_test_bridge_enabled` in the
+deployed `FUSE.NarrowGauge` folder. Also manually removed several
+`test_result_claude*.json` files left in the `FUSE.TestBridge` folder - the
+bridge's `cleanup` verb only removes test *saves*, not stray request/result
+files, so anyone driving this pipeline directly needs to clean those up by
+hand rather than relying on `cleanup`.
+
+Documented the camera-framing limitation and the settle-delay lesson in
+`STATUS.md`. Did not modify `NarrowGaugeTestBridge.cs` this turn (e.g. to
+add a built-in settle delay or tighter default framing) - flagged as a
+worthwhile future improvement rather than doing it reactively mid-investigation.
+
+Next: whoever's turn (Codex blocked until 1:52 PM) - either tighten the
+camera framing to make the double-frog/blade-orientation questions
+answerable from a screenshot, or make progress on `SCustom_ttpp`'s
+cut-source ambiguity first since that doesn't need a live session at all.

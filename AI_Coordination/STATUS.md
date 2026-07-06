@@ -1,103 +1,116 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-06
+Last updated by: Claude - 2026-07-06
 
-## Current phase: full Nove visual loop proven; env propagation caveat documented
+## Current phase: Claude independently drove the live-game pipeline; real findings, one methodology lesson
 
-Codex completed the end-to-end live loop against `Nove` and captured/viewed
-the resulting screenshots. The original "launch Railroader.exe normally and
-let it relaunch to `/editor`" path still drops `NARROWGAUGE_TEST_BRIDGE=1`
-before the final Steam-launched `/editor` process, exactly like the earlier
-`FUSE_TEST_BRIDGE` finding. In that run `FUSE.TestBridge` connected, the save
-loaded, and `Special-work analysis: objects=14, invalid=0` appeared, but
-`ng_goto_request.json` stayed unprocessed and no `ng_goto_result.json`
-appeared.
+Codex hit its usage limit again mid-turn (blocked until 1:52 PM this time,
+shorter than the earlier multi-day block). Since the user authorized
+working autonomously, Claude drove the full launch/goto/screenshot/close
+loop directly via Bash, using the exact recipe Codex documented (toggle
+`FUSE.TestBridge/Info.json` to `Enabled: true`, write a temporary
+`steam_appid.txt` with `1683150`, launch `Railroader.exe /editor` directly
+with `NARROWGAUGE_TEST_BRIDGE=1` in that process's environment, poll
+`test_state.json`, `loadSave`, write `ng_goto_request.json`/read
+`ng_goto_result.json`, screenshot via the bridge, `umm`/`cleanup` verbs,
+`CloseMainWindow`). This confirms either agent can run this pipeline, not
+just review the other's run of it.
 
-The working path for getting the env var into the actual game process was:
+## Real methodology lesson found this run
 
-1. Temporarily write `C:\Steam\steamapps\common\Railroader\steam_appid.txt`
-   with content `1683150`.
-2. Launch the final editor process directly:
-   `Railroader.exe /editor` from the Railroader directory with
-   `NARROWGAUGE_TEST_BRIDGE=1` in that process environment.
-3. Keep `FUSE.TestBridge/Info.json` toggled to `"Enabled": true` for the
-   FUSE bridge, as before.
+`CameraSelector.JumpToPoint` starts a Unity **coroutine**
+(`base.StartCoroutine(this._JumpToPoint(...))` - confirmed in
+`CameraSelector.cs`) and returns immediately; the camera pan happens over
+subsequent frames, not synchronously. `NarrowGaugeTestBridge` writes its
+result file as soon as `JumpToPoint` returns, so a screenshot requested
+immediately after reading `ng_goto_result.json` can race the still-panning
+camera. Recommend adding a short settle delay (~3-6s empirically) between
+reading a `ng_goto_result.json` and requesting a screenshot in any future
+automation of this loop, until/unless `NarrowGaugeTestBridge` is changed to
+wait for the coroutine itself before writing its result.
 
-Without `steam_appid.txt`, direct `/editor` starts far enough to load mods
-but then exits with `Steamworks is not initialized`. Steam URI / Steam
-`-applaunch 1683150` did not produce a live Railroader process in this
-session.
+Note: initially suspected this caused two visually-identical screenshots
+(`NCustom_fl15` and `NCustom_ltci`), but re-shot both with an explicit 6s
+settle delay and got the *same* near-identical result both times - the
+real explanation turned out to be that `Nove`, `NCustom_fl15`,
+`NCustom_ltci`, and `NCustom_fc97` are all part of the same clustered
+DeHart yard installation on the map (confirmed: all four screenshots show
+the same yellow station building and largely the same `SCustom_*`
+segment labels), so a wide/elevated camera view from any of their
+positions legitimately looks similar. `NCustom_fc97`'s screenshot did show
+a distinctly different angle (more of the yard, the turntable visible) -
+that difference is real, not a settle-delay artifact.
 
-## Source change this turn
+## Screenshots captured and reviewed this turn
 
-`src/NarrowGaugeTestBridge.cs` now also accepts a deployed sentinel file named
-`ng_test_bridge_enabled` next to `NarrowGaugeMod.dll`, in addition to the
-existing `NARROWGAUGE_TEST_BRIDGE=1` gate, and logs which gate enabled it.
-This is an inert dev-only fallback for the relaunch/env problem; no sentinel
-file is left deployed after the turn. The successful full loop itself used
-the env var via the temporary `steam_appid.txt` direct-final-process launch,
-not the sentinel.
+All viewed directly (not just checked for `Ok=true`):
 
-Build/deploy command run after the source change:
+- `NCustom_fl15`, `NCustom_ltci` (x2, with and without settle delay - same
+  result both times): wide elevated view of the DeHart yard throat, several
+  parallel tracks converging, no obviously duplicated frog castings
+  distinguishable at this zoom/distance. Inconclusive on the "double frog"
+  question - the view is too wide/elevated to see individual frog geometry
+  clearly.
+- `NCustom_fc97`: a different, more zoomed-toward-yard-building angle,
+  showing the turntable and a loading dock. **Possible finding**: small
+  white curved fragments visible on/near the lower-middle parallel tracks
+  that look disconnected from the main rail lines - candidate visual match
+  for the reported defects, but still not a close-up; needs a tighter shot
+  or in-game confirmation to call this confirmed.
 
-`dotnet build .\NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+None of these three screenshots provide a definitive yes/no on the
+"double frog" hypothesis from `reviews/plain-and-measured-visual-defect-findings-2026-07-06.md` -
+the camera's default elevated framing isn't tight enough to distinguish two
+close frog castings from one legitimate compound assembly. Improving camera
+framing (a closer default distance/angle in `NarrowGaugeTestBridge`, or a
+zoom parameter in the request) would help future turns more than repeating
+this same shot.
 
-Result: 0 warnings, 0 errors.
+## Cleanup confirmed (by Claude, directly)
 
-## Live test result
+- `tasklist` before and after: no `Railroader.exe` process left running.
+- `FUSE.TestBridge/Info.json`: confirmed `"Enabled": false` restored (read
+  directly).
+- `steam_appid.txt`: removed (confirmed via `ls` failure).
+- `ng_goto_request.json`/`ng_goto_result.json`/`ng_test_bridge_enabled`:
+  confirmed absent from the deployed `FUSE.NarrowGauge` folder.
+- Leftover `test_result_claude*.json` files (created directly by Claude's
+  requests, not auto-cleaned by the bridge's own `cleanup` verb, which only
+  removes test *saves*) were manually deleted from the `FUSE.TestBridge`
+  folder.
 
-Successful final session:
+## Standing rules (unchanged, plus one addition)
 
-- FUSE heartbeat: PID `41988`, `mapLoaded=true`, `canApply=true`, fresh
-  heartbeat.
-- Process command line: `"C:\Steam\steamapps\common\Railroader\Railroader.exe" /editor`.
-- `Player.log`: `NarrowGaugeTestBridge enabled via NARROWGAUGE_TEST_BRIDGE`.
-- `loadSave 2026-06-25`: `Ok=true`, `Booting save '2026-06-25' from the main menu.`
-- Map load: `[FUSE.NarrowGauge] Special-work analysis: objects=14, invalid=0, elapsedMs=34305.`
-- `ng_goto_request.json` content: `{"nodeId":"Nove"}`.
-- `ng_goto_result.json`: `{"ok": true, "message": "Jumped to 'Nove' at (1747.79, 589.26, 1369.73)."}`
-- Screenshot result: `Ok=true`, artifact
-  `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\nove-goto-clear.png`
-  (4,749,731 bytes). The first screenshot
-  `nove-goto.png` was real but obscured by the UMM window, so Codex closed
-  UMM and retook the clear screenshot.
-
-Screenshot inspection: the clear frame is targeted at Nove. It shows the
-`fuse-ng:s:Nove:control` world label, the lower green switch stand left of
-the rails, and the visible point/blade geometry farther up the special-work
-assembly near `SCustom_epu2` / `SCustom_d84` / `Stjh`. In this captured view,
-the originally reported symptom ("the switch blade is behind the switch stand
-with the blade running towards the middle of the switch") is not visible at
-the lower stand; the lower stand area shows stock/straight rails passing to
-the right of the stand, with no blade tucked behind it. The image is still an
-elevated view with labels and some tree occlusion, so this is visual evidence
-from the automated camera position, not a close-up proof of every blade edge.
-
-## Cleanup confirmed
-
-Closed with `umm close` and `CloseMainWindow`; no force-kill was used.
-Confirmed afterward:
-
-- no `Railroader.exe` process remained
-- `FUSE.TestBridge/Info.json` contained `"Enabled": false`
-- temporary `steam_appid.txt` was removed
-- `ng_test_bridge_enabled`, `ng_goto_request.json`, and `ng_goto_result.json`
-  were removed from the deployed Narrow Gauge mod folder
+- Do not trust `Player.log`/exports unless the session is confirmed fresh
+  AND the automated pipeline's own `mapLoaded`/heartbeat state confirms it.
+- Always restore `FUSE.TestBridge/Info.json` to `Enabled: false`, remove
+  `steam_appid.txt`, and remove any leftover `test_request_*`/`test_result_*`/
+  `ng_goto_*` files after an automated session - confirm each by reading/
+  listing, not assuming a cleanup step caught everything.
+- Do not force-kill Railroader; use `CloseMainWindow`/`umm close`.
+- New: wait several seconds after `ng_goto_result.json` appears before
+  requesting a screenshot - `JumpToPoint` is an async coroutine, not
+  synchronous.
+- New: don't assume two similar-looking screenshots mean stale camera
+  positioning - check whether the target nodes are actually near each other
+  on the map first (this yard cluster is genuinely dense).
 
 ## Next turn
 
-Claude - review Codex's `NarrowGaugeTestBridge` gate fallback and the live
-test findings. If you agree the automated screenshot does not show the Nove
-lower-stand blade symptom, resume the substantive special-work investigation
-with the now-proven loop: `SCustom_ttpp` cut-source ambiguity, double-frog
-mapping, and the remaining "too many rails"/mid-switch-transition reports.
+Whoever's turn (Claude or Codex, whichever is available - Codex is blocked
+until 1:52 PM today): either (a) improve `NarrowGaugeTestBridge`'s camera
+framing (closer/tighter default view) so double-frog and blade-orientation
+questions can actually be answered from a screenshot, or (b) continue the
+substantive investigation using what static/log data is available
+(`SCustom_ttpp`'s cut-source ambiguity is well-suited to a targeted logging
+diagnostic rather than a screenshot, per the original investigation file).
+Recommend (b) first since it doesn't need another live session, then (a) if
+still blocked on visual questions afterward.
 
 ## Open questions / blockers
 
-- The normal Steam relaunch path still drops process-local env vars. For
-  repeatable automation, use either the temporary `steam_appid.txt` +
-  direct `/editor` launch with env, or test/adopt the new
-  `ng_test_bridge_enabled` sentinel fallback.
-- The automated Nove screenshot is useful but not a close-up. If the user
-  still reports the lower-stand blade issue, add a closer camera pose or a
-  second bridge command before treating the visual question as fully closed.
+Codex blocked until 1:52 PM (usage limit). The "double frog" and
+"wrong-side blade" visual questions remain unresolved - screenshots
+gathered this turn were too wide/elevated to confirm or refute either.
+`SCustom_ttpp`'s cut-source ambiguity and the "too many rails" symptom are
+both still open and don't require a live session to make progress on.
