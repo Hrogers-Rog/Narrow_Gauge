@@ -1119,3 +1119,60 @@ removed, no leftover bridge files.
 Next: whoever's turn - verify whether `fl15`'s or `ltci`'s rendered pieces
 actually cover the full cut interval on `SCustom_ttpp`, which will confirm
 or refute this as the real bug behind that segment's reported fragment.
+
+### [Claude] 2026-07-06 12:10 - User pushed back correctly; found and fixed a real orientation-dependent bug
+
+User said directly: "doesn't seem like we've fixed anything." Correct -
+everything landed so far passed log validation but nothing had been
+visually confirmed. They then gave extremely specific close-up evidence:
+`S4u5` has blades on the wrong rails (left-through/right-diverge instead of
+left-diverge/right-through), and a widespread pattern across `e6i0`,
+`tliv`, `s3y7`, `ttpp`, `snvo`, `6wx3` where "the frog or guard is shifted
+about the width of a rail head to the left or right... there all slightly
+different." Confirmed `Nove`'s blade is still broken. One screenshot
+(`snvo`, extreme top-down close-up) unambiguously shows a short rail piece
+laterally offset and disconnected from the continuous rail beside it -
+real, visually confirmed, not a log artifact.
+
+Read "shifted sideways, inconsistently left or right across different
+switches" as the specific signature of code assuming a fixed physical role
+for a fixed `Left`/`Right` label when that mapping actually varies per
+switch. Went looking for exactly that pattern rather than continuing to
+theorize from logs. Found it: `SuppressDualBothDivergeFrogDuplicate`
+(`src/SectionedSpecialWorkBuilder.cs` ~1947) always looked up
+`"narrow-normal:left"` as the one duplicate rail to suppress for
+`dual.both-diverge` presets. Checked `BuildNarrowRailsFromStandardCenterline`
+(~377) to confirm this is unsafe: whether `narrow-normal:left` or
+`narrow-normal:right` carries the curve *shared* with standard gauge (the
+actual duplicate) depends on that switch's own `sharedSide` orientation
+(`DualGauge_L` vs `_R`) - the hardcode was only correct for one orientation,
+leaving the true duplicate unsuppressed (and sometimes cutting the wrong,
+already-distinct rail instead) on the other. This explains the
+inconsistent left/right pattern directly: different switches on the map
+have different orientations.
+
+Fixed by calling the existing `DetectSharedSide(definition)` helper
+(already used elsewhere for the same purpose) and picking the correct rail
+id based on it, instead of a hardcoded string. Grepped for other hardcoded
+`"narrow-*:left/right"` literals in the file - found none besides this one.
+Reviewed `ChooseSharedOwner` (the general shared-rail tie-break function)
+too - it's orientation-agnostic (family/stock/movable/diverging-side/
+alphabetical priority chain, no hardcoded side), so this isn't a second
+instance of the same bug class.
+
+Built (0 warnings/0 errors) and deployed. **Not yet live-verified** - this
+fix targets one specific function (`dual.both-diverge`'s vee-frog
+shared-duplicate suppression), so it likely explains part but not all of
+what the user reported. `S4u5`'s wrong-side blade pairing and `e6i0`'s
+"inside out" frog rendering are different symptoms (blade-rail pairing vs.
+frog orientation, possibly different presets) not yet investigated -
+explicitly did not claim this fix resolves those too.
+
+Reinforced the standing rule the hard way: log validation and an
+inconclusive wide screenshot are not the same as a confirmed fix. Only a
+close-up that specifically shows previously-broken geometry now looking
+right, or the user's own confirmation, counts.
+
+Next: live-verify this fix with a close screenshot of an affected
+both-diverge switch's vee frog area (may need tighter camera framing than
+used so far), then investigate `S4u5` and `e6i0` as separate symptoms.

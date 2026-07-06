@@ -1957,10 +1957,24 @@ namespace NarrowGaugeMod
                 return;
             }
 
+            // Which physical side (left/right) of "narrow-normal" is the one sharing a
+            // rail with standard gauge - and therefore the one that duplicates an
+            // already-rendered standard rail - depends on this switch's own shared-rail
+            // orientation (see BuildNarrowRailsFromStandardCenterline: when sharedSide is
+            // Right, narrow-normal:right carries the shared curve and narrow-normal:left
+            // carries the distinct narrow-only curve, and vice versa when sharedSide is
+            // Left). A hardcoded "always narrow-normal:left" assumption here was only
+            // correct for switches authored with sharedSide == Left; the other
+            // orientation left the true duplicate rail unsuppressed while occasionally
+            // cutting the *wrong* (distinct) narrow-normal rail instead.
+            RailSide? sharedSide = DetectSharedSide(definition);
+            string duplicateRailId = sharedSide == RailSide.Right
+                ? "narrow-normal:right"
+                : "narrow-normal:left";
             RailCenterline? duplicate = rails.FirstOrDefault(rail =>
                 string.Equals(
                     rail.Id,
-                    "narrow-normal:left",
+                    duplicateRailId,
                     StringComparison.OrdinalIgnoreCase));
             RailWorkInterval? work = workIntervals.FirstOrDefault(interval =>
                 interval.Rail == duplicate);
