@@ -134,6 +134,22 @@ since 2026-06-18, so if this is the cause, the regression is either in what
 combination of preset/orientation was simply never actually validated before
 (the June 13 doc's "DONE" claims may not have covered these specific nodes).
 
+Claude follow-up, 2026-07-06: confirmed this was the cause. `RailParticipatesInAcceptedFrog`
+checked frog membership across the rail's *entire length*, not near the
+specific `SharedRailInterval` under consideration — a rail with an accepted
+frog anywhere on it had every shared-duplicate interval skipped, including
+ones nowhere near that frog. Replaced with
+`RailParticipatesInAcceptedFrogNearInterval(rail, frogs, start, end)`
+(compares each frog's `RailIntersection.DistanceA`/`DistanceB` against the
+interval bounds with a `Max(frog.CutHalfLength, MinimumPieceLength)` margin)
+at all 4 call sites: `AddSharedSuppressions`, `AddCrossFamilySharedSuppressions`,
+`SuppressDualBothDivergeFrogDuplicate`, and the truth-table validator's own
+"still renders" diagnostic (which had the same whole-rail check, which is
+why it correctly flagged `N178`'s case but would have silently agreed with
+the builder's wrong skip on the other 5 nodes rather than catching it).
+Build succeeds; live in-game verification still needed since this repo has
+no unit test project.
+
 ### 5. Frog guard-rail / approach-section gaps (P2)
 
 - `NCustom_fc97`: "Expected exactly 3 physical point blades but built 1"

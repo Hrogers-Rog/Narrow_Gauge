@@ -1585,14 +1585,14 @@ namespace NarrowGaugeMod
                 }
 
                 RailCenterline loser = owner == railA ? railB : railA;
+                float start = loser.Curve.DistanceTo(interval.Start);
+                float end = loser.Curve.DistanceTo(interval.End);
                 if (IsDualBothDivergePreset(definition)
-                    && RailParticipatesInAcceptedFrog(loser, frogs))
+                    && RailParticipatesInAcceptedFrogNearInterval(loser, frogs, start, end))
                 {
                     continue;
                 }
 
-                float start = loser.Curve.DistanceTo(interval.Start);
-                float end = loser.Curve.DistanceTo(interval.End);
                 AddCut(cuts, loser, start, end, RailCutKind.SharedDuplicate, "shared duplicate");
                 AddSuppression(suppressions, loser, start, end, "shared duplicate");
             }
@@ -1653,13 +1653,14 @@ namespace NarrowGaugeMod
                     RailCenterline loser = ChooseSharedOwner(standardRail, narrowRail, blades) == standardRail
                         ? narrowRail
                         : standardRail;
-                    if (RailParticipatesInAcceptedFrog(loser, frogs))
-                    {
-                        continue;
-                    }
 
                     foreach ((float start, float end) in FindCurveOverlaps(loser.Curve, standardRail == loser ? narrowRail.Curve : standardRail.Curve))
                     {
+                        if (RailParticipatesInAcceptedFrogNearInterval(loser, frogs, start, end))
+                        {
+                            continue;
+                        }
+
                         AddCut(cuts, loser, start, end, RailCutKind.SharedDuplicate, "cross-family shared duplicate");
                         AddSuppression(suppressions, loser, start, end, "shared duplicate");
                     }
@@ -1739,7 +1740,7 @@ namespace NarrowGaugeMod
                 return;
             }
 
-            if (RailParticipatesInAcceptedFrog(duplicate, frogs))
+            if (RailParticipatesInAcceptedFrogNearInterval(duplicate, frogs, work.StartDistance, work.EndDistance))
             {
                 return;
             }
@@ -2660,8 +2661,10 @@ namespace NarrowGaugeMod
                 }
 
                 RailCenterline loser = owner == railA ? railB : railA;
+                float loserStart = loser.Curve.DistanceTo(interval.Start);
+                float loserEnd = loser.Curve.DistanceTo(interval.End);
                 if (IsDualBothDivergePreset(definition)
-                    && RailParticipatesInAcceptedFrog(loser, frogs))
+                    && RailParticipatesInAcceptedFrogNearInterval(loser, frogs, loserStart, loserEnd))
                 {
                     continue;
                 }
@@ -3569,13 +3572,43 @@ namespace NarrowGaugeMod
                 : railB;
         }
 
-        private static bool RailParticipatesInAcceptedFrog(
+        /// <summary>
+        /// True if an accepted frog's nose falls within (or near) the given interval
+        /// on this rail. A rail can legitimately be part of one accepted frog while
+        /// still carrying an unrelated shared-duplicate rail elsewhere along its
+        /// length, so this is interval-scoped rather than whole-rail: a whole-rail
+        /// check incorrectly skipped cutting that unrelated duplicate too, which is
+        /// what left stray duplicate rail stubs rendering (truth-table "missing
+        /// required suppressed interval kind 'SharedDuplicate'").
+        /// </summary>
+        private static bool RailParticipatesInAcceptedFrogNearInterval(
             RailCenterline rail,
-            IEnumerable<FrogCandidate> frogs)
+            IEnumerable<FrogCandidate> frogs,
+            float start,
+            float end)
         {
-            return frogs.Any(frog =>
-                frog.Intersection.RailA == rail
-                || frog.Intersection.RailB == rail);
+            float lo = Mathf.Min(start, end);
+            float hi = Mathf.Max(start, end);
+            foreach (FrogCandidate frog in frogs)
+            {
+                float? distance = frog.Intersection.RailA == rail
+                    ? frog.Intersection.DistanceA
+                    : frog.Intersection.RailB == rail
+                        ? frog.Intersection.DistanceB
+                        : (float?)null;
+                if (!distance.HasValue)
+                {
+                    continue;
+                }
+
+                float margin = Mathf.Max(frog.CutHalfLength, MinimumPieceLength);
+                if (distance.Value >= lo - margin && distance.Value <= hi + margin)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool IsNarrowDivergingRightRail(RailCenterline rail)

@@ -133,3 +133,74 @@ actually ran this turn was `dotnet build .\NarrowGaugeMod.csproj` from the
 repo root, not a build with an explicit `RailroaderDir` property override.
 It succeeded with 0 warnings and 0 errors. The rest of the verification
 state is unchanged: no in-game verification was performed in this turn.
+
+### [Claude] 2026-07-06 00:35 - Reviewed Codex's item 1 fix, landed item 2 (SharedDuplicate suppression)
+
+Reviewed Codex's commit `af43867` by reading the actual diffs, not the
+summary. `Patches.cs`: widened `Patch_SwitchGeometry_Calculate`'s
+control-shell condition from "hidden-control + visible-ghost" to "exactly
+one of the pair is hidden-control" - confirmed safe because
+`IsGaugeSeparationControlNode` (the outer gate) is unchanged and already
+strictly requires the 3-segment hidden-control/visible-ghost/real-narrow
+shape, so this only affects nodes already in that shape, matching Nove's
+actual failing pair (hidden-control + real narrow branch). `SectionedSpecialWorkBuilder.cs`'s
+new `TryBuildMeasuredDualSplitBlade` fallback is gated by
+`IsDualSplitPreset(definition)` and only runs `if (!yieldedAny)`, so it's
+purely additive for the split preset and can't affect any other preset's
+blade output. `SpecialWorkTopologySynchronizer.cs`'s hidden-control-segment
+retag from `DualNarrowBranch` to `DualSplit`: confirmed
+`EnsureRuntimeGaugeSeparationControls` only ever runs on nodes matching
+`IsGaugeSeparationTopology` (1 dual + 1 standard-only physical segment at
+the source, exactly 1 real narrow branch off the ghost node) - a shape that
+describes split-standard-narrow specifically, not narrow-branch-joins-main
+(which would have dual+dual/narrow physical segments, not dual+standard-only).
+So the retag corrects a stale/wrong preset id rather than reclassifying
+already-working narrow-branch nodes. Independently reran the build (not just
+trusted Codex's report) - confirmed 0 warnings/0 errors. Verdict: agreed, no
+disagreement raised.
+
+Then picked up backlog item 2 myself (`dual.both-diverge` missing
+`SharedDuplicate` suppression - the one most likely tied to the user's
+reported floating-rail-stub screenshots). Root cause: `RailParticipatesInAcceptedFrog(rail,
+frogs)` checked whether a rail participates in an accepted frog *anywhere on
+its whole length*, then used that as a reason to skip cutting a
+shared-duplicate interval entirely - even when the shared interval being
+considered was nowhere near that frog. A rail can legitimately need both "cut
+this duplicate over here" and "keep this frog-adjacent section over there" at
+different points along its own length; the whole-rail check conflated the
+two and left the duplicate uncut, which is exactly what produced N178's
+"Shared duplicate rail 'narrow-reversed:left' still renders" and the 5 other
+both-diverge nodes' "missing required suppressed interval kind
+'SharedDuplicate'" truth-table failures.
+
+Fix: replaced the whole-rail check with
+`RailParticipatesInAcceptedFrogNearInterval(rail, frogs, start, end)`, which
+compares each frog's actual position along `rail` (via
+`RailIntersection.DistanceA`/`DistanceB`, whichever side matches) against the
+specific interval being considered, with a margin of
+`Max(frog.CutHalfLength, MinimumPieceLength)` so a frog just outside the
+interval's exact bounds still counts as protecting it. Updated all 4 call
+sites: `AddSharedSuppressions` (moved `start`/`end` computation before the
+check instead of after), `AddCrossFamilySharedSuppressions` (moved the check
+inside the per-overlap-interval loop instead of once per rail pair),
+`SuppressDualBothDivergeFrogDuplicate` (interval already available, just
+swapped the call), and the truth-table validator's own "still renders"
+diagnostic (computed the same distances the builder does, for consistency
+between what gets cut and what gets flagged). Removed the now-unused
+whole-rail `RailParticipatesInAcceptedFrog` method rather than leaving it as
+dead code.
+
+Verification this turn: `dotnet build NarrowGaugeMod.csproj
+-p:RailroaderDir="C:\Steam\steamapps\common\Railroader"` - 0 warnings, 0
+errors. This mod has no unit test project (Unity/UMM-dependent, unlike
+`Fuse_geometry_engine`), so build success plus the code-level reasoning above
+is the only verification available without a live session - **not**
+in-game verified. The five `dual.both-diverge` nodes
+(`NCustom_l4a4`/`ltci`/`p997`/`u6n0`, `NDeHartPassing_wqbb`) and `N178`
+should be rechecked in a fresh `Player.log` for `valid=True` and no "still
+renders"/"missing required suppressed interval" messages.
+
+Did not start backlog item 3 (`dual.standard-branch-joins-main` never
+attempted) this turn - handing back to Codex per the turn procedure.
+
+Next: Codex, backlog item 3.
