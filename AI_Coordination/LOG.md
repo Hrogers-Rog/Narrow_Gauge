@@ -594,3 +594,51 @@ recommended, and a trustworthy live test to check against.
 Next: user to fully quit and relaunch Railroader, then re-test. Whoever
 picks this up next should verify the fresh-session check before trusting
 anything in the resulting log/screenshots.
+
+### [Claude] 2026-07-06 02:45 - Fresh session confirms fixes hold; diagnostic validated; corrected the Nove mapping
+
+User fully quit and relaunched Railroader. Verified freshness properly this
+time: deployed DLL timestamp (01:59) is before the new `Player.log`'s
+activity, and it shows exactly one engine-init/mod-load pair, same as a
+stale session would - so I also checked wall-clock ordering, not just the
+count, per the standing rule I wrote last turn.
+
+Confirmed in the genuinely fresh session: `objects=14, invalid=0` holds -
+all of this session's measured-system fixes (items 1/2, narrow-branch
+rendering gaps) are real, not an artifact of a stale process. More
+importantly, the `GeometryContinuity` diagnostic fix (`FrogPieces` coverage
++ `Guard` exclusion, from an earlier turn) actually works: 9 of 14 switches
+now report zero isolated pieces, down from every single switch showing
+multiple false positives before.
+
+Investigated the one remaining pattern (all 5 `dual.narrow-branch-joins-main`
+switches, and only those, each show one `ISOLATED` ~18-32m fixed piece) by
+reading the actual `FixedRailPieces` data rather than trusting the verdict.
+Found the outer `standard-through` rail in these switches is built as one
+unsubdivided piece with both ends at the measured-zone boundary (legitimate,
+not a gap), while the equivalent rail in a clean `dual.both-diverge` switch
+(`NCustom_l4a4`) happens to be chopped into 3 chained pieces, giving each an
+internal neighbor even though its outer boundaries are the same kind of
+zone edge. Concluded this is very likely a diagnostic blind spot (can't
+distinguish "real gap" from "single piece at the zone boundary"), not a
+confirmed defect. Documented rather than acted on - refining this needs more
+thought about reliably detecting a zone boundary from the plan data
+available, and it isn't blocking anything right now.
+
+Caught and corrected a mapping mistake before it stood: `Nove` is one of
+the 14 measured special-work switches, so its blade geometry comes from
+`SectionedSpecialWorkBuilder`/`SpecialWorkHardwareRenderer`, not
+`CreateDualGaugeNarrowSplitSwitchRailObjects` (confirmed via
+`vanillaRailObjects=0` for measured nodes in Codex's earlier investigation -
+the plain/legacy pipeline is suppressed there). This means the
+`aThirdRails.right` fix from last turn - real, and worth keeping - almost
+certainly does not explain the Nove blade-orientation symptom the user
+originally reported. Told the user this directly rather than letting an
+unearned "fixed" stand. Asked for two specific checks (Nove's blade in the
+fresh session, and a plain mixed switch outside the 14-name list to see the
+actual fix's effect) - no answer yet.
+
+Next: waiting on the user's report. If Nove's blade issue persists,
+investigate `SpecialWorkHardwareRenderer.CalculateBladeOpenRotation`/
+`CreatePointBlade` for the narrow-branch preset - a different code area
+than anything patched this session so far.

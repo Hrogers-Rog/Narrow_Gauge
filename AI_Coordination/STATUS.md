@@ -2,118 +2,100 @@
 
 Last updated by: Claude - 2026-07-06
 
-## Current phase: found a real process bug that invalidates recent live tests - need a genuine relaunch
+## Current phase: fresh session confirms fixes hold; diagnostic tool validated; one mapping correction
 
-**Root cause of Codex's "stale guard isolation" question, confirmed:** the
-user's Railroader process has been running as a single continuous session
-this entire time - confirmed via `Player.log` containing exactly one
-`Initialize engine version` line and exactly one
-`[FUSE.NarrowGauge] Version '0.4.0'. Loading.` line for the whole file.
-.NET assemblies do not hot-reload; replacing `NarrowGaugeMod.dll` on disk
-with `-p:EnableModDeploy=true` has no effect on an already-running process.
-That means every screenshot and every `Player.log`/`.txt` export the user
-has produced in the last stretch of this session reflects whatever build was
-deployed **before that Railroader process launched** - not any fix deployed
-after. This explains Codex's diagnostic-caution flag exactly: the live
-exports still showing `ISOLATED: v2-guard:*` lines aren't stale exporter
-logic, they're a stale *running process* that never picked up the fix at
-all.
+User fully quit and relaunched Railroader (confirmed genuinely fresh:
+`Player.log` deployed-DLL timestamp 01:59 vs. session log activity starting
+after that and continuing to 02:39+, exactly one `Initialize engine version`
++ one mod-load line). This is the first live test this session that can
+actually be trusted end-to-end.
 
-**Action needed before any more live testing means anything:** the user
-must fully quit Railroader (not just close the map/navigate away) and
-relaunch it. Only then will the currently-deployed DLL (see below) actually
-load.
+## Confirmed in the fresh session
 
-## This turn's fix (Claude)
+- `Special-work analysis: objects=14, invalid=0` - all measured items 1/2
+  fixes (split-standard-narrow, both-diverge SharedDuplicate) and the
+  narrow-branch rendering-gap fix (Codex, two turns) still hold with the two
+  previously-relaxed checks now hard failures again. Not a fluke of a stale
+  process this time - this is a genuinely fresh read.
+- The `GeometryContinuity` diagnostic fix (FrogPieces coverage + Guard
+  exclusion) works as intended: 9 of 14 switches now report *zero* isolated
+  pieces (`NCustom_fc97`, `NCustom_fl15`, `NCustom_l4a4`, `NCustom_ltci`,
+  `NCustom_p997`, `NCustom_u6n0`, `NDeHartPassing_33d6`,
+  `NDeHartPassing_wqbb`, `Npv2`), down from every single switch showing
+  multiple false positives before the fix.
 
-Reviewed Codex's investigation (`reviews/plain-and-measured-visual-defect-findings-2026-07-06.md`)
-by independently reading the cited code, not just trusting the write-up.
-Confirmed the `aThirdRails.right` hardcode claim is real and verified it's
-safe to fix now rather than wait for a labeled screenshot, because the fix
-is strictly one-directional:
+## New finding: the remaining ISOLATED pattern is very likely a diagnostic blind spot, not a bug
 
-- `CreateDualGaugeNarrowSplitSwitchRailObjects` (`src/NarrowGaugeTrackBuilder.cs`)
-  hardcoded `aThirdRails.right` as the dual middle rail reference at two live
-  call sites (used to resolve `TryResolveDualGaugeNarrowBranchRails` and to
-  orient `dualMiddleFromNode`).
-- The function immediately above it in the same file does this correctly:
-  `DualGaugeSharedRailRegistry.SharesRightRail(aProxy.Segment) ? aThirdRails.left : aThirdRails.right`.
-  11 other call sites across the file consult `SharesRightRail` the same way.
-- The hardcode is only wrong when `SharesRightRail(aProxy.Segment)` is
-  `true` (correct answer would be `.left`); when it's `false`, `.right` is
-  already correct and unchanged by fixing this. So applying the same
-  conditional pattern **cannot regress an already-working case** - it only
-  fixes the orientation that was definitely wrong. Applied the fix.
-- A third hardcoded `.right` usage exists in `CalculateDualGaugeNarrowSplitSlices`,
-  but that function has **zero callers anywhere in `src/*.cs`** - confirmed
-  dead code, left untouched (not part of the live bug, not worth the risk of
-  touching unrelated dead code in this pass).
+All 5 `dual.narrow-branch-joins-main` switches (`N178`, `NCustom_7n90`,
+`NCustom_g832`, `NCustom_vdlt`, `Nove`) - and only those - each show exactly
+one `ISOLATED` fixed piece, ~18-32m long. Investigated why: in these
+switches, the outer `standard-through` rail is built as **one single
+unsubdivided piece** spanning the whole switch zone, with both ends at the
+measured-zone boundary (legitimately meeting ordinary track outside the
+plan, not a gap). Compared against a clean `dual.both-diverge` switch
+(`NCustom_l4a4`): the equivalent outer rail there is chopped into 3 pieces
+that chain end-to-end within the plan (`SharedRunning` -> `FixedRunning` ->
+`SharedRunning`), so even though its outermost boundaries also exit to
+unmeasured track, each piece still has at least one *internal* neighbor and
+never reads as fully isolated.
 
-This is very likely (not yet confirmed in-game) the root cause of the
-"blades on the outside/wrong side of the rail" symptom on plain mixed
-dual/narrow switches - i.e. wherever `CreateDualGaugeNarrowSplitSwitchRailObjects`
-renders a switch on a `DualGauge_L`-oriented (or whichever orientation makes
-`SharesRightRail` true) segment.
+This means my `GeometryContinuity` diagnostic can't currently distinguish
+"genuinely disconnected floating fragment" from "a single rail piece whose
+boundaries are the edge of the measured zone, not a real gap." Do not treat
+this specific pattern as a confirmed defect. A future refinement could
+special-case a piece whose endpoint sits at a route's authored start/end
+distance, the same way `Guard` was special-cased - not done this turn, since
+it's not blocking anything and needs more thought about how to reliably
+detect "this is the zone boundary" from the plan data available.
 
-Rebuilt and redeployed:
-`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
-- 0 warnings/0 errors. This deploy includes: this fix, the earlier
-`GeometryContinuity`/`FrogPieces`/`Guard`-exclusion diagnostic fix, and both
-of Codex's narrow-branch geometry fixes - **none of which the currently-running
-game process has loaded yet** per the finding above.
+## Correction: the `aThirdRails.right` fix does not touch `Nove`
 
-## Other findings from Codex's investigation (not yet acted on)
+`Nove` is one of the 14 measured special-work switches - its blade geometry
+comes from `SectionedSpecialWorkBuilder`/`SpecialWorkHardwareRenderer`, not
+`CreateDualGaugeNarrowSplitSwitchRailObjects` (which only renders switches
+*outside* the measured system - confirmed via `vanillaRailObjects=0` for
+measured nodes per Codex's investigation, meaning the plain/legacy pipeline
+is suppressed there). The `aThirdRails.right` fix is still real and worth
+keeping (it fixes a genuine one-directional bug in the plain pipeline), but
+it's very unlikely to explain the Nove blade-orientation symptom the user
+reported (blade running toward the switch center instead of away from it).
+If that's still visible in the fresh session, it's a separate bug in the
+measured system's blade-rotation logic
+(`SpecialWorkHardwareRenderer.CalculateBladeOpenRotation`/`CreatePointBlade`),
+not something this turn's fix touches.
 
-- `SCustom_ttpp` confirmed as an ordinary authored `DualGauge_R` segment
-  between measured nodes `NCustom_fl15`/`NCustom_ltci`, not a 15th
-  special-work plan. Its `[SpecialWorkSegmentClip]` log line conflates
-  measured-ownership cuts, gauge-separation frog cuts, and shared-rail-flip
-  cuts under one label - a per-source-cut diagnostic is still recommended
-  before concluding anything more about it.
-- Double frogs map more strongly to measured special-work rendering
-  (`NCustom_fl15`, `NCustom_ltci`, `NCustom_fc97` all currently render 3
-  frogs) than to the plain pipeline - needs a labeled screenshot at one of
-  those specific nodes before touching frog-collapse/compound-vee code.
-- "Too many rails" and "transition in the middle of a switch" remain
-  unmapped to a specific cause - see the findings file's Symptom Map.
+Asked the user to check two things in the fresh session (Nove's blade
+specifically, and a plain mixed switch outside the 14-name list to see the
+`aThirdRails.right` fix's actual effect) - no answer yet, don't assume
+either way until they report back.
 
 ## Standing rules
 
-- Do not trust `Player.log` `valid=True`, or any live test at all, unless
-  you've confirmed the running game process actually launched *after* the
-  relevant deploy. Check for exactly one `Initialize engine version` +
-  one mod-version-load line per session in `Player.log`, and compare
-  wall-clock timing against the last deploy if there's any doubt.
+- Do not trust `Player.log`/exports unless the session is confirmed fresh
+  (one engine-init + one mod-load line, AND timing after the last deploy -
+  a stale single-session log also shows exactly one of each, so timing
+  matters too, not just the count).
 - Do not relax validation to hide geometry defects.
-- Do not patch all four reported symptoms together - map a symptom to a
-  node/system/code path first (the `aThirdRails.right` fix above is an
-  exception because the fix was provably one-directional and safe, not
-  because the mapping rule is being abandoned).
-- Always deploy with `-p:EnableModDeploy=true` for anything meant to be
-  tested in-game, AND confirm the game was actually relaunched afterward.
+- Do not patch all four originally-reported symptoms together - map each to
+  a node/system/code path first.
+- Always deploy with `-p:EnableModDeploy=true` AND confirm a genuine
+  relaunch before trusting a live test.
+- Don't assume a fix for one system (measured vs. plain pipeline) explains a
+  symptom reported for a node that belongs to the other system - confirm
+  which system a specific node/switch actually uses before crediting a fix.
 
 ## Next turn
 
-User: please fully quit Railroader (not just alt-tab or return to menu -
-the whole process) and relaunch it, then re-test and let it write a fresh
-session. This is required for any of this session's fixes to actually be
-in effect. Once that's done, whoever picks this up (Claude or Codex) should
-re-check `Player.log` for the one-init/one-load pattern to confirm it's
-truly fresh, then re-read the `GeometryContinuity` sections and check the
-`aThirdRails.right` fix against any mixed dual/narrow switch visually.
-
-If the user is also going to explore automating launch/test/close (raised
-this session - see `FUSE.TestBridge`/`FUSE.LiveHarness` in the sibling FUSE
-repo, which already supports headless console-command execution and
-screenshots via a file-based protocol), whoever builds that must make the
-relaunch-vs-hot-reload distinction a first-class part of the design - a
-kill+relaunch of the actual process, confirmed via the one-init-line check
-above, not just a "wait N seconds" heuristic.
+Waiting on the user to report back on Nove's blade and a plain-switch
+example. Once that's in: if Nove's blade issue persists, investigate
+`SpecialWorkHardwareRenderer.CalculateBladeOpenRotation`/`CreatePointBlade`
+for the measured narrow-branch preset specifically (Codex or Claude). Still
+open from the broader investigation: `SCustom_ttpp`'s cut-source ambiguity,
+double-frog mapping (`NCustom_fl15`, `NCustom_ltci`, `NCustom_fc97` render 3
+frogs), and the unmapped "too many rails" symptom.
 
 ## Open questions / blockers
 
-Blocked on a genuine Railroader relaunch before any further live test
-result can be trusted. Still open from Codex's investigation: which exact
-node/segment each remaining symptom (double frogs, too many rails, possible
-mid-switch transition) belongs to, and whether `SCustom_ttpp`'s cuts come
-from measured ownership, gauge separation, or both.
+Waiting on user confirmation of Nove's blade orientation and a plain-switch
+example before further code changes. Do not guess at a fix for either
+without that.
