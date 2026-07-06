@@ -191,6 +191,55 @@ lower priority than the cross-node systemic issues above.
 | `Nove` | split-standard-narrow | 0 | 1 | 0 | no shared rail intervals + hard exception |
 | `Npv2` | both-diverge | 3 | 8 | 10 | frog guard rails / approach section |
 
+## Critical update, 2026-07-06: `valid=True` does not mean visually correct
+
+After items 1+2 landed, a fresh `Player.log` shows `Special-work analysis:
+objects=14, invalid=0` — all 14 report valid. **The user tested in-game
+anyway and confirmed several switches are still visually broken**: small
+disconnected white rail/guard-rail fragments floating near frogs and along
+diverging routes (screenshots), on multiple switch types including at least
+one that looks like a plain narrow-only view of a `dual.narrow-branch-joins-main`
+switch. This is not a false "all clear" from validation being wrong in a
+vague sense — it's a specific, identifiable gap:
+
+The fresh log contains `Main.Warn(...)` messages, **not** `yield return`
+issues, so they never count toward `invalid`:
+
+- `[Validation] Blade 'v2-blade:narrow:Right' does not connect into a
+  rendered closure/fixed section after root 45.188. Rendering anyway.`
+- `[Validation] Fixed diverging narrow stock/running rail has no renderable
+  role sections. Rendering anyway.` (appears 3x this session, across
+  multiple `dual.narrow-branch-joins-main` nodes — all 5 instances now carry
+  this preset after Nove/`NCustom_7n90` were reclassified from
+  `dual.split-standard-narrow` this session, see item 1's follow-up notes)
+
+Both come from `ValidateSectionedDualGaugeSpecialWork` in
+`SectionedSpecialWorkBuilder.cs` (~line 2520-2597). Per `git blame`/prior
+commit messages (`ae87b7e` "Relax blade-closure-connection validation to a
+warning", `8a5ea4d` "Relax blade validation"), these were previously hard
+`yield return` failures that got downgraded to `Main.Warn` + "render anyway"
+so presets would produce *something* rather than fall back entirely. That
+tradeoff is exactly what's now hiding real geometry gaps behind a passing
+`valid=True` — the underlying "this rail/blade doesn't actually have
+continuous renderable geometry here" problem was never fixed, just silenced
+in the pass/fail signal.
+
+**This is now the top-priority item, ahead of the old items 3-5** (which,
+per this same fresh log, all now separately report `valid=True` too — `fl15`
+and `33d6` reached the measured-special-work path at all for the first time
+this session, and `g832` no longer shows its truth-table mismatch. Whether
+those are *actually* correct in-game needs the same skepticism applied here,
+not just taken at face value from the log).
+
+Next step: don't just relax validation further or add another warning
+downgrade. Investigate `ResolveDivergingFixedStockRail`, `HasApproachSection`,
+and how `RailRoleSection`s get built for `dual.narrow-branch-joins-main`
+closely enough to understand *why* the diverging fixed rail and blade
+closure sometimes produce zero renderable/continuous geometry, and fix that
+directly. Cross-reference against the user's screenshots (which switch,
+which specific fragment) rather than trusting log output alone once a fix
+lands.
+
 ## Suggested working order
 
 1. `dual.split-standard-narrow` zero-blade bug (#1) — worst state (nothing

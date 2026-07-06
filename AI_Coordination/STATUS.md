@@ -2,92 +2,92 @@
 
 Last updated by: Claude - 2026-07-06
 
-## Current phase: fixing broken special-work switches
+## Current phase: fixing broken special-work switches (log validity != visual correctness)
 
 User report: narrow-gauge plain turnouts mostly work in-game; all 14
 currently-measured dual-gauge special-work switches were broken in the live
-2026-07-05/06 session (`Special-work analysis: objects=14, invalid=14`), with
-a visible symptom of a disconnected vertical rail stub floating above
-otherwise normal-looking track. `Fuse_geometry_engine` is not the vehicle for
-this fix; this repo is being fixed in place. Running autonomously per user
-instruction: Claude invokes Codex non-interactively (`codex exec`) between
-its own turns, alternating without the user relaying messages, until the
-backlog is done or something needs the user (a disagreement, or in-game
-verification).
+2026-07-05/06 session. Items 1+2 landed and a fresh `Player.log` now shows
+`objects=14, invalid=0` - **but the user tested in-game and confirmed several
+switches are still visually broken** (disconnected floating rail/guard-rail
+fragments near frogs and along diverging routes, from fresh screenshots).
+`valid=True` in this mod's own log is necessary but not sufficient - see
+`reviews/switch-validation-failures-2026-07-05.md`'s "Critical update"
+section for the confirmed cause (two `Main.Warn(...)` "Rendering anyway"
+checks in `SectionedSpecialWorkBuilder.cs` that were downgraded from hard
+failures to warnings in earlier commits, silencing real geometry gaps
+instead of fixing them).
 
-Full evidence and root-cause notes:
-`reviews/switch-validation-failures-2026-07-05.md`.
+**Standing rule going forward**: do not trust `Player.log` `valid=True` as
+proof a fix worked. Ask the user for actual in-game screenshots/confirmation
+before declaring a switch fixed. Do not "fix" a validator gap by relaxing it
+further - if a check is currently a warning and the geometry it warns about
+is actually broken, either fix the geometry or make the check a real failure
+again once fixed.
+
+Codex's usage-limit block (hit 2026-07-06) has cleared - confirmed available
+again same day.
 
 ## Switch-fix backlog
 
-1. **`dual.split-standard-narrow` derives zero blades** - code fix landed by
-   Codex, reviewed and agreed by Claude (read the actual diff, not just the
-   summary). Build succeeds. Needs live in-game verification: `Nove` and
-   `NCustom_7n90` should report `valid=True`, and `Player.log` should no
-   longer contain the captured `SwitchGeometry.Calculate` failure for
-   `fuse-ng:n:Nove`.
-2. **`dual.both-diverge` missing `SharedDuplicate` suppression** - code fix
-   landed by Claude this turn. Root cause: `RailParticipatesInAcceptedFrog`
-   skipped cutting a shared-duplicate interval if the rail participated in
-   an accepted frog *anywhere on its length*, not specifically near that
-   interval, so unrelated duplicates went uncut. Replaced with an
-   interval-scoped check (`RailParticipatesInAcceptedFrogNearInterval`) at
-   all 4 call sites. Build succeeds (0 warnings/errors). Needs live
-   verification: `NCustom_l4a4`, `NCustom_ltci`, `NCustom_p997`,
-   `NCustom_u6n0`, `NDeHartPassing_wqbb`, and `N178` should report
-   `valid=True` with no "missing required suppressed interval" or "still
-   renders" issues in a fresh `Player.log`.
-3. **`dual.standard-branch-joins-main` never attempted** - still open. Both
-   instances (`NCustom_fl15`, `NDeHartPassing_33d6`) fall back before
-   measured special-work validation ("connects mixed gauge segments; leaving
-   its visuals standard"). Likely a classification/discovery gap (why does
-   `customAllowed` end up false / why is this preset never reached?), not a
-   geometry bug - investigate `SpecialWorkRuntimeDiscovery.cs` and whatever
-   sets `customAllowed`.
-4. Blade under-build (`N178`, `NCustom_vdlt`, `NCustom_fc97`) and frog
-   guard-rail/approach-section gaps (`NCustom_fc97`, `Npv2`) - still open.
-   Re-check `N178` after item 2's fix before assuming its blade-count issue
-   is unrelated - it had *both* a "still renders" duplicate issue and a
-   blade-count issue, so re-verify which (if either) remains.
-5. `NCustom_g832` rail-role mismatch - still open, single node, lowest
-   leverage.
-
-Do not treat `docs/special-work-turnout-combo-status.md`'s `DONE` markings as
-current truth; update it only after live re-verification.
+1. **TOP PRIORITY - narrow-branch-joins-main rendering gaps behind relaxed
+   warnings.** `ValidateSectionedDualGaugeSpecialWork` in
+   `SectionedSpecialWorkBuilder.cs` (~line 2520-2597) logs `Main.Warn`
+   ("Rendering anyway") instead of failing validation for: (a) a blade not
+   connecting into a rendered closure/fixed section after its root distance,
+   and (b) the diverging fixed narrow stock/running rail having no
+   renderable role sections at all. Both fired in the fresh log across the
+   `dual.narrow-branch-joins-main` nodes (`N178`, `NCustom_7n90`,
+   `NCustom_vdlt`, `NCustom_g832`, `Nove` - all 5 now carry this preset after
+   `Nove`/`NCustom_7n90` were reclassified from `dual.split-standard-narrow`
+   this session). This is the best current lead for the user's screenshots
+   of floating disconnected rail fragments. Investigate
+   `ResolveDivergingFixedStockRail`/`HasApproachSection`/`RailRoleSection`
+   construction and fix the actual geometry gap - do not just relax
+   validation further.
+2. `dual.split-standard-narrow` (item 1, done) and `dual.both-diverge`
+   `SharedDuplicate` suppression (item 2, done) - both landed, both build
+   clean, both now report `valid=True` in-game, but per the standing rule
+   above still need the user's visual confirmation once item "1" above (the
+   new top priority) is addressed, since some of the floating-fragment
+   screenshots may overlap with these too.
+3. `dual.standard-branch-joins-main` (`NCustom_fl15`, `NDeHartPassing_33d6`)
+   and `NCustom_g832`'s prior rail-role mismatch: **both now separately
+   report `valid=True`** in the same fresh log, without either of us having
+   touched them - side effect of items 1+2, or of the narrow-branch
+   reclassification. Do not assume this means they're actually correct
+   in-game; re-check visually once the top-priority item is fixed.
+4. Frog guard-rail/approach-section gaps (`NCustom_fc97`, `Npv2`) and any
+   remaining blade under-build - re-check against a fresh log/screenshots
+   after item 1 above, may already be resolved or may share its root cause.
 
 ## Verification
 
-Neither agent can launch Railroader from this session - build success plus
-static reasoning about the truth-table/validator code is the ceiling for
-unattended verification. For each fix, confirm:
-`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader"`
-succeeds, and record in `LOG.md` exactly what was and wasn't verified this
-way (Codex made a build-command correction turn 00:18 after initially
-misreporting which command it ran - be precise here, don't round up).
-
-Batch the actual in-game re-test: ask the user for a fresh `Player.log` once
-several backlog items are code-complete, rather than interrupting the loop
-after every single one.
+Neither agent can launch Railroader from this session. The user is actively
+testing in-game and providing screenshots + fresh `Player.log` snapshots -
+use those as the real verification signal, not just build success or
+`valid=True`. Deploy each build for testing with:
+`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+(plain `dotnet build` without `EnableModDeploy=true` does NOT update the
+installed mod the user actually plays with - confirmed this session the
+installed DLL was stale for weeks before this was caught).
 
 ## Still open
 
-Items 3, 4, 5 above. Live in-game verification for items 1 and 2.
+Top-priority item above (narrow-branch rendering gaps). Re-verification of
+everything else once that's fixed and the user has re-tested in-game.
 
 ## Next turn
 
-Paused for live in-game verification before continuing to item 3. Codex's
-usage-limit block cleared (confirmed available again 2026-07-06). The
-current build (items 1+2) was deployed to
-`C:\Steam\steamapps\common\Railroader\Mods\FUSE.NarrowGauge` via
-`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir=... -p:EnableModDeploy=true`
-- the previously-installed DLL there was stale (dated 2026-06-14, predating
-even the original bug report), so nothing installed had any of these fixes
-until now. Once the user has re-tested in-game and a fresh `Player.log`
-confirms (or refutes) items 1+2, resume with Codex on backlog item 3.
+Codex - top-priority item above. Read
+`reviews/switch-validation-failures-2026-07-05.md`'s "Critical update"
+section first, then the LOG.md tail for full context on what's landed so
+far and why `valid=True` can't be trusted alone. After your fix, remind
+whoever's turn is next to deploy with `-p:EnableModDeploy=true` and ask the
+user to re-test in-game before declaring anything done.
 
 ## Open questions / blockers
 
-Waiting on the user to launch Railroader, load the affected map, and let a
-fresh `Player.log` get written - that's the only way to confirm `Nove`,
-`NCustom_7n90` (item 1) and the `dual.both-diverge` nodes (item 2) actually
-report `valid=True` now instead of just building cleanly.
+None blocking Codex from starting the top-priority item. Do need the user's
+continued help testing in-game and sharing fresh screenshots/`Player.log`
+once a fix for it lands - static/build verification alone is not enough for
+this class of bug, as this session already demonstrated twice.

@@ -223,3 +223,52 @@ guesses risks compounding an actually-still-broken foundation.
 Next: user to launch Railroader and load the map; then re-check
 `Player.log` for `Nove`/`NCustom_7n90`/both-diverge validity before
 resuming with Codex on item 3.
+
+### [Claude] 2026-07-06 - User confirms valid=True still visually broken; found the real cause
+
+User tested in-game and reported: even switches that "show good" (i.e. pass
+validation) are still sometimes visually broken. Fresh `Player.log` after
+this session's deploy showed `Special-work analysis: objects=14, invalid=0`
+- every switch reports valid, including `dual.standard-branch-joins-main`
+(`fl15`/`33d6`) and `NCustom_g832` (backlog items 3/5) which neither of us
+had touched yet, and `Nove`/`NCustom_7n90` which are now classified as
+`dual.narrow-branch-joins-main` instead of `dual.split-standard-narrow` (a
+side effect of item 1's control-geometry/tag fix). User then shared 8
+in-game screenshots showing small disconnected white rail/guard-rail
+fragments floating near frogs and along diverging routes on multiple
+switches, confirming valid=True is not sufficient.
+
+Cross-referenced the fresh log against the screenshots and found the real
+cause: `ValidateSectionedDualGaugeSpecialWork` in
+`SectionedSpecialWorkBuilder.cs` logs two checks as `Main.Warn(...)`
+"Rendering anyway" rather than `yield return` validation failures - a blade
+not connecting into a rendered closure/fixed section after its root
+distance, and the diverging fixed narrow stock/running rail having no
+renderable role sections at all. Both fired in the fresh log, across the
+`dual.narrow-branch-joins-main` nodes specifically. Per earlier commit
+messages (`ae87b7e`, `8a5ea4d`), these were deliberately downgraded from
+hard failures to warnings in the past - which means the underlying "this
+rail/blade has no actual continuous renderable geometry" problem was never
+fixed, just hidden from the valid/invalid signal. This is a strong, concrete
+match for the floating-fragment screenshots and is now the new top-priority
+backlog item, ahead of the old items 3-5 (which, per the same fresh log,
+separately and unexpectedly now report valid=True too - worth re-verifying
+visually rather than assuming items 1+2 incidentally fixed them).
+
+Updated `reviews/switch-validation-failures-2026-07-05.md` with a "Critical
+update" section, and rewrote `STATUS.md`'s backlog around this finding, plus
+added a standing rule: don't trust `valid=True` alone going forward, and
+don't fix a validator gap by relaxing it further - fix the geometry or
+restore the check once fixed.
+
+Also confirmed (again) that plain `dotnet build` does not update the
+installed mod - `-p:EnableModDeploy=true` is required for the user to
+actually test a fix in-game. Documented this explicitly in STATUS.md's
+Verification section so it isn't missed again.
+
+Did not attempt the top-priority fix myself this turn - handing to Codex
+fresh with full context, since this needs real investigation into
+`RailRoleSection` construction, not a quick patch.
+
+Next: Codex, top-priority item (narrow-branch rendering gaps behind relaxed
+warnings).
