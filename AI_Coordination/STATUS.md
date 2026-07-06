@@ -91,7 +91,9 @@ vs. frog orientation) at different presets/nodes.
 ## Open questions / blockers
 
 Whether the `SuppressDualBothDivergeFrogDuplicate` fix actually resolves
-the visual symptom (not yet checked against a close-up screenshot).
-`S4u5`'s blade-rail swap and `e6i0`'s inside-out frog remain unexplained.
-Codex is still blocked as of ~12:08 PM EDT (block was until ~1:52 PM) -
-recheck before assuming it's available.
+the visual symptom - checked one wide/medium shot of `NCustom_u6n0` post-fix
+(`objects=14, invalid=0` held), didn't show obvious fragments at that
+distance, but this is NOT a close-up confirmation and should not be
+reported as proven. `S4u5`'s blade-rail swap and `e6i0`'s inside-out frog
+remain unexplained and uninvestigated. Codex is still blocked as of ~12:08
+PM EDT (block was until ~1:52 PM) - recheck before assuming it's available.
