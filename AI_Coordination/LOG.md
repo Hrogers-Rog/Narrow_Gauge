@@ -534,3 +534,63 @@ only coordination/review Markdown files changed.
 Next: Claude to review the new findings and choose either a targeted
 cut-source diagnostic for `SCustom_ttpp` or a focused debug-labeled screenshot
 mapping before any geometry patch.
+
+### [Claude] 2026-07-06 01:55 - Fixed the plain-pipeline aThirdRails.right bug; found why "fresh" tests weren't fresh
+
+User pointed out a specific visual defect at `Nove`: the switch blade sits
+behind the switch stand, running toward the switch center instead of away
+from it. Also asked for two things: (1) find a way for Claude and Codex to
+test/fix without the user, since Codex can apparently launch and close
+Railroader itself, and (2) make sure Claude and Codex actually check each
+other's work, not just work in isolation.
+
+Reviewed Codex's investigation findings by independently reading the cited
+code (not trusting the write-up alone). Confirmed the `aThirdRails.right`
+hardcode in `CreateDualGaugeNarrowSplitSwitchRailObjects`
+(`src/NarrowGaugeTrackBuilder.cs`) is real: the function immediately above
+it in the same file, plus 11 other call sites across the file, all resolve
+the dual middle rail via `DualGaugeSharedRailRegistry.SharesRightRail(segment)
+? .left : .right`, but this one function skips that check entirely.
+Reasoned that the fix is safe to apply now, contrary to Codex's more
+cautious "wait for a labeled screenshot" stance: the hardcode is only wrong
+when `SharesRightRail` is true (correct answer would be `.left`); when
+false, `.right` is already correct, so applying the same conditional pattern
+cannot regress an already-working case, only fix the definitely-wrong one.
+Also found a third `.right` hardcode in `CalculateDualGaugeNarrowSplitSlices`
+but confirmed via grep it has zero callers anywhere in `src/*.cs` - dead
+code, left alone. Fixed the two live call sites, verified build (0
+warnings/0 errors).
+
+While investigating whether the diagnostic-tool fix from an earlier turn had
+actually been tested (Codex's turn flagged live exports still showing guard
+`ISOLATED` lines despite the checked-out source suppressing them), found the
+real explanation: `Player.log` contains exactly one `Initialize engine
+version` line and exactly one `[FUSE.NarrowGauge] Version '0.4.0'. Loading.`
+line for its entire current content - the user's Railroader process has
+been running continuously as one session this whole stretch. Since .NET
+assemblies don't hot-reload, every screenshot and log/export from this
+stretch reflects whichever build was deployed *before* that process
+launched, not any fix deployed after (including my diagnostic fix and now
+this `aThirdRails.right` fix). This is not a diagnostic bug - it's a process
+bug in how we've been testing.
+
+Rebuilt and redeployed the combined state (this fix + everything prior):
+`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+- 0 warnings/0 errors. Rewrote `STATUS.md` around this finding: nothing from
+the recent test stretch (SCustom_ttpp, the guard isolation lines, the Nove
+blade screenshot, Codex's investigation's live-log evidence) can be fully
+trusted until the user does a genuine full quit-and-relaunch of Railroader,
+confirmed afterward by checking for a fresh single init/load line pair.
+Flagged this as directly relevant to the user's automation ask: any
+launch/test/close pipeline (using `FUSE.TestBridge`/`FUSE.LiveHarness`
+per the earlier discussion) must guarantee a real process restart, not
+assume a file-on-disk change takes effect.
+
+Did not yet act on Codex's other findings (SCustom_ttpp cut-source
+ambiguity, double-frog mapping, unmapped "too many rails"/mid-switch-
+transition symptoms) - those still need the node/screenshot mapping Codex
+recommended, and a trustworthy live test to check against.
+
+Next: user to fully quit and relaunch Railroader, then re-test. Whoever
+picks this up next should verify the fresh-session check before trusting
+anything in the resulting log/screenshots.

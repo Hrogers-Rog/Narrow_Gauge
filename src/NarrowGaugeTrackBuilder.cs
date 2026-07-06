@@ -2856,9 +2856,12 @@ namespace NarrowGaugeMod
             LineCurve branchCenterline = BuildBespokeMixedBranchCenterline(node, stdGeometry.switchHome, shadowTransition, bAligned);
             SwitchGeometry.RailLineCurves bNarrowRails = CreateRailLineCurves(branchCenterline, ThreeFootGauge);
             Vector3 localNodePoint = node.transform.localPosition - stdGeometry.switchHome;
+            LineCurve aDualMiddle = DualGaugeSharedRailRegistry.SharesRightRail(aProxy.Segment)
+                ? aThirdRails.left
+                : aThirdRails.right;
 
             if (!TryResolveDualGaugeNarrowBranchRails(
-                aThirdRails.right,
+                aDualMiddle,
                 bNarrowRails,
                 localNodePoint,
                 shadowTransition != null,
@@ -2871,7 +2874,7 @@ namespace NarrowGaugeMod
 
             branchOuterRail = OrientCurveAwayFromPoint(branchOuterRail, localNodePoint);
             branchRightRail = OrientCurveAwayFromPoint(branchRightRail, localNodePoint);
-            LineCurve dualMiddleFromNode = OrientCurveAwayFromPoint(aThirdRails.right, localNodePoint);
+            LineCurve dualMiddleFromNode = OrientCurveAwayFromPoint(aDualMiddle, localNodePoint);
             LineCurve leftSharedFromNode = OrientCurveAwayFromPoint(aStdRails.left, localNodePoint);
             if (!suppressLegacyFixedRails)
             {

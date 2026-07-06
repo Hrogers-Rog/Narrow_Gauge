@@ -1,87 +1,119 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-06
+Last updated by: Claude - 2026-07-06
 
-## Current phase: broad visual-defect investigation findings ready for review
+## Current phase: found a real process bug that invalidates recent live tests - need a genuine relaunch
 
-Codex completed the investigation scoped by
-`reviews/broad-visual-defect-investigation-2026-07-06.md`. Findings are in:
+**Root cause of Codex's "stale guard isolation" question, confirmed:** the
+user's Railroader process has been running as a single continuous session
+this entire time - confirmed via `Player.log` containing exactly one
+`Initialize engine version` line and exactly one
+`[FUSE.NarrowGauge] Version '0.4.0'. Loading.` line for the whole file.
+.NET assemblies do not hot-reload; replacing `NarrowGaugeMod.dll` on disk
+with `-p:EnableModDeploy=true` has no effect on an already-running process.
+That means every screenshot and every `Player.log`/`.txt` export the user
+has produced in the last stretch of this session reflects whatever build was
+deployed **before that Railroader process launched** - not any fix deployed
+after. This explains Codex's diagnostic-caution flag exactly: the live
+exports still showing `ISOLATED: v2-guard:*` lines aren't stale exporter
+logic, they're a stale *running process* that never picked up the fix at
+all.
 
-`reviews/plain-and-measured-visual-defect-findings-2026-07-06.md`
+**Action needed before any more live testing means anything:** the user
+must fully quit Railroader (not just close the map/navigate away) and
+relaunch it. Only then will the currently-deployed DLL (see below) actually
+load.
 
-No code patch was made this turn.
+## This turn's fix (Claude)
 
-## Main findings
+Reviewed Codex's investigation (`reviews/plain-and-measured-visual-defect-findings-2026-07-06.md`)
+by independently reading the cited code, not just trusting the write-up.
+Confirmed the `aThirdRails.right` hardcode claim is real and verified it's
+safe to fix now rather than wait for a labeled screenshot, because the fix
+is strictly one-directional:
 
-- `SCustom_ttpp` is confirmed as an ordinary authored `DualGauge_R` segment,
-  not a measured special-work node and not a missing 15th plan. In the
-  authored graph it runs from `NCustom_fl15` to `NCustom_ltci`; both endpoint
-  nodes have measured special-work exports. Its rails are built by the plain
-  dual-gauge segment path in `NarrowGaugeTrackBuilder.cs`, then clipped by
-  `CreateRailMeshesWithFrogCuts`.
-- The `SCustom_ttpp` clip logs are real, but their source is ambiguous:
-  `CreateRailMeshesWithFrogCuts` merges measured ownership cuts,
-  gauge-separation frog cuts, and possible shared-rail flip cuts under one
-  `[SpecialWorkSegmentClip]` log label. A narrow diagnostic that logs cut
-  source by interval is the next useful step for this specific segment.
-- The plain dual/narrow switch pipeline has at least one strong code
-  hypothesis for wrong-side blades: `CreateDualGaugeNarrowSplitSwitchRailObjects`
-  hardcodes `aThirdRails.right` when resolving the dual middle rail, while the
-  normal dual-gauge segment/gauge-separation code consults
-  `DualGaugeSharedRailRegistry.SharesRightRail`. Do not patch this until a
-  labeled failing switch is tied to this path.
-- Double frogs currently map more strongly to measured special-work rendering
-  than to `SCustom_ttpp`. Relevant nodes include `NCustom_fl15`,
-  `NCustom_ltci`, and `NCustom_fc97`, all of which render three frogs in the
-  current logs. The likely code area is frog candidate collapse and compound
-  vee rendering, but the specific screenshot node is still needed before
-  changing tolerances or suppressions.
-- "Too many rails" may be measured-plan extra fixed/shared pieces, generated
-  transition-switch duplicate suppression misses, or the current plain
-  mixed-switch fallback for `aNarrowOnly && bDual`. The symptom is not mapped
-  to a single code path yet.
-- The possible "transition in the middle of a switch" is not confirmed by the
-  current logs. `TryResolveSharedRailFlip` is disabled, and no current
-  `SharedRailTransition` log entries were found around `SCustom_ttpp`.
+- `CreateDualGaugeNarrowSplitSwitchRailObjects` (`src/NarrowGaugeTrackBuilder.cs`)
+  hardcoded `aThirdRails.right` as the dual middle rail reference at two live
+  call sites (used to resolve `TryResolveDualGaugeNarrowBranchRails` and to
+  orient `dualMiddleFromNode`).
+- The function immediately above it in the same file does this correctly:
+  `DualGaugeSharedRailRegistry.SharesRightRail(aProxy.Segment) ? aThirdRails.left : aThirdRails.right`.
+  11 other call sites across the file consult `SharesRightRail` the same way.
+- The hardcode is only wrong when `SharesRightRail(aProxy.Segment)` is
+  `true` (correct answer would be `.left`); when it's `false`, `.right` is
+  already correct and unchanged by fixing this. So applying the same
+  conditional pattern **cannot regress an already-working case** - it only
+  fixes the orientation that was definitely wrong. Applied the fix.
+- A third hardcoded `.right` usage exists in `CalculateDualGaugeNarrowSplitSlices`,
+  but that function has **zero callers anywhere in `src/*.cs`** - confirmed
+  dead code, left untouched (not part of the live bug, not worth the risk of
+  touching unrelated dead code in this pass).
 
-## Diagnostic caution
+This is very likely (not yet confirmed in-game) the root cause of the
+"blades on the outside/wrong side of the rail" symptom on plain mixed
+dual/narrow switches - i.e. wherever `CreateDualGaugeNarrowSplitSwitchRailObjects`
+renders a switch on a `DualGauge_L`-oriented (or whichever orientation makes
+`SharesRightRail` true) segment.
 
-Live plan exports still show `ISOLATED: v2-guard:*` lines, but the checked-out
-`SpecialWorkPlanExporter.cs` source now suppresses guard-only isolated
-verdicts. Treat guard isolation lines in the current live exports as stale or
-diagnostic-mismatch evidence, not confirmed geometry defects. Fixed-piece
-isolation lines near `NCustom_fl15` and `NCustom_ltci` remain plausible visual
-fragment candidates.
+Rebuilt and redeployed:
+`dotnet build NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+- 0 warnings/0 errors. This deploy includes: this fix, the earlier
+`GeometryContinuity`/`FrogPieces`/`Guard`-exclusion diagnostic fix, and both
+of Codex's narrow-branch geometry fixes - **none of which the currently-running
+game process has loaded yet** per the finding above.
+
+## Other findings from Codex's investigation (not yet acted on)
+
+- `SCustom_ttpp` confirmed as an ordinary authored `DualGauge_R` segment
+  between measured nodes `NCustom_fl15`/`NCustom_ltci`, not a 15th
+  special-work plan. Its `[SpecialWorkSegmentClip]` log line conflates
+  measured-ownership cuts, gauge-separation frog cuts, and shared-rail-flip
+  cuts under one label - a per-source-cut diagnostic is still recommended
+  before concluding anything more about it.
+- Double frogs map more strongly to measured special-work rendering
+  (`NCustom_fl15`, `NCustom_ltci`, `NCustom_fc97` all currently render 3
+  frogs) than to the plain pipeline - needs a labeled screenshot at one of
+  those specific nodes before touching frog-collapse/compound-vee code.
+- "Too many rails" and "transition in the middle of a switch" remain
+  unmapped to a specific cause - see the findings file's Symptom Map.
 
 ## Standing rules
 
-- Do not trust `Player.log` `valid=True` as proof anything is visually
-  correct.
+- Do not trust `Player.log` `valid=True`, or any live test at all, unless
+  you've confirmed the running game process actually launched *after* the
+  relevant deploy. Check for exactly one `Initialize engine version` +
+  one mod-version-load line per session in `Player.log`, and compare
+  wall-clock timing against the last deploy if there's any doubt.
 - Do not relax validation to hide geometry defects.
-- Do not patch all four reported symptoms together. Map a symptom to a
-  node/system/code path first.
+- Do not patch all four reported symptoms together - map a symptom to a
+  node/system/code path first (the `aThirdRails.right` fix above is an
+  exception because the fix was provably one-directional and safe, not
+  because the mapping rule is being abandoned).
 - Always deploy with `-p:EnableModDeploy=true` for anything meant to be
-  tested in-game. This turn made documentation/review updates only, so no
-  deploy was done.
+  tested in-game, AND confirm the game was actually relaunched afterward.
 
 ## Next turn
 
-Claude - review
-`reviews/plain-and-measured-visual-defect-findings-2026-07-06.md`, especially:
+User: please fully quit Railroader (not just alt-tab or return to menu -
+the whole process) and relaunch it, then re-test and let it write a fresh
+session. This is required for any of this session's fixes to actually be
+in effect. Once that's done, whoever picks this up (Claude or Codex) should
+re-check `Player.log` for the one-init/one-load pattern to confirm it's
+truly fresh, then re-read the `GeometryContinuity` sections and check the
+`aThirdRails.right` fix against any mixed dual/narrow switch visually.
 
-1. the `SCustom_ttpp` membership conclusion and cut-source ambiguity;
-2. the plain split-switch `aThirdRails.right` shared-rail-side hypothesis;
-3. the measured frog/compound vee mapping for double frogs;
-4. the stale/mismatched guard isolation diagnostic warning.
-
-Then decide whether to add a targeted diagnostic first or ask the user for a
-focused debug-labeled screenshot for one symptom. Avoid a broad patch.
+If the user is also going to explore automating launch/test/close (raised
+this session - see `FUSE.TestBridge`/`FUSE.LiveHarness` in the sibling FUSE
+repo, which already supports headless console-command execution and
+screenshots via a file-based protocol), whoever builds that must make the
+relaunch-vs-hot-reload distinction a first-class part of the design - a
+kill+relaunch of the actual process, confirmed via the one-init-line check
+above, not just a "wait N seconds" heuristic.
 
 ## Open questions / blockers
 
-- Which exact node/segment label corresponds to each reported wrong-side
-  blade and double-frog screenshot?
-- Are `SCustom_ttpp` cuts coming from measured ownership, gauge separation, or
-  both?
-- Were the current live plan exports generated from the checked-out exporter
-  code, given the guard-isolation mismatch?
+Blocked on a genuine Railroader relaunch before any further live test
+result can be trusted. Still open from Codex's investigation: which exact
+node/segment each remaining symptom (double frogs, too many rails, possible
+mid-switch transition) belongs to, and whether `SCustom_ttpp`'s cuts come
+from measured ownership, gauge separation, or both.
