@@ -1408,3 +1408,92 @@ the blade curve direction bug would still exist independently).
 Next: verify live with a close-up of Nove. If confirmed, check S4u5/N178
 too (same bug class). If not, the symptom may need the truth-table selector
 issue addressed as well/instead.
+
+---
+
+## [Claude] 2026-07-06 - blade tip/root fix does not touch Nove; scope widened to all 14 measured switches
+
+Live-verified the previous turn's blade tip/root-swap fix against `Nove`
+using the `NarrowGaugeTestBridge` pipeline (extended it this turn with a
+`closeUp`/first-person jump mode, an `action:exportPlans` bridge action to
+force a fresh plan export, and an `action:throwSwitch` bridge action via
+`TrainController.Shared.TrySetSwitch` - all in `src/NarrowGaugeTestBridge.cs`).
+Multiple automated screenshot attempts had camera-positioning bugs (an
+absolute eye/lookAt jump computed from the plan export's `pos=` coordinates
+landed in unrelated woods - the export coordinates and the live
+WorldTransformer/CameraSelector coordinate space are not directly
+interchangeable the way I assumed; node-relative jumps worked fine). The
+user ultimately captured their own close-up screenshots (including an
+extreme rail-level close-up) and confirmed the blade is still backwards.
+
+Re-derived `bladeExtendsForward` for Nove's actual data by hand: for
+`NarrowPointBlade`, `tip=29.856 root=34.457`, and `switchDist` (computed
+identically inside `TryFindBladeDistances` as
+`movableCurve.DistanceTo(switchPoint)`) is very close to `tip`'s value
+(confirmed via the exported `PieceEndpoints`, where `BladeCurve.Head` sits
+almost exactly at Nove's switch node world position). This means
+`bladeExtendsForward = root(34.457) > switchDist(~29.86) = true` for both
+of Nove's blades - so the `.Reverse()` branch added last turn, which only
+fires when `bladeExtendsForward == false`, never executes for Nove. The fix
+is real for whichever switch actually has a backward-extending blade, but
+it was never Nove's bug. Correcting the previous turn's claim.
+
+Re-examined the truth-table selector theory (previously flagged by Codex as
+"maybe wrong, unsafe to patch"): read `SpecialWorkTruthTableCatalog.TryGet`
+and `MatchesSelector` in full (`src/SpecialWorkTruthTableValidator.cs`
+~771-851). The selector is NOT an arbitrary/first-match heuristic - it
+checks whether a specific `(routeId, side)` rail pair actually has a
+matching frog/intersection in this switch's live geometry
+(`selectorFrogPair.railA`/`railB`). Read both
+`DualGauge_NarrowBranch_Left`/`_Right`'s `selectorFrogPair` and `blades`
+sections in `truth/SpecialWorkTruthTables.json` (lines ~1-330): they check
+genuinely different rail/side pairs, and their `blades` sections assign
+mirror-image `movableSide`/`stockSide`. So `Nove` and `N178` selecting
+different tables is not automatically a bug - could be correct if they are
+genuinely mirrored physical switches. This needs live per-switch frog data
+to settle, which is now handed to a subagent (see below) rather than more
+static reading from me, since scope has widened past what I can single-
+thread through carefully.
+
+## Scope widened per user request
+
+User: "there are issues with every turnout but 936m and that's because it
+doesn't have a double frog" - confirms 936m is a plain non-measured switch,
+and wants all 14 measured special-work switches audited, with Codex and a
+parallel Claude subagent both working simultaneously ("deploy codex and
+multiple claude agents").
+
+Mapped every previously-reported broken segment to its owning measured
+switch via `grep '[SpecialWorkOwnershipCutClaim]'` in `Player.log` (segment
+ids are track-segment labels, not switch/node ids - this mapping wasn't
+done explicitly before). Full breakdown by preset now in STATUS.md. Two
+new findings from this mapping alone, before any deeper investigation:
+- `NCustom_ltci` (both-diverge) double-claims BOTH `SCustom_ttpp` (which
+  otherwise belongs to `NCustom_fl15`) and `SCustom_snvo` (which otherwise
+  belongs to `NCustom_g832`) - i.e. it's claiming territory past its own
+  switch's boundary into two different neighboring switches. This is a
+  distinct, concrete lead, not previously identified this precisely.
+- All 5 `dual.narrow-branch-joins-main` switches (`N178`, `NCustom_7n90`,
+  `NCustom_g832`, `NCustom_vdlt`, `Nove`) have a reported symptom - none of
+  the 5 in this preset group are confirmed working.
+
+## This turn's plan
+
+Given concurrent edits to the same shared files
+(`SectionedSpecialWorkBuilder.cs`, `SpecialWorkHardwareRenderer.cs`) by
+multiple actors risks real conflicts, both parallel threads this round are
+investigation-only (read + write findings to a new `reviews/*.md` file, no
+source edits, no commits). Claude will apply fixes sequentially once both
+threads report back to avoid stepping on either.
+
+- Codex: both-diverge group (`p997`/`dkzn` overlapping hardware - continuing
+  its own prior thread -, `ltci`'s `ttpp`/`snvo` over-claim, `u6n0`/`s3y7`,
+  `wqbb`/`tliv`, plus a sanity pass on `fc97`/`l4a4`/`Npv2`/`fl15`/`33d6`
+  which have no reported symptom yet).
+- Claude subagent: narrow-branch-joins-main group (all 5 switches) -
+  whether the truth-table selection is actually correct per-switch given
+  live frog data, and whether the truth table JSON's blade
+  movable/stock/side assignment matches each switch's actual measured hand.
+
+Full per-switch symptom/preset breakdown is in STATUS.md - not duplicating
+it here to keep this entry shorter.
