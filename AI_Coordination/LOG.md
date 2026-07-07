@@ -1497,3 +1497,67 @@ threads report back to avoid stepping on either.
 
 Full per-switch symptom/preset breakdown is in STATUS.md - not duplicating
 it here to keep this entry shorter.
+
+---
+
+## [Codex] 2026-07-06 - both-diverge group investigation: duplicate guards and ltci ownership overclaim
+
+Completed the investigation-only pass for the seven
+`dual.both-diverge` measured switches. Wrote the full findings to
+`AI_Coordination/reviews/both-diverge-group-investigation-2026-07-06.md`.
+No source files or truth tables were edited.
+
+Live pipeline used this turn: built/deployed successfully with 0 warnings
+and 0 errors, enabled the FUSE TestBridge metadata only for the run, used
+temporary `steam_appid.txt=1683150`, launched `Railroader.exe /editor`
+directly with `NARROWGAUGE_TEST_BRIDGE=1`, loaded save `2026-06-25`, and
+forced a fresh `exportPlans` through `NarrowGaugeTestBridge`. Fresh plans
+were written at `2026-07-06 16:30:58` local time under
+`C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans`.
+Captured close-up screenshots for `NCustom_p997`, `NCustom_ltci`,
+`NCustom_u6n0`, and `NDeHartPassing_wqbb` under
+`C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots`.
+
+Confirmed duplicate guard endpoint groups in the fresh plan exports:
+
+- `NCustom_p997`: `v2-guard:0 == v2-guard:8`.
+- `NCustom_ltci`: `v2-guard:0 == v2-guard:8`.
+- `NDeHartPassing_wqbb`: `v2-guard:0 == v2-guard:8` and
+  `v2-guard:3 == v2-guard:7`.
+
+The traced code path is ordinary guard generation plus the unconditional
+both-diverge supplemental guard pass:
+`BuildGuardRails` calls `AddDualBothDivergeSupplementalGuards`, and
+`AddSupplementalGuardPair` appends guard curves without checking whether an
+ordinary guard already occupies the same endpoints. This is a confirmed
+overlapping-hardware cause for p997/ltci/wqbb. `CreateCompoundVeeFrogAssembly`
+is not involved for p997 or other both-diverge switches; it is gated to
+dual.standard-branch cases.
+
+Also confirmed a separate ownership-cut bug at `NCustom_ltci`. Fresh
+`Player.log` shows `NCustom_ltci` double-claiming both `SCustom_ttpp`
+with `NCustom_fl15` and `SCustom_snvo` with `NCustom_g832`. The traced
+mechanism is `OwnershipCuts` in `src/SpecialWorkHardwareRenderer.cs`: for
+non-`DualSplit` presets it admits an analysis by source segment, then
+scans all `MeshPlan.WorkIntervals`; the `sourceRouteIds` interval filter
+currently only runs for `DualSplit`. Because `CreateRailMeshesWithFrogCuts`
+merges ownership cuts into stock rail mesh clipping, these overclaims can
+remove neighboring segment rail.
+
+Investigated but did not confirm a root cause for `NCustom_u6n0`,
+`NCustom_fc97`, `NCustom_l4a4`, or `Npv2`. The fresh plan scan found no
+exact duplicate guard endpoints and no `GeometryContinuity` issues in
+those four. `u6n0`, `l4a4`, and `Npv2` use measured-geometry fallback;
+`u6n0` also has a synthesized frog. Those may still relate to the user's
+general shifted-frog complaint, but this turn did not prove that.
+
+Cleaned up the live environment after capture: closed UMM through the
+bridge, closed the Railroader window without force-kill, verified no
+`Railroader` process remained, restored TestBridge `Info.json` to
+`"Enabled": false`, removed `steam_appid.txt`, and removed/verified absence
+of leftover `test_request_*`, `test_result_*`, `ng_goto_request.json`,
+`ng_goto_result.json`, and `ng_test_bridge_enabled` files.
+
+Next: apply fixes sequentially after reading this review and the parallel
+narrow-branch findings. Start with supplemental guard de-duplication, then
+tighten ownership interval scoping and live-test `ttpp`/`snvo`/`6wx3`.

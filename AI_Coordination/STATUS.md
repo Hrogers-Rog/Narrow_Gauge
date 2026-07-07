@@ -1,88 +1,79 @@
 # Coordination Status
 
-Last updated by: Claude - 2026-07-06
+Last updated by: Codex - 2026-07-06
 
-## Current phase: blade tip/root fix confirmed NOT to touch Nove; scope widened to all 14 measured switches, split into parallel investigation threads
+## Current phase: both-diverge investigation complete; source fixes still pending
 
-**Correction to previous turn**: user tested the deployed blade tip/root fix
-live at `Nove` (multiple close-up screenshots, including a very tight
-rail-level close-up) and confirmed the blade still looks backwards. I
-re-derived `bladeExtendsForward` for Nove's actual measured data
-(`tip=29.856 root=34.457` for `NarrowPointBlade`, `switchDist` computed the
-same way inside `TryFindBladeDistances`) and confirmed `bladeExtendsForward
-== true` for both of Nove's blades - meaning the `.Reverse()` branch added
-last turn **never executes for Nove**. That fix is real and may still be
-correct for whatever backward-extending blade originally motivated it, but
-it is **not** Nove's bug. Do not re-claim it as Nove's fix.
+Codex completed the investigation-only pass for the seven
+`dual.both-diverge` measured switches and wrote the full handoff to:
 
-Also re-examined the truth-table selector theory that was flagged as
-unsafe-to-patch last turn: `SpecialWorkTruthTableCatalog.TryGet`'s
-`MatchesSelector` checks a real geometric frog/intersection pair
-(`selectorFrogPair.railA` x `railB`, by route+side), not an arbitrary
-first-match - so `DualGauge_NarrowBranch_Left` vs `_Right` choosing
-differently for `Nove` vs `N178` is not automatically a bug; it could
-reflect genuinely mirrored physical geometry. This needs live plan/frog
-data per switch to confirm, not more static reading - handing this to a
-subagent to investigate with fresh eyes now that scope has widened.
+`AI_Coordination/reviews/both-diverge-group-investigation-2026-07-06.md`
 
-## Scope widened: user wants all measured switches audited, not just Nove
+No `src/*.cs` or `truth/*.json` files were edited. Build/deploy and the
+live test bridge pipeline were used only to force a fresh plan export and
+capture reference screenshots. Cleanup was verified directly: no
+`Railroader` process remained, TestBridge was disabled in
+`Mods.fuseGEo\FUSE.TestBridge\Info.json`, `steam_appid.txt` was removed,
+and no temporary bridge request/result files remained.
 
-User: "there are issues with every turnout but 936m and that's because it
-doesn't have a double frog" - confirming 936m is a plain (non-measured)
-switch outside this system, and every one of the 14 measured special-work
-switches has a reported or suspected defect. Full list with preset and
-known symptom (segment -> owning switch mapping done via
-`[SpecialWorkOwnershipCutClaim]` grep in `Player.log`):
+Confirmed findings from the both-diverge group:
 
-**dual.narrow-branch-joins-main (5)**: `N178` (segment `S4u5`: blades on
-wrong rails - should be left-diverge/right-through, are left-through/
-right-diverge), `NCustom_7n90` (segment `194b`), `NCustom_g832` (segment
-`6wx3`), `NCustom_vdlt` (segment `e6i0`: "frog rendering inside out and
-trying to render blades"), `Nove` (blade still runs into the switch when
-thrown - confirmed broken by user this turn, see correction above).
+- `NCustom_p997`, `NCustom_ltci`, and `NDeHartPassing_wqbb` have exact
+  duplicate guard endpoint groups in the fresh `PieceEndpoints` export.
+  The confirmed code path is ordinary guard generation followed by
+  `AddDualBothDivergeSupplementalGuards` /
+  `AddSupplementalGuardPair` in `src/SectionedSpecialWorkBuilder.cs`
+  without any de-duplication against already-created guards.
+- `NCustom_ltci` has a separate ownership-cut boundary bug: it double-claims
+  `SCustom_ttpp` with `NCustom_fl15` and `SCustom_snvo` with
+  `NCustom_g832`. The traced mechanism is `OwnershipCuts` in
+  `src/SpecialWorkHardwareRenderer.cs`: for non-`DualSplit` presets it
+  admits an analysis by source segment, then scans all work intervals
+  instead of filtering intervals by the matching source route ids.
+- `NCustom_u6n0` was investigated and remains inconclusive: no duplicate
+  guard endpoints and no double-owner claim on `SCustom_s3y7`, but it uses
+  measured-geometry fallback and a synthesized frog.
+- `NCustom_fc97`, `NCustom_l4a4`, and `Npv2` were sanity-checked. No exact
+  duplicate guard endpoints or `GeometryContinuity` issues were found in
+  the fresh exports. `l4a4` and `Npv2` also use measured-geometry fallback.
 
-**dual.both-diverge (7)**: `NCustom_p997` (segment `dkzn`: multiple
-disconnected/kinked rail fragments, "double frog" mess - Codex found a
-literal duplicate `v2-guard:8`==`v2-guard:0` here, not yet fixed),
-`NCustom_ltci` (double-claims BOTH `ttpp` and `snvo`, which otherwise
-belong to `NCustom_fl15` and `NCustom_g832` respectively - likely
-over-claiming past its own switch's boundary), `NCustom_u6n0` (segment
-`s3y7`), `NDeHartPassing_wqbb` (segment `tliv`), `NCustom_fc97`,
-`NCustom_l4a4`, `Npv2` (no specific symptom reported yet - lower priority,
-worth a sanity pass).
+## Next turn
 
-**dual.standard-branch-joins-main (2)**: `NCustom_fl15` (loses part of
-`ttpp` to `ltci`'s over-claim above), `NDeHartPassing_33d6` (no specific
-symptom reported yet).
+Claude should read the new both-diverge review and any parallel
+narrow-branch investigation results before applying source fixes
+sequentially. Do not start from the older p997-only conclusions; the fresh
+2026-07-06 export is now the authoritative both-diverge evidence.
 
-General pattern from the user's original description: "every switch that
-has a double frog [has its] frog or guard shifted about the width of a
-rail head to the left or right... sometimes inside out."
+Suggested fix order:
 
-## This turn's plan: two parallel investigation-only threads, then sequential fixes
+1. De-duplicate or make semantic the both-diverge supplemental guard pass so
+   it fills missing guard coverage instead of blindly adding guards that can
+   exactly duplicate ordinary frog guards.
+2. Tighten `OwnershipCuts` so non-`DualSplit` measured switches filter work
+   intervals by the source route ids for the source segment, then test
+   whether a further node-end/nearest-owner boundary rule is needed for
+   shared-entry route ambiguity.
+3. Re-check the crossing frog `ContinuousStockHandoff` path for p997/ltci
+   only after duplicate guards are removed. It is active for both-diverge
+   crossing frogs, but this investigation did not prove it is the root
+   cause.
+4. Rebuild/deploy, force a fresh plan export, grep ownership claims for
+   `SCustom_ttpp`, `SCustom_snvo`, and `SCustom_6wx3`, scan for duplicate
+   guard endpoints, and capture close-up screenshots for at least
+   `NCustom_p997`, `NCustom_ltci`, `NCustom_u6n0`, and
+   `NDeHartPassing_wqbb`.
 
-Given multiple switches share a preset (likely shared root cause within a
-group) and multiple agents editing `SectionedSpecialWorkBuilder.cs`/
-`SpecialWorkHardwareRenderer.cs` concurrently risks real conflicts, this
-round is investigation-only for both threads (read code + live plan/frog
-data, write findings to a new `reviews/*.md` file, do **not** edit source,
-do **not** commit code changes). Claude will apply fixes sequentially once
-both threads report back, then rebuild/redeploy/re-verify live with
-screenshots per the standing rule below.
+## Open questions / blockers
 
-- **Codex** (this turn): both-diverge group - `NCustom_p997`/`dkzn`
-  overlapping hardware (continue prior thread), `NCustom_ltci`'s
-  `ttpp`/`snvo` over-claim, `NCustom_u6n0`/`s3y7`, `NDeHartPassing_wqbb`/
-  `tliv`. Also sanity-pass `fc97`/`l4a4`/`Npv2`/`fl15`/`33d6` (no reported
-  symptom yet) for the same overlapping-hardware pattern using fresh plan
-  exports.
-- **Claude subagent** (this turn): narrow-branch-joins-main group (all 5:
-  `N178`, `7n90`, `g832`, `vdlt`, `Nove`) - investigate whether the
-  truth-table selection is actually correct per-switch (needs live frog
-  data to check `selectorFrogPair` matches), and whether blade
-  `movableRouteId`/`movableSide`/`stockRouteId`/`stockSide` assignment in
-  the truth table JSON (`truth/SpecialWorkTruthTables.json`) is consistent
-  with each switch's actual measured hand.
+- Whether the parallel narrow-branch-joins-main investigation has completed
+  and found additional shared truth-table or blade-assignment causes.
+- Whether route-id filtering alone is enough for ownership cuts. Because
+  `TryBuildRoute` stores both incoming and outgoing segment ids on a route,
+  some common-entry segments may still need boundary scoping after the first
+  filter is added.
+- Whether synthesized frogs in `NCustom_u6n0`, `NDeHartPassing_wqbb`,
+  `NCustom_l4a4`, or `Npv2` are laterally shifted in the user's "one rail
+  head width" sense. This was not proven in the investigation-only pass.
 
 ## Previous phase (superseded, kept for history)
 
