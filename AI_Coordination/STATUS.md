@@ -16,7 +16,41 @@ themselves. Static code review plus whatever plan-export/log artifacts
 already exist on disk (noting their age) is the only verification available
 to either agent in the meantime.
 
-## Current phase: narrow-branch group static review found a likely regression (`NCustom_7n90`/`NCustom_g832` now `valid=False`); both-diverge duplicate guard defect fixed and live-verified last turn; ownership boundary still open
+## Current phase: reverted the fallback-path regression that broke `NCustom_7n90`/`NCustom_g832`; awaiting manual live re-test
+
+Traced the subagent's confirmed regression (see below) to its exact
+mechanism via static reading of `ResolveDivergingFixedStockRail`
+(`src/SectionedSpecialWorkBuilder.cs` ~3355) plus the fresh-on-disk plan
+exports for `NCustom_7n90`: the surviving blade after Codex's fallback-path
+one-blade filter has `stock=narrow-normal:left`, and that rail's `[Rails]`
+role is `Unknown` (not `FixedRunningRail`) in the export - it has zero
+renderable role sections, exactly matching the validation failure text.
+The discarded side (`narrow-normal:right`/`narrow-reversed:right`) both
+have `role=FixedRunningRail` in the same export - the filter kept the wrong
+side's blade for this switch.
+
+**Did not attempt to fix the underlying `DetectSharedSide`/
+`leftHandTurnout` disagreement** - that needs live verification to get
+right (per this session's repeated experience that static geometry
+reasoning about this codebase gets it wrong), and live testing is paused
+per the user's request. Instead took the safe, conservative path: **reverted
+Codex's fallback-path filter entirely** (`BuildBladeSpecs`'s
+non-truth-table branch), restoring the known-good pre-regression behavior
+(yield both Left/Right blade candidates unconditionally) for this specific
+code path only. The truth-table path's filter (confirmed correct via
+Nove/N178/`NCustom_vdlt`, all reporting `valid=True` with the filter
+active) is untouched.
+
+Net effect: `NCustom_7n90`/`NCustom_g832` should go back to `valid=True`
+(restoring their measured special-work rendering entirely) at the cost of
+re-introducing the cosmetic "extra blade" issue for just these two switches
+- a much smaller problem than losing all measured geometry. Built (0
+warnings/errors) and deployed (file copy only, no game launch). **Not yet
+verified** - needs the user's next manual test to confirm `valid=True` is
+restored and to see how bad the reintroduced extra-blade symptom looks for
+these two specifically.
+
+## Superseded: narrow-branch group static review found a likely regression (`NCustom_7n90`/`NCustom_g832` now `valid=False`); both-diverge duplicate guard defect fixed and live-verified last turn; ownership boundary still open
 
 Codex re-ran the live-game pipeline against save `2026-06-25` and forced
 fresh `exportPlans` twice this turn. The first run re-verified the deployed

@@ -2014,3 +2014,73 @@ just `NCustom_g832`; (2) add a targeted diagnostic log around
 block to find the real per-node cause before touching the code; (3) get
 close-up screenshots of `N178`/`NCustom_vdlt`, which look clean on paper but
 were never actually screenshot-verified.
+
+---
+
+## [Claude] 2026-07-07 - reverted fallback-path blade filter regression (NCustom_7n90/NCustom_g832); used existing logs instead of live automation
+
+Per the user's request, stopped using the automated TestBridge/live-launch
+pipeline entirely this turn (repeated process collisions between concurrent
+Claude/Codex turns). Investigated using only static code reading plus
+already-on-disk plan exports/Player.log from prior live sessions this
+session - no new game launch.
+
+## Confirmed real progress at Nove from existing exports (no new test needed)
+
+Read the freshest on-disk `special-work_Nove.txt` export (timestamped
+2026-07-07 16:46, after all this session's blade/frog/gap fixes, forced by
+Codex's own test run): confirms `blades=1` (not 2 - the extra-blade fix
+worked) and `frogs=1`, with the two original frog candidates
+(`standard-through x narrow-normal` and `standard-through x narrow-reversed`)
+resolving to the exact same intersection position/angle before collapsing -
+i.e. the collapse is geometrically correct, not an incorrect merge. The
+`narrow-normal`/`narrow-reversed` pairing the user saw "crossing with no
+frog" is classified `SharedOverlap` with `angle=0.000` in the raw
+intersection data - they're the same physical rail before the blade
+diverges them, not a real frog-worthy crossing; what the user saw is very
+likely the blade's own tip/throat area, not a missing separate frog. Also
+noted (but believe is a diagnostic false positive, not a new real defect):
+`v2-fixed:0` (`standard-through:left`, the shared rail) is flagged
+`ISOLATED` by the `GeometryContinuity` diagnostic - most likely because
+that diagnostic only checks connectivity within special-work's own piece
+list and doesn't know about the ordinary track that should connect at the
+switch's boundary from a separate code path.
+
+## Traced and fixed the NCustom_7n90/NCustom_g832 regression the subagent found
+
+The subagent's static review (previous LOG entry) confirmed a real
+regression: after Codex's fallback-path one-blade filter, `NCustom_7n90`
+and `NCustom_g832` both report `valid=False` ("Fixed diverging narrow
+stock/running rail has no renderable role sections"), where the
+2026-07-06 baseline (pre-fix, `blades=2`) had both `valid=True`.
+
+Traced the exact mechanism via `ResolveDivergingFixedStockRail`
+(`src/SectionedSpecialWorkBuilder.cs` ~3355) and the fresh
+`special-work_NCustom_7n90.txt` export: the surviving blade after the
+filter has `stock=narrow-normal:left`, and that rail's `[Rails]` role is
+`Unknown` (zero renderable sections) in the export - exactly matching the
+validation failure. The discarded side
+(`narrow-normal:right`/`narrow-reversed:right`) both have
+`role=FixedRunningRail` in the same export - the filter kept the wrong
+side's blade candidate for this switch. This means `DetectSharedSide`
+(used to pick which side to keep) and the fallback path's own
+`leftHandTurnout`-based movable/stock assignment disagree for this switch
+in a way that isn't true for Nove/N178/`NCustom_vdlt` (where the
+truth-table path's version of this filter is confirmed correct).
+
+Did not attempt to fix the underlying disagreement - that needs live
+verification to diagnose correctly (this session has repeatedly shown
+static geometry reasoning about this codebase gets it wrong on the first,
+and sometimes second, attempt), and live testing is paused per the user's
+request. Instead reverted Codex's fallback-path filter entirely
+(`BuildBladeSpecs`'s non-truth-table branch, ~line 803-805 and 854-860),
+restoring the known-good pre-regression behavior (yield both Left/Right
+blade candidates unconditionally) for that one code path. The truth-table
+path's filter is untouched since it's confirmed working.
+
+Built (0 warnings/errors), deployed via direct file copy to the mod folder
+(no game launch - per the paused-pipeline rule). Not yet verified live -
+next manual test should confirm `valid=True` is restored for both switches,
+and assess how the reintroduced extra-blade cosmetic issue looks for these
+two specifically (expected to be a smaller problem than losing all measured
+geometry, but not yet visually confirmed).

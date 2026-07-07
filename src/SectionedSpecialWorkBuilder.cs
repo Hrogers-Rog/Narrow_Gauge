@@ -800,9 +800,19 @@ namespace NarrowGaugeMod
                 yield break;
             }
 
-            RailSide? fallbackSharedSide = IsDualNarrowBranchPreset(definition)
-                ? DetectSharedSide(definition)
-                : null;
+            // NOTE: a shared-side one-blade filter was tried here (matching the
+            // truth-table path's filter below) but caused a confirmed regression:
+            // for NCustom_7n90/NCustom_g832, it kept the blade candidate whose
+            // stock rail has no renderable FixedRunningRail section at all (role
+            // Unknown), failing ResolveDivergingFixedStockRail's validation and
+            // skipping the ENTIRE measured special-work render for those switches
+            // (not just leaving one cosmetic extra blade). The truth-table path's
+            // filter (BuildBladeSpecs' truth-table branch above) is confirmed safe
+            // via Nove/N178/NCustom_vdlt - this fallback path's Left/Right
+            // "movable" assignment (leftHandTurnout) doesn't reliably line up with
+            // DetectSharedSide the same way, and needs live verification before
+            // reintroducing a filter here. Reverted to the known-good (pre-filter)
+            // behavior: yield both side candidates unconditionally.
             foreach (SpecialWorkSwitchGroup group in definition.SwitchGroups)
             {
                 LogicalRoute? normalRoute = definition.Routes.FirstOrDefault(route =>
@@ -848,14 +858,6 @@ namespace NarrowGaugeMod
                     RailCenterline? reversedRail = FindRail(rails, reversedRoute.Id, side);
                     if (normalRail == null || reversedRail == null)
                     {
-                        continue;
-                    }
-
-                    if (fallbackSharedSide.HasValue && side != fallbackSharedSide.Value)
-                    {
-                        Main.Log(
-                            $"[BladeSpecs] Skipping measured fallback blade group={group.Id} side={side} - " +
-                            $"side is not the detected sharedSide={fallbackSharedSide.Value}");
                         continue;
                     }
 
