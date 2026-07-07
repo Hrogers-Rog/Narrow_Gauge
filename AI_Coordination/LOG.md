@@ -1819,3 +1819,87 @@ User: "We need to use multiple agents and codex and dig into this narrow
 gauge stuff and figure out why we're having issues" - moving from
 single-threaded Nove investigation to a parallel multi-agent sweep. See
 STATUS.md for the current state each thread should pick up from.
+
+### [Codex] 2026-07-07 16:50 - Live-verified both-diverge fixes; patched remaining exact guard duplicates
+
+Read `STATUS.md` in full, the two requested recent `LOG.md` entries, the
+both-diverge review, and `src/NarrowGaugeTestBridge.cs` before running the
+live pipeline. Built/deployed with
+`dotnet build .\NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+before live testing; result 0 warnings / 0 errors.
+
+The active `Mods\FUSE.TestBridge` folder was missing `FUSE.Core.dll`, so the
+first launch loaded `FUSE.NarrowGauge` but `FUSE.TestBridge` failed with
+`Could not load file or assembly 'FUSE.Core'`. Copied `FUSE.Core.dll` from
+`Mods.fuseGEo\FUSE.TestBridge` into the active bridge folder for the live
+run only, then removed it during final cleanup to restore the prior install
+state. With that dependency present, launched `Railroader.exe /editor`
+directly with `NARROWGAUGE_TEST_BRIDGE=1`, loaded save `2026-06-25`, and
+forced a fresh `exportPlans`.
+
+First fresh export re-check found the previous both-diverge guard fix was
+incomplete. `NCustom_p997`, `NCustom_ltci`, and
+`NDeHartPassing_wqbb` still exported exact duplicate guard endpoints, now as
+`v2-guard:0 == v2-guard:7`. The remaining duplicate was not the same
+`(FrogId, OppositeRunningRail)` pair: guard 0 used
+`opposite=standard-normal:right`, while guard 7 used
+`opposite=narrow-normal:right`; both route-derived rails resolved to the
+same physical start/end line. This is direct export evidence that the
+semantic pair check alone is too narrow.
+
+Applied a small, scoped source fix in
+`src/SectionedSpecialWorkBuilder.cs`: `AddSupplementalGuardPair` now flares
+the candidate supplemental guard first and skips it if its final endpoints
+match an existing guard curve within `0.01m` in either orientation. Rebuilt
+and deployed again; result 0 warnings / 0 errors. Relaunched the game and
+forced a second fresh export at `2026-07-07 16:46:04`.
+
+Post-patch guard endpoint scan across all seven both-diverge nodes showed no
+exact duplicate guard endpoint groups:
+`NCustom_p997 guards=7`, `NCustom_ltci guards=7`,
+`NCustom_u6n0 guards=7`, `NDeHartPassing_wqbb guards=7`,
+`NCustom_fc97 guards=9`, `NCustom_l4a4 guards=7`, and `Npv2 guards=7`.
+Captured and opened close-up screenshots after closing UMM:
+
+- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_p997-20260707-postfix.png`
+- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_ltci-20260707-postfix.png`
+- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NDeHartPassing_wqbb-20260707-postfix-offset180.png`
+
+The screenshots are aimed at the requested switchwork and no longer show the
+old exact stacked guard line. This verifies the exact duplicate guard
+hardware defect only; crossing handoff/synthesized-frog shape questions
+remain separate.
+
+Ownership live result: the source-route `OwnershipCuts` filter is present in
+code but is not sufficient. Fresh post-patch `Player.log` still shows
+`SCustom_ttpp` double-claimed by `special-work:NCustom_fl15` and
+`special-work:NCustom_ltci`: `fl15` cuts `0.120-1.457` /
+`0.120-1.466`, while `ltci` still cuts `0.120-2.028` /
+`0.120-2.017` on the same segment. `SCustom_snvo` is only claimed by
+`ltci` in this run, and `SCustom_6wx3` only by `p997`, but that is not proof
+those sides are fixed because `NCustom_g832` is invalid in this load and
+does not compete for either neighboring segment.
+
+Gauge-control applicability result: fresh `Player.log` created runtime-only
+gauge-separation controls only for `Nove` and `NCustom_7n90`, not for any
+both-diverge node (`NCustom_p997`, `NCustom_ltci`, `NCustom_u6n0`,
+`NDeHartPassing_wqbb`, `NCustom_fc97`, `NCustom_l4a4`, `Npv2`). Therefore
+Claude's hidden-control gap fix does not apply to the both-diverge group in
+this save, and there was no both-diverge control-stub gap to confirm.
+
+Additional observation: the latest load reports
+`Special-work analysis: objects=14, invalid=2`; the invalid plans are
+`NCustom_7n90` and `NCustom_g832`, both failing with
+`Fixed diverging narrow stock/running rail has no renderable role sections`.
+
+Cleanup was verified directly: sent `umm close`, closed `Railroader.exe`
+with `CloseMainWindow`, `Get-Process Railroader` returned none,
+`tasklist /FI "IMAGENAME eq Railroader.exe"` reported no tasks, read
+`Mods\FUSE.TestBridge\Info.json` back with `"Enabled": false`, confirmed
+`steam_appid.txt` absent, removed the temporary `FUSE.Core.dll`, and
+verified no `test_request_*.json`, `test_result_*.json`,
+`ng_goto_request.json`, `ng_goto_result.json`, or
+`ng_test_bridge_enabled` files remained. Updated the both-diverge review and
+`STATUS.md`. Next: Claude should review the endpoint de-dup patch and pick
+up the still-live `ltci` ownership boundary problem; route filtering alone
+is now proven insufficient.

@@ -1,165 +1,109 @@
 # Coordination Status
 
-Last updated by: Claude - 2026-07-07 16:30
+Last updated by: Codex - 2026-07-07 16:50
 
-## Current phase: found a systemic gap bug affecting all gauge-separation switches; Nove's frog-collapse logic also suspect; scope widening to multi-agent sweep across remaining switches
+## Current phase: both-diverge duplicate guard defect fixed and live-verified; ownership boundary still open; gauge-control gap fix does not apply to both-diverge group
 
-Since the previous entry (Codex's 7n90 one-blade fix), Claude continued
-live-testing Nove directly with the user. Confirmed via user feedback: the
-extra-blade fix and blade-orientation fixes are working (user said "much
-better" earlier), but two new issues surfaced and one is now understood and
-fixed (pending live re-verification):
-
-### Fixed this turn: 5m gap at every gauge-separation control switch (systemic, not Nove-specific)
-
-`SpecialWorkTopologySynchronizer.EnsureRuntimeGaugeSeparationControls`
-creates a fake "control" node+segment purely so the base game's switch
-detection sees a valid 3-way junction at a ghost node where only one gauge
-diverges (`GhostControlLength = 5f` meters away, in the same direction as
-the standard-gauge continuation). This is a real, physical, visible gap the
-user confirmed ("large gaps between nove and nove:control... real rail with
-a visible physical gap").
-
-Root cause: `CreateGaugeSeparationControlShell`
-(`src/NarrowGaugeTrackBuilder.cs`) builds fallback rails for this stub only
-when `!SpecialWorkHardwareRenderer.HasValidPlan(node)` - for switches with a
-valid measured plan (Nove: `planValid=True`), it assumes "measured
-special-work owns all turnout rails" and builds nothing. But the measured
-special-work system has no concept of this fake control segment at all (not
-a real route) - nothing was ever drawing it. Confirmed via log:
-`vanillaRailObjects=16` vs `specialWorkRailObjects=14` - special work is
-short by exactly a rail pair, and that pair is this stub.
-
-Fix: `IsGeneratedGhostDescriptor`'s `SegmentDescriptor` case in
-`src/NarrowGaugeTrackBuilder.cs` was suppressing this segment's own rail
-descriptor via **two independent, redundant checks**
-(`IsHiddenControlSegment` directly, and `NarrowGaugeManager.IsGeneratedGhost`
-- both match because the control segment shares the same `"fuse-ng:s:"` id
-prefix as real ghost segments). First attempt only removed the
-`IsHiddenControlSegment` check and didn't work ("didn't help") because
-`IsGeneratedGhost` alone still matched. Corrected: excluded hidden-control
-segments from both checks, so the base game's own default rail rendering
-now draws this stub instead of nothing. **Not yet re-verified live** - user
-was about to test when this session's scope widened.
-
-This is **systemic** - it affects every switch using
-`EnsureRuntimeGaugeSeparationControls` (any `dual.narrow-branch-joins-main`
-or `dual.split-standard-narrow` switch with a ghost-node gauge separation),
-not just Nove. Should visibly improve `N178`, `NCustom_7n90`,
-`NCustom_g832`, `NCustom_vdlt` too, if they have the same control-node
-mechanism - not yet confirmed which of them actually do.
-
-### Still open: Nove's frog position/shape
-
-User confirmed (after the blade-orientation and extra-blade fixes) that a
-frog now renders where none did before (real progress), but its
-position/shape is still wrong. Traced the mechanism:
-`CollapseDuplicateFrogHardware`/`ResolveFrogHardwareRail` in
-`src/SectionedSpecialWorkBuilder.cs` detects two frog candidates at nearly
-the same position for Nove - one for `standard-through x narrow-normal`,
-one for `standard-through x narrow-reversed` - and collapses them into a
-single frog using only the `narrow-normal` pairing (because
-`narrow-reversed`'s rail at that point is flagged `SharedDuplicate` of
-`narrow-normal`, so hardware gets redirected to the rail that's actually
-rendered). This looks like deliberate, sensible logic in isolation, but may
-not correctly capture the true geometry where standard, narrow-normal, and
-narrow-reversed all converge near the same point. **Not fixed - needs
-further investigation**, ideally with a live diagnostic (add logging,
-rebuild, have user reload, check Player.log - this is what worked
-repeatedly this session, much better than static reasoning alone).
-
-## Scope widening: multi-agent sweep requested
-
-User: "We need to use multiple agents and codex and dig into this narrow
-gauge stuff and figure out why we're having issues" - wants a broader,
-parallelized investigation now rather than continuing single-threaded on
-Nove alone. See LOG.md for the exact assignment split this turn.
-
-## Standing rule (reinforced hard this session)
-
-Static tip/root/distance/suppression reasoning about this codebase gets it
-wrong repeatedly, even on second and third re-derivation. The pattern that
-actually worked every time: add a targeted diagnostic log, rebuild/deploy,
-have a human or live session reload, then read the real logged numbers
-before proposing a fix. Do not skip the live-check step to save a cycle -
-it has caught wrong theories every single time this session.
-
-## Previous phase (superseded, kept for history)
-
-<details><summary>original text below, no longer current</summary>
-
-## Current phase: Codex patched NCustom_7n90 / SCustom_194b one-blade overbuild; build clean; live verification still needed
-
-User asked Codex to look at `SCustom_194b` while Claude continued on `Nove`.
-The `SCustom_194b` screenshots map to `special-work:NCustom_7n90`, a
-`dual.narrow-branch-joins-main` measured switch.
+Codex re-ran the live-game pipeline against save `2026-06-25` and forced
+fresh `exportPlans` twice this turn. The first run re-verified the deployed
+fixes; one fix was incomplete, so Codex applied a narrow follow-up patch and
+re-ran the live export/screenshots.
 
 ## What changed this turn
 
-`NCustom_7n90` is a fallback case: the current exported plan says no truth
-table matched and measured geometry fallback was used. That fallback emitted
-two narrow point blades, one per side:
+`src/SectionedSpecialWorkBuilder.cs` now adds a geometric endpoint de-dup
+check inside `AddSupplementalGuardPair`. The earlier semantic check skipped
+only duplicate `(FrogId, OppositeRunningRail)` pairs, but fresh live exports
+proved the remaining duplicate guards at `NCustom_p997`, `NCustom_ltci`, and
+`NDeHartPassing_wqbb` used different route-derived opposite rails while
+resolving to the exact same physical start/end points. The new check flares
+the supplemental guard first, then skips it if its final endpoints match an
+existing guard curve within `0.01m` in either direction.
 
-- `v2-blade:narrow:Left`
-- `v2-blade:narrow:Right`
+No truth JSON files were edited.
 
-`BuildBladeSpecs` in `src/SectionedSpecialWorkBuilder.cs` now applies the
-same one-blade shared-side rule to both code paths:
+## Live verification
 
-1. truth-table matched `dual.narrow-branch-joins-main` nodes keep only blades
-   whose movable side matches the detected shared side;
-2. measured fallback `dual.narrow-branch-joins-main` nodes now skip fallback
-   blade candidates on the non-shared side.
-
-There was already an uncommitted truth-table shared-side filter in
-`SectionedSpecialWorkBuilder.cs` when Codex started. Codex kept it, cleaned up
-the comment, and extended the same rule to the fallback path that
-`NCustom_7n90` actually uses. No truth JSON was changed and no map-specific
-ids were added.
-
-Full notes:
-
-`AI_Coordination/reviews/ncustom-7n90-194b-investigation-2026-07-07.md`
-
-## Verification
-
-Build succeeded:
+Build/deploy after the patch succeeded:
 
 ```powershell
-dotnet build .\NarrowGaugeMod.csproj
+dotnet build .\NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true
 ```
 
 Result: 0 warnings, 0 errors.
 
-No fresh live reload/screenshot was performed this turn. The current
-`Player.log` and exported `special-work_NCustom_7n90.txt` are still from the
-old build and still show `blades=2`.
+Fresh post-patch exports were written at `2026-07-07 16:46:04` local time.
+Guard duplicate scan across all seven both-diverge nodes:
+
+- `NCustom_p997`: `guards=7`, duplicate guard endpoint groups `0`.
+- `NCustom_ltci`: `guards=7`, duplicate guard endpoint groups `0`.
+- `NCustom_u6n0`: `guards=7`, duplicate guard endpoint groups `0`.
+- `NDeHartPassing_wqbb`: `guards=7`, duplicate guard endpoint groups `0`.
+- `NCustom_fc97`: `guards=9`, duplicate guard endpoint groups `0`.
+- `NCustom_l4a4`: `guards=7`, duplicate guard endpoint groups `0`.
+- `Npv2`: `guards=7`, duplicate guard endpoint groups `0`.
+
+Close-up screenshots captured after UMM close:
+
+- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_p997-20260707-postfix.png`
+- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_ltci-20260707-postfix.png`
+- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NDeHartPassing_wqbb-20260707-postfix-offset180.png`
+
+The screenshots are aimed at the target switchwork and no longer show the
+old exact stacked guard line. This closes the exact duplicate guard endpoint
+defect only; it does not prove every crossing-handoff/synthesized-frog
+concern in the both-diverge group is fixed.
+
+Cleanup was verified directly: `tasklist` showed no `Railroader.exe`,
+`Mods\FUSE.TestBridge\Info.json` read back `"Enabled": false`,
+`steam_appid.txt` was absent, no `test_request_*.json` /
+`test_result_*.json` remained, and no Narrow Gauge bridge request/result
+files remained. The active `Mods\FUSE.TestBridge` folder was missing
+`FUSE.Core.dll`; Codex copied it from `Mods.fuseGEo\FUSE.TestBridge` only for
+the live test and removed it during cleanup to restore the pre-run state.
+
+## Remaining issues
+
+The `OwnershipCuts` source-route filter is active, but live data shows it is
+not sufficient for `NCustom_ltci`:
+
+- `SCustom_ttpp` is still double-claimed by `special-work:NCustom_fl15` and
+  `special-work:NCustom_ltci`. Latest cuts include `fl15` at
+  `0.120-1.457` / `0.120-1.466` and `ltci` at `0.120-2.028` /
+  `0.120-2.017`.
+- `SCustom_snvo` is only claimed by `ltci` in this run, but
+  `NCustom_g832` is invalid, so this is not proof the boundary problem is
+  solved there.
+- `SCustom_6wx3` is only claimed by `p997` in this run, also with
+  `NCustom_g832` invalid.
+
+Fresh `Player.log` created runtime-only gauge-separation controls only for
+`Nove` and `NCustom_7n90`, not for any both-diverge node
+(`NCustom_p997`, `NCustom_ltci`, `NCustom_u6n0`,
+`NDeHartPassing_wqbb`, `NCustom_fc97`, `NCustom_l4a4`, `Npv2`). Therefore
+Claude's hidden-control gap fix does not apply to the both-diverge group in
+this save, and there was no both-diverge control-stub gap to confirm.
+
+This load reports `Special-work analysis: objects=14, invalid=2`.
+The invalid plans are `NCustom_7n90` and `NCustom_g832`, both failing with
+`Fixed diverging narrow stock/running rail has no renderable role sections`.
+
+Nove's frog position/shape remains open from Claude's prior turn.
 
 ## Next turn
 
 Claude:
 
-1. Build/deploy/reload the game and verify `NCustom_7n90` with fresh data.
-   Expected signs:
-   - `Player.log` shows the new measured fallback skip log for one
-     `NCustom_7n90` side.
-   - `special-work:NCustom_7n90` exports/renders `blades=1`.
-   - A close-up of `SCustom_194b` no longer shows the extra overlapping point
-     blade.
-2. Continue the Nove investigation. This turn's truth-table one-blade filter
-   may affect Nove's extra-blade symptom, but Nove's missing frog at the
-   narrow-normal/narrow-reversed crossing is not proven fixed.
-3. Re-verify the both-diverge fixes (`p997`/`ltci`/`wqbb`) live when the
-   narrow-branch checks are stable.
+1. Review Codex's endpoint-based supplemental guard de-dup patch in
+   `src/SectionedSpecialWorkBuilder.cs` against the fresh export evidence.
+2. Continue with the evidence-led ownership boundary fix for `NCustom_ltci`
+   / `SCustom_ttpp` (route filtering alone is proven insufficient).
+3. Separately continue Nove's frog-collapse investigation when the
+   both-diverge ownership path is no longer blocking.
 
 ## Open questions / blockers
 
-- `NCustom_7n90`/`SCustom_194b` is build-verified only; live screenshot proof
-  is still pending.
-- Whether the shared-side one-blade rule also resolves Nove's extra blade in
-  the truth-table path.
-- Whether Nove's missing frog is a separate frog-candidate/collapse issue.
-- Whether other `dual.narrow-branch-joins-main` nodes (`N178`, `NCustom_g832`,
-  `NCustom_vdlt`) need the same live one-blade verification.
-
-</details>
+- What boundary rule should prevent neighboring measured switches from
+  clipping each other's source segments when route membership overlaps?
+- Why `NCustom_7n90` and `NCustom_g832` are invalid in the latest load, and
+  whether that is connected to recent narrow-branch blade/guard fixes.

@@ -22,6 +22,7 @@ namespace NarrowGaugeMod
         private const float MinimumFrogSetback = 0.16f;
         private const float MaximumFrogSetback = 2.5f;
         private const float CorridorTolerance = 0.085f;
+        private const float DuplicateGuardEndpointTolerance = 0.01f;
         private const float MinimumFrogAngle = 3f;
         private const float EndpointClosureReserve = MinimumPieceLength + 0.05f;
 
@@ -2573,13 +2574,40 @@ namespace NarrowGaugeMod
                     center - Parameters.GuardLeadLength,
                     center + Parameters.GuardTrailLength)
                     .Parallel(offset);
+                LineCurve flaredGuardCurve = FlareGuardRailEnds(
+                    guardCurve,
+                    reverseFlare: offset > 0f);
+                // Route-derived guard rails can resolve to the same physical line.
+                // Keep the first rendered guard and skip exact geometric overlaps.
+                if (guards.Any(existing =>
+                    SameGuardEndpoints(existing.Curve, flaredGuardCurve)))
+                {
+                    continue;
+                }
+
                 guards.Add(new GuardRailPlan(
                     "v2-guard:" + index++,
                     frog.Id,
                     guardRail.SourceRouteIds.FirstOrDefault() ?? string.Empty,
                     guardRail,
-                    FlareGuardRailEnds(guardCurve, reverseFlare: offset > 0f)));
+                    flaredGuardCurve));
             }
+        }
+
+        private static bool SameGuardEndpoints(LineCurve left, LineCurve right)
+        {
+            return EndpointsClose(left.Head.point, left.Tail.point, right.Head.point, right.Tail.point)
+                || EndpointsClose(left.Head.point, left.Tail.point, right.Tail.point, right.Head.point);
+        }
+
+        private static bool EndpointsClose(
+            Vector3 leftStart,
+            Vector3 leftEnd,
+            Vector3 rightStart,
+            Vector3 rightEnd)
+        {
+            return Vector3.Distance(leftStart, rightStart) <= DuplicateGuardEndpointTolerance
+                && Vector3.Distance(leftEnd, rightEnd) <= DuplicateGuardEndpointTolerance;
         }
 
         private static bool TryBuildLocalCrossingGuard(

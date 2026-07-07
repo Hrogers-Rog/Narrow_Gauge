@@ -456,3 +456,118 @@ Do not apply these concurrently with another agent touching the same files.
   - `NCustom_u6n0`
   - `NDeHartPassing_wqbb`
 
+## 2026-07-07 Codex Live Re-Verification And Follow-Up Fix
+
+Codex re-ran the live-game pipeline against save `2026-06-25` with the
+current deployed code, then applied one small source fix and re-ran the
+pipeline again.
+
+Process notes:
+
+- Build/deploy succeeded with
+  `dotnet build .\NarrowGaugeMod.csproj -p:RailroaderDir="C:\Steam\steamapps\common\Railroader" -p:EnableModDeploy=true`
+  before the first live run and again after the source patch; both builds
+  reported 0 warnings and 0 errors.
+- The active `Mods\FUSE.TestBridge` folder was missing `FUSE.Core.dll`, so
+  FUSE.TestBridge initially failed to load. For the live run only, Codex
+  copied `FUSE.Core.dll` from `Mods.fuseGEo\FUSE.TestBridge` into the active
+  bridge folder, then removed it during cleanup to restore the pre-run
+  install state.
+- Fresh post-patch measured plans were exported at `2026-07-07 16:46:04`
+  under
+  `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans`.
+- Cleanup was verified directly: `tasklist` reported no `Railroader.exe`,
+  `Mods\FUSE.TestBridge\Info.json` read back `"Enabled": false`,
+  `steam_appid.txt` was absent, no `test_request_*.json` /
+  `test_result_*.json` remained, and no Narrow Gauge bridge request/result
+  files remained.
+
+### Guard de-duplication result
+
+The earlier semantic guard de-duplication was insufficient. In the first
+fresh export of this turn, `NCustom_p997`, `NCustom_ltci`, and
+`NDeHartPassing_wqbb` still exported exact duplicate guard endpoints, now as
+`v2-guard:0 == v2-guard:7`. The remaining duplicate was not the same
+`(FrogId, OppositeRunningRail)` pair: the ordinary guard used
+`opposite=standard-normal:right`, while the supplemental guard used
+`opposite=narrow-normal:right`. Those two route-derived guard rails resolve
+to the same physical line, so a semantic rail-id check alone cannot catch
+the overlap.
+
+Codex patched `src/SectionedSpecialWorkBuilder.cs` so
+`AddSupplementalGuardPair` flares the candidate guard first and skips it if
+its final start/end endpoints match any existing guard curve within
+`0.01m`, checking both orientations. This is intentionally limited to
+supplemental guard insertion and leaves ordinary frog/local crossing guard
+generation unchanged.
+
+Post-patch fresh export scan:
+
+- `NCustom_p997`: `guards=7`, duplicate guard endpoint groups: `0`.
+- `NCustom_ltci`: `guards=7`, duplicate guard endpoint groups: `0`.
+- `NCustom_u6n0`: `guards=7`, duplicate guard endpoint groups: `0`.
+- `NDeHartPassing_wqbb`: `guards=7`, duplicate guard endpoint groups: `0`.
+- `NCustom_fc97`: `guards=9`, duplicate guard endpoint groups: `0`.
+- `NCustom_l4a4`: `guards=7`, duplicate guard endpoint groups: `0`.
+- `Npv2`: `guards=7`, duplicate guard endpoint groups: `0`.
+
+Screenshots captured after closing UMM:
+
+- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_p997-20260707-postfix.png`
+- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_ltci-20260707-postfix.png`
+- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NDeHartPassing_wqbb-20260707-postfix-offset180.png`
+
+Visual check from those frames: the old exact stacked guard line is no
+longer visible at `p997` or `ltci`; the useful `wqbb` frame is the
+`offset180` shot and shows the switchwork without the prior duplicate guard
+endpoint export. This does not prove every crossing-handoff or synthesized
+frog concern in the group is fixed; it only closes the exact duplicate guard
+hardware defect.
+
+### Ownership-cut result
+
+The source-route filter in `OwnershipCuts` is active in code, but live data
+shows it is not enough to solve the measured-switch boundary problem:
+
+- `SCustom_ttpp` is still double-claimed by `special-work:NCustom_fl15` and
+  `special-work:NCustom_ltci`. Fresh post-patch examples:
+  `NCustom_fl15` cuts `0.120-1.457` / `0.120-1.466`, while `NCustom_ltci`
+  still cuts `0.120-2.028` and `0.120-2.017` on the same segment.
+- `SCustom_snvo` is currently claimed only by `special-work:NCustom_ltci` in
+  this run, but that is not proof of correctness: `special-work:NCustom_g832`
+  is invalid in this load (`Fixed diverging narrow stock/running rail has no
+  renderable role sections`), so it never competes for its side of `snvo`.
+- `SCustom_6wx3` is currently claimed only by `special-work:NCustom_p997` in
+  this run for the same reason (`NCustom_g832` invalid), with p997 cuts at
+  `18.061-20.904` / `17.888-20.728`.
+
+Conclusion: the earlier route filter removed one obvious over-broad scan,
+but route membership is still ambiguous at common-entry/neighboring switch
+segments. The next fix should use node-end/side ownership or nearest-owning
+analysis boundary logic rather than another all-route static inference.
+
+### Gauge-separation control applicability
+
+Fresh `Player.log` only created runtime-only gauge-separation controls for
+`Nove` and `NCustom_7n90`:
+
+- `fuse-ng:n:Nove:control` / `fuse-ng:s:Nove:control`
+- `fuse-ng:n:NCustom_7n90:control` / `fuse-ng:s:NCustom_7n90:control`
+
+There were no `Created runtime-only gauge-separation control` lines for any
+both-diverge node in this review's scope (`NCustom_p997`, `NCustom_ltci`,
+`NCustom_u6n0`, `NDeHartPassing_wqbb`, `NCustom_fc97`, `NCustom_l4a4`,
+`Npv2`). Therefore Claude's hidden-control descriptor fix does not apply to
+the both-diverge group in this save, and there was no both-diverge
+control-stub gap to confirm as resolved.
+
+### New/remaining observations
+
+- This load reports `Special-work analysis: objects=14, invalid=2`.
+  The invalid plans are `NCustom_7n90` and `NCustom_g832`, both
+  `dual.narrow-branch-joins-main`, each failing with `Fixed diverging narrow
+  stock/running rail has no renderable role sections`.
+- The exact duplicate guard endpoint defect is fixed and live-verified after
+  the endpoint-overlap patch.
+- The `ltci` ownership-cut boundary bug remains live and needs a separate,
+  evidence-led fix.
