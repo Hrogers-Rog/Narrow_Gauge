@@ -383,9 +383,26 @@ namespace NarrowGaugeMod
             {
                 case "SegmentDescriptor":
                 {
+                    // Hidden-control segments exist purely so the base game's switch
+                    // detection sees a valid 3-way junction at a ghost node where only
+                    // one gauge actually diverges - they're a topology trick, not a
+                    // real route the measured special-work system knows about. When a
+                    // switch has a valid measured plan, CreateGaugeSeparationControlShell
+                    // deliberately builds no rails for this stub (it assumes special
+                    // work "owns all turnout rails"), but special work has no route for
+                    // this fake segment either - nothing ever draws it, leaving a real,
+                    // visible gap the length of GhostControlLength (5m) at every such
+                    // switch. Don't suppress this segment's own rail rendering here -
+                    // let the base game draw its ordinary default rail for it. (Keep
+                    // suppressing it for SwitchDescriptor/BumperDescriptor below - those
+                    // still need special handling for switch/topology detection.)
+                    // NarrowGaugeManager.IsGeneratedGhost also matches this segment
+                    // independently (both real ghost segments and this control stub
+                    // share the same "fuse-ng:s:" id prefix) - exclude the control
+                    // segment explicitly, or this suppression still fires either way.
                     TrackSegment segment = GetFieldValue<SegmentProxy>(descriptor, "segment").Segment;
                     return NarrowGaugeManager.IsGeneratedGhost(segment)
-                        || SpecialWorkTopologySynchronizer.IsHiddenControlSegment(segment);
+                        && !SpecialWorkTopologySynchronizer.IsHiddenControlSegment(segment);
                 }
 
                 case "SwitchDescriptor":

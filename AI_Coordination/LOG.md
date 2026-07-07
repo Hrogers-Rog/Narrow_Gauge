@@ -1719,3 +1719,103 @@ fresh in-game reload/screenshot was performed this turn, so do not claim
 verify fresh `Player.log`/plan data shows `NCustom_7n90` with `blades=1`,
 then capture a close-up of `SCustom_194b`; continue Nove separately because
 its missing-frog issue may remain.
+
+---
+
+## [Claude] 2026-07-07 - found systemic gauge-separation gap bug; Nove frog-collapse traced but unfixed; scope widening to multi-agent sweep
+
+Continued live-testing Nove directly with the user after the previous
+entry (Codex's 7n90 one-blade fix). User confirmed the blade-orientation
+and extra-blade fixes are working well, then surfaced two more issues via
+close-up screenshots.
+
+## Fixed: 5-meter gap at gauge-separation control switches (systemic)
+
+User: "there is large gaps between nove and nove:control" - confirmed via
+follow-up question this is a real physical gap a train would hit, not a
+label artifact.
+
+Traced to `SpecialWorkTopologySynchronizer.EnsureRuntimeGaugeSeparationControls`:
+creates a fake "control" node+segment purely so the base game's own switch
+detection sees a valid 3-way junction at a ghost node where only the narrow
+gauge actually diverges (a trick needed because the base game requires
+exactly 3 connections to recognize a switch). `GhostControlLength = 5f`
+meters, positioned in the same direction as the standard-gauge continuation
+(`BuildGhostControlPose`).
+
+`CreateGaugeSeparationControlShell` (`src/NarrowGaugeTrackBuilder.cs`) only
+builds fallback rails for this stub when
+`!SpecialWorkHardwareRenderer.HasValidPlan(node)`. For switches with a valid
+measured plan (Nove: confirmed `planValid=True` in `Player.log`), it does
+nothing, trusting "measured special-work owns all turnout rails" - but the
+measured special-work system has no route concept for this fake segment at
+all, so nothing was ever drawing it. Confirmed via existing log line:
+`vanillaRailObjects=16` vs `specialWorkRailObjects=14` - special work is
+short by exactly one rail pair, matching this stub.
+
+First fix attempt: removed the `IsHiddenControlSegment` check from
+`IsGeneratedGhostDescriptor`'s `SegmentDescriptor` case (which was
+suppressing this segment's own rail descriptor from the base game's default
+rendering). User: "didn't help." Investigated why: `NarrowGaugeManager
+.IsGeneratedGhost(segment)` **independently** also matches this exact
+segment, because both real ghost segments and this control stub share the
+identical `"fuse-ng:s:"` id prefix (`GhostGraphSynchronizer
+.GeneratedSegmentPrefix`) - `IsGeneratedGhost` alone was still suppressing
+it via the OR condition I hadn't touched. Corrected fix: excluded
+hidden-control segments from *both* checks
+(`NarrowGaugeManager.IsGeneratedGhost(segment) &&
+!SpecialWorkTopologySynchronizer.IsHiddenControlSegment(segment)`), so the
+base game's own default rail rendering now draws this stub. Left
+`SwitchDescriptor`/`BumperDescriptor` suppression untouched - those still
+need special handling for switch/topology detection, only the rail
+descriptor itself needed this change.
+
+Built, deployed. **Not yet re-verified live** - user's message moved on to
+requesting a broader multi-agent investigation before re-testing this
+specific fix. This is a **systemic** fix (affects every switch using
+`EnsureRuntimeGaugeSeparationControls`, i.e. any `dual.narrow-branch-joins-main`
+or `dual.split-standard-narrow` switch with ghost-node ownership
+separation), not Nove-specific - should be checked across all affected
+switches once confirmed working at Nove.
+
+## Traced but not fixed: Nove's frog position/shape
+
+User confirmed (via AskUserQuestion) that after the earlier fixes, a frog
+now renders where none did before, but its position/shape is still wrong.
+Read `CollapseDuplicateFrogHardware`/`ResolveFrogHardwareRail`/
+`SameFrogHardware` in `src/SectionedSpecialWorkBuilder.cs`: Nove's raw
+intersection data has two frog candidates at nearly the same position - one
+pairing `standard-through` with `narrow-normal`, one pairing
+`standard-through` with `narrow-reversed`. `ResolveFrogHardwareRail`
+redirects the `narrow-reversed` one to `narrow-normal` (because
+`narrow-reversed`'s rail at that exact distance is flagged as a
+`SharedDuplicate` cut of `narrow-normal` - i.e. not actually rendered
+there), which then makes the two candidates look identical
+(`SameFrogHardware`'s `PairKey` match), so
+`CollapseDuplicateFrogHardware` merges them into one, keeping only the
+`narrow-normal` pairing. This is coherent, deliberate-looking logic, but may
+not correctly represent the true 3-way convergence geometry (standard,
+narrow-normal, and narrow-reversed all meeting near the same point). Did
+not attempt a fix this turn - needs a live diagnostic (log the two
+candidates' exact pre-collapse geometry and compare against what the
+in-game frog should look like) before touching this, per the standing rule
+below.
+
+## Standing rule, reinforced hard this session
+
+Static tip/root/distance/suppression reasoning about this codebase has been
+wrong on first (and sometimes second) attempt, repeatedly, across totally
+different code paths (blade Head/Tail, end-cap removal, LineCurve.Reverse,
+shared-side blade filtering, and now this descriptor-suppression bug where
+the first fix attempt missed a second, independent suppression path). The
+pattern that worked every single time: add a targeted diagnostic log,
+rebuild/deploy, have the user reload live, then read the actual logged
+numbers before proposing or committing to a fix. Do not skip the live-check
+step to save a cycle.
+
+## Scope widening
+
+User: "We need to use multiple agents and codex and dig into this narrow
+gauge stuff and figure out why we're having issues" - moving from
+single-threaded Nove investigation to a parallel multi-agent sweep. See
+STATUS.md for the current state each thread should pick up from.
