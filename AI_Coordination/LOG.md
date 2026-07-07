@@ -1903,3 +1903,114 @@ verified no `test_request_*.json`, `test_result_*.json`,
 `STATUS.md`. Next: Claude should review the endpoint de-dup patch and pick
 up the still-live `ltci` ownership boundary problem; route filtering alone
 is now proven insufficient.
+
+### [Claude] 2026-07-07 17:10 - Static-only review of remaining narrow-branch group; confirmed a real regression; live pipeline retired mid-turn
+
+Assigned to live-verify fixes 1-5 (blade orientation, end-cap hand-awareness,
+`LineCurve.Reverse`, one-blade shared-side filter, 5m gauge-separation gap)
+against the 4 `dual.narrow-branch-joins-main` nodes other than `Nove`:
+`N178`, `NCustom_7n90`, `NCustom_g832`, `NCustom_vdlt`.
+
+Found the active `Mods\FUSE.TestBridge` folder was missing
+`FUSE.TestBridge.dll` entirely (present only under the separate
+`Mods.fuseGEo\FUSE.TestBridge` folder, which appears to belong to the sibling
+`Fuse_geometry_engine` project) - copied it from
+`FUSE/FUSE.TestBridge/bin/Debug/net48/FUSE.TestBridge.dll` into the active
+mod folder to restore the bridge. Built/deployed against HEAD, toggled
+`Info.json`/`steam_appid.txt`, and found a stray `Railroader.exe` already
+running (PID 30756, heartbeat stale at 8 minutes - likely a leftover from
+Codex's own concurrent session). Closed it gracefully, cleared stale bridge
+files, and launched a fresh instance with `NARROWGAUGE_TEST_BRIDGE=1`.
+
+Mid-launch, the coordinator relayed that Codex had finished and committed
+(`2330890`) and that `NCustom_7n90`/`NCustom_g832` now show `planValid=False`
+- asked me to check whether this is a real regression from the shared-side
+blade filter or something else, without assuming. Confirmed via
+`git log --oneline -5`, rebuilt/redeployed against the new HEAD, verified no
+stray process remained, and re-launched.
+
+Before the fresh heartbeat appeared, the user asked to stop using the
+automated TestBridge/live-launch pipeline entirely (repeated restarts/
+collisions between concurrent agent turns, not helping). Closed the
+just-launched `Railroader.exe` gracefully (`CloseMainWindow`, confirmed exit
+via `Get-Process`/`tasklist`), restored `Mods\FUSE.TestBridge\Info.json` to
+`Enabled: false`, removed `steam_appid.txt`, and removed all leftover
+`test_request_*`/`test_result_*`/`test_state.json`/`ng_goto_*` files.
+Verified clean via direct file reads. Switched to static-only analysis for
+the remainder of the turn, per the user's instruction.
+
+**Confirmed regression, not fixed**: read the freshest plan exports on disk
+(Codex's own second export this session, `2026-07-07 16:46:04`, built from
+current HEAD `2330890`) directly for all 4 nodes:
+
+- `N178`: `valid=True`, `blades=1`, `frogs=1`, `wings=2`, `guards=2`. No
+  gauge-separation control mechanism found anywhere in this session's
+  captured `Player.log` transcript for this node.
+- `NCustom_7n90`: **`valid=False`**. First failure: `Fixed diverging narrow
+  stock/running rail has no renderable role sections.` `blades=1`,
+  `frogs=1`, `wings=4`, `guards=3`. Does have the gauge-separation control
+  mechanism (`fuse-ng:n:NCustom_7n90:control` created in the log).
+- `NCustom_g832`: **`valid=False`**, identical failure text, `blades=1`,
+  `frogs=3`, `wings=8`, `guards=7`. No gauge-separation control mechanism.
+  Codex's captured log confirms the practical consequence: `[Build]
+  Skipping measured special-work 'special-work:NCustom_g832' ...
+  customAllowed=False` - the entire measured build (all of this session's
+  fixes) is skipped for this node while it's invalid.
+- `NCustom_vdlt`: `valid=True`, `blades=1`, `frogs=3`, `wings=8`, `guards=7`.
+  No gauge-separation control mechanism.
+
+Cross-checked against the 2026-07-06 pre-fix baseline exports (`blades=2`
+for all four): all four were `Plan valid: True` back then. So this
+`valid=False` state for `NCustom_7n90`/`NCustom_g832` is new as of today's
+work, specifically traced to the fallback-path one-blade shared-side filter
+(Codex's `8802240`) reducing their blade count from 2 to 1, which exposes a
+pre-existing validation check (`ValidateSectionedDualGaugeSpecialWork`'s
+`IsDualNarrowBranchPreset` block, added in commit `fb175d5` on 2026-06-18 -
+predates this session) that requires the resolved
+`ResolveDivergingFixedStockRail` rail to have at least one renderable
+section. Read `ResolveDivergingFixedStockRail`
+(`src/SectionedSpecialWorkBuilder.cs` ~line 3355) in full: with only one
+blade candidate left, it degrades to "whichever rail that one blade's
+`StockRail` field happens to reference." Could not determine from static
+reading alone why this resolves to an empty-section rail for these two
+nodes specifically - `NCustom_g832` and `NCustom_vdlt` have identical
+`wings=8,guards=7` counts but opposite validity, so gross topology stats
+don't explain it. Per this session's hard-earned standing rule, did **not**
+attempt a source fix without a live diagnostic - flagging this clearly
+instead.
+
+Also confirmed via a full-transcript grep of
+`AI_Coordination/codex_runs/run3_full.txt` (Codex's own captured live-log
+history from this session) that of this 4-node group, only `NCustom_7n90`
+ever creates the runtime-only gauge-separation control stub; the other
+three never appear in a `Created runtime-only gauge-separation control`
+line, so the systemic 5m-gap fix (`f5ad56b`) has nothing to verify on
+`N178`/`NCustom_g832`/`NCustom_vdlt`.
+
+Read `IsForwardTipFartherFromFrog`, `ReverseRailCurve`
+(`SectionedSpecialWorkBuilder.cs`) and `RemoveRailEndCap`
+(`SpecialWorkHardwareRenderer.cs`): all are called generically per blade
+with no per-node id branching, so fixes 1-3 should apply uniformly to this
+whole group - but this is a code-reading inference, not a live-confirmed
+claim, since no close-up screenshots were taken this turn.
+
+Full detail (evidence, code excerpts, and a per-node table) written to
+`AI_Coordination/reviews/ncustom-7n90-194b-investigation-2026-07-07.md`
+("Follow-up (Claude, 2026-07-07 evening)" section).
+
+No source files changed this turn. Cleanup verified: `Get-Process Railroader`
+returns none, `Mods\FUSE.TestBridge\Info.json` reads back `Enabled: false`,
+`steam_appid.txt` absent, no leftover `test_request_*`/`test_result_*`/
+`test_state.json`/`ng_goto_*` files.
+
+**Standing-rule change this turn**: the user asked to stop the automated
+Railroader.exe launch/TestBridge pipeline entirely - see `STATUS.md`. Live
+verification is manual-only (user-driven) until further notice.
+
+Next: whoever picks this up (live access is user-driven for now) should (1)
+confirm whether `NCustom_7n90`'s measured build is also being skipped, not
+just `NCustom_g832`; (2) add a targeted diagnostic log around
+`ResolveDivergingFixedStockRail`/the `IsDualNarrowBranchPreset` validation
+block to find the real per-node cause before touching the code; (3) get
+close-up screenshots of `N178`/`NCustom_vdlt`, which look clean on paper but
+were never actually screenshot-verified.
