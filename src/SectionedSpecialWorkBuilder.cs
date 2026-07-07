@@ -449,6 +449,16 @@ namespace NarrowGaugeMod
                 Vector3 switchPoint = switchNode != null
                     ? switchNode.transform.localPosition
                     : movable.Curve.Head.point;
+                if (switchNode != null)
+                {
+                    Main.Log(
+                        $"[SwitchPointDiagnostic] node={switchNode.id} " +
+                        $"localPosition={switchNode.transform.localPosition} " +
+                        $"worldPosition={switchNode.transform.position} " +
+                        $"parent={(switchNode.transform.parent != null ? switchNode.transform.parent.name : "<none>")} " +
+                        $"movableCurveHead={movable.Curve.Head.point} movableCurveTail={movable.Curve.Tail.point}");
+                }
+
                 bool foundBlade = TryFindBladeDistances(
                     stock,
                     movable,
@@ -461,29 +471,28 @@ namespace NarrowGaugeMod
                     continue;
                 }
 
-                float switchDist = movable.Curve.DistanceTo(switchPoint);
-                bool bladeExtendsForward = root > switchDist;
+                // TryFindBladeDistances always returns (tip, root) sorted ascending
+                // for interval bookkeeping, but the physical blade tip is always the
+                // end farther from this switch's own frog (a blade's toe faces
+                // oncoming traffic, away from the crossing) - which of the two
+                // sorted values that is can't be determined from switchNode's
+                // position: for at least one measured switch (Nove) the resolved
+                // "control" node sits well past the end of the switch entirely, on
+                // the frog side rather than at the toe, so distance-to-switchNode is
+                // not a reliable stand-in for distance-to-toe. The frog itself is
+                // ground truth (a real, directly-computed rail intersection) -
+                // whichever of tip/root is farther from it is the physical tip.
+                bool bladeExtendsForward = IsForwardTipFartherFromFrog(
+                    movable.Curve,
+                    tip,
+                    root,
+                    intersections);
                 LineCurve closureCurve = bladeExtendsForward
                     ? Slice(movable.Curve, root, movable.Curve.Length)
                     : Slice(movable.Curve, 0f, tip);
-
-                // TryFindBladeDistances always returns (tip, root) sorted ascending
-                // for interval bookkeeping, but the physical blade tip is always at
-                // the switch throat (switchDist) - which of the two sorted values
-                // that is depends on which direction the blade extends. When it
-                // extends backward (!bladeExtendsForward), the smaller value ("tip")
-                // is actually the physical root/heel and the larger value ("root",
-                // == switchDist) is the physical tip. Slicing straight from tip to
-                // root would then put the physical root at BladeCurve.Head and the
-                // physical tip at BladeCurve.Tail - backward from what
-                // CalculateBladeOpenRotation/CreatePointBlade assume (Head=tip,
-                // Tail=root/pivot) - producing exactly a blade that visually opens
-                // toward the switch instead of away from it. Reverse the slice for
-                // backward-extending blades so Head/Tail land on the correct
-                // physical ends regardless of numeric direction.
                 LineCurve bladeCurve = bladeExtendsForward
                     ? Slice(movable.Curve, tip, root)
-                    : Slice(movable.Curve, tip, root).Reverse();
+                    : ReverseRailCurve(Slice(movable.Curve, tip, root));
 
                 yield return new SwitchBladePlan(
                     "v2-blade:" + spec.Label,
@@ -508,6 +517,37 @@ namespace NarrowGaugeMod
             {
                 yield return splitBlade!;
             }
+        }
+
+        // Returns true when the point at distance "tip" along movableCurve is
+        // farther from this switch's own frog than the point at distance "root" -
+        // i.e. when "tip" really is the physical tip (a blade's toe faces oncoming
+        // traffic, away from the crossing). Falls back to true (no reversal) if no
+        // frog-kind intersection can be found near either candidate end.
+        private static bool IsForwardTipFartherFromFrog(
+            LineCurve movableCurve,
+            float tip,
+            float root,
+            IReadOnlyList<RailIntersection> intersections)
+        {
+            Vector3 tipPoint = movableCurve.LinePointAtDistance(tip).point;
+            Vector3 rootPoint = movableCurve.LinePointAtDistance(root).point;
+            RailIntersection? nearestFrog = intersections
+                .Where(intersection =>
+                    intersection.Kind == RailIntersectionKind.VeeFrogCandidate
+                    || intersection.Kind == RailIntersectionKind.CrossingFrogCandidate)
+                .OrderBy(intersection => Mathf.Min(
+                    Vector3.Distance(intersection.Position, tipPoint),
+                    Vector3.Distance(intersection.Position, rootPoint)))
+                .FirstOrDefault();
+            if (nearestFrog == null)
+            {
+                return true;
+            }
+
+            float tipDistanceToFrog = Vector3.Distance(nearestFrog.Position, tipPoint);
+            float rootDistanceToFrog = Vector3.Distance(nearestFrog.Position, rootPoint);
+            return tipDistanceToFrog > rootDistanceToFrog;
         }
 
         private static bool TryBuildMeasuredDualSplitBlade(
@@ -597,19 +637,20 @@ namespace NarrowGaugeMod
             }
 
             DualSplitBladeCandidate selected = best.Value;
-            float switchDist = selected.MovableRail.Curve.DistanceTo(switchPoint);
-            bool bladeExtendsForward = selected.RootDistance > switchDist;
+            // Same switchNode-position-is-not-ground-truth issue as the
+            // narrow-branch blade builder above - determine tip-vs-root direction
+            // from the frog, not from switchPoint.
+            bool bladeExtendsForward = IsForwardTipFartherFromFrog(
+                selected.MovableRail.Curve,
+                selected.TipDistance,
+                selected.RootDistance,
+                intersections);
             LineCurve closureCurve = bladeExtendsForward
                 ? Slice(selected.MovableRail.Curve, selected.RootDistance, selected.MovableRail.Curve.Length)
                 : Slice(selected.MovableRail.Curve, 0f, selected.TipDistance);
-
-            // Same physical-tip/root vs. numeric-sorted-tip/root mismatch as the
-            // narrow-branch blade builder above - reverse the slice for
-            // backward-extending blades so BladeCurve.Head/Tail land on the
-            // physical tip/root regardless of numeric direction.
             LineCurve bladeCurve = bladeExtendsForward
                 ? Slice(selected.MovableRail.Curve, selected.TipDistance, selected.RootDistance)
-                : Slice(selected.MovableRail.Curve, selected.TipDistance, selected.RootDistance).Reverse();
+                : ReverseRailCurve(Slice(selected.MovableRail.Curve, selected.TipDistance, selected.RootDistance));
 
             string sideId = selected.Side.ToString().ToLowerInvariant();
             blade = new SwitchBladePlan(
@@ -2470,6 +2511,14 @@ namespace NarrowGaugeMod
                 .OrderBy(frog => guardRail.Curve.DistanceTo(frog.Intersection.Position))
                 .Take(2))
             {
+                bool alreadyGuarded = guards.Any(existing =>
+                    string.Equals(existing.FrogId, frog.Id, StringComparison.OrdinalIgnoreCase)
+                    && existing.OppositeRunningRail == guardRail);
+                if (alreadyGuarded)
+                {
+                    continue;
+                }
+
                 float center = guardRail.Curve.DistanceTo(frog.Intersection.Position);
                 float offset = GuardOffsetAwayFromPoint(
                     guardRail,
@@ -3993,6 +4042,26 @@ namespace NarrowGaugeMod
             float clampedStart = Mathf.Clamp(start, 0f, curve.Length);
             float clampedEnd = Mathf.Clamp(end, clampedStart, curve.Length);
             return curve.Skip(clampedStart, true).Take(clampedEnd - clampedStart);
+        }
+
+        // LineCurve.Reverse() only reverses point order - it keeps each point's own
+        // Rotation/direction untouched, still facing the original direction of
+        // travel. For rail mesh extrusion that stale per-point direction ends up
+        // backwards relative to the new (reversed) traversal order, which flips the
+        // mesh's winding/normals (renders inside-out). BuildStockRailMesh's own
+        // internal Hand.Left reversal happens to cancel this out when a curve gets
+        // reversed twice (once here, once there), which is why this only showed up
+        // visibly for Hand.Right pieces. Reverse properly here: flip point order AND
+        // negate each point's direction so the curve is self-consistent again. Used
+        // wherever a sliced measured-rail curve needs reversing (blades, wing rails)
+        // instead of the raw, rotation-unaware LineCurve.Reverse().
+        internal static LineCurve ReverseRailCurve(LineCurve curve)
+        {
+            LinePoint[] reversedPoints = curve.Points
+                .Reverse()
+                .Select(p => new LinePoint(p.point, -p.direction))
+                .ToArray();
+            return new LineCurve(reversedPoints, curve.hand);
         }
 
         private static bool IsValidStockCorridorPiece(

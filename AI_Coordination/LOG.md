@@ -1561,3 +1561,136 @@ of leftover `test_request_*`, `test_result_*`, `ng_goto_request.json`,
 Next: apply fixes sequentially after reading this review and the parallel
 narrow-branch findings. Start with supplemental guard de-duplication, then
 tighten ownership interval scoping and live-test `ttpp`/`snvo`/`6wx3`.
+
+---
+
+## [Claude] 2026-07-07 - found real root causes for Nove's blade orientation via live diagnostic logging (not static reading); both-diverge fixes applied
+
+Session continuity note: this conversation was interrupted (Claude Code
+process exited) partway through spawning a Claude subagent for the
+narrow-branch-joins-main investigation; that subagent's work was lost.
+Recovered by committing Codex's completed both-diverge investigation
+(it had finished and written its review file but not committed before the
+interruption), then proceeding directly rather than re-spawning a lost
+subagent, since the user was available to test live.
+
+Applied Codex's two confirmed both-diverge fixes directly (both read and
+verified against the actual code before applying, not just trusted from
+the review write-up):
+
+1. `OwnershipCuts` (`src/SpecialWorkHardwareRenderer.cs`): removed the
+   `isGaugeSeparation`-only gate on the `sourceRouteIds` filter - now all
+   measured presets filter work intervals to routes actually touching the
+   source segment, not just `DualSplit`.
+2. `AddSupplementalGuardPair` (`src/SectionedSpecialWorkBuilder.cs`): skips
+   adding a guard if one already exists for the same
+   `(FrogId, OppositeRunningRail)` pair, fixing the confirmed exact-duplicate
+   guards at p997/ltci/wqbb.
+
+Built, deployed. Not yet re-verified live this turn (moved on to Nove
+investigation) - still needs a fresh screenshot check next turn.
+
+## Nove blade orientation - the real story
+
+User pushed back hard and correctly: after the previous turn's
+"blade tip/root swap" fix (`c1b5873`) was deployed, close-up screenshots
+still showed the blade backwards. My own prior-turn re-analysis (right
+after context compaction) had concluded that fix "doesn't apply to Nove"
+based on hand-worked distance math - **that conclusion was wrong**, proven
+this turn by adding a live diagnostic log
+(`[SwitchPointDiagnostic]` in `BuildDualNarrowBranchBlades`) and reading
+the actual numbers: `bladeExtendsForward` really was false for Nove, the
+reversal really was firing, and `BladeCurve.Head` really was landing near
+`switchNode`'s position (only ~0.5 units off). The static hand-tracing was
+self-consistent every time I redid it, and still wrong, because it rested
+on an unverified assumption.
+
+The actual chain of bugs, found by testing hypotheses against real logged
+data rather than more static reasoning:
+
+**Bug 1 - `switchNode` position is not the toe.** Every distance/direction
+computation in `BuildDualNarrowBranchBlades`/`TryBuildMeasuredDualSplitBlade`
+used `switchNode.transform.localPosition` (i.e. the `Nove:control` node) as
+a stand-in for "the physical switch throat/toe." The user confirmed
+directly in-game: `Nove:control` sits *past the end of the switch entirely*,
+on the frog side. Added `[BladeVsFrogDiagnostic]` (logs blade Head/Tail vs.
+nearest real frog position) and confirmed: `distHeadToFrog=20.569 <
+distTailToFrog=25.166` - Head (suppposedly the "tip," meant to be far from
+the frog) was actually *closer* to the frog than Tail. Backwards.
+
+Fix: added `IsForwardTipFartherFromFrog` - walks `intersections` for the
+nearest `VeeFrogCandidate`/`CrossingFrogCandidate`, and determines which of
+the numeric tip/root distances is actually farther from it. Replaced the
+`switchDist`/`bladeExtendsForward` computation in both call sites so
+*both* `bladeCurve` and `closureCurve` are built from the same,
+frog-grounded direction (a first attempt patched only `bladeCurve` after
+the fact via a `CorrectBladeTipAwayFromFrog` post-hoc reversal - this left
+`closureCurve` still using the old, wrong direction, which the user caught
+immediately: "still using nove:control and shouldn't be." Removed that
+patch and fixed the direction determination upstream instead, once, before
+either curve is built).
+
+**Bug 2 - `RemoveRailEndCap` ignores which end `BuildStockRailMesh`
+actually put "first."** `BuildStockRailMesh` (decompiled base game,
+`TrackMeshBuilder.cs`) reverses point order internally for `Hand.Left`
+curves before extruding, with a `profileScale` remap that's correct
+(verified by hand-tracing the remap indices twice). But `CreatePointBlade`
+called `RemoveRailEndCap(mesh, points.Length, removeStartCap: true)`
+unconditionally - for `Hand.Left` blades this removed the cap from the
+full-width heel (wrong end) and left one on the knife-edge tip. Fixed:
+`removeStartCap: pivotedCurve.hand != Hand.Left`.
+
+**Bug 3 - `LineCurve.Reverse()` doesn't recompute per-point rotation.**
+After fixing bug 1, the user reported a *new* symptom: "the blade is
+rendering inside out now. like the rail mesh itself is inside out." Read
+the decompiled `Core/LineCurve.cs`: `Reverse()` is
+`new LineCurve(Points.Reverse(), hand)` - point order flips, but each
+point's own `Rotation` (and derived `.direction`) is untouched, still
+facing the *original* forward direction. For a curve that's reversed
+exactly once (as my new frog-based direction fix now does for some blades
+that weren't reversed before), the per-point direction ends up backwards
+relative to the new traversal order, flipping the extruded mesh's
+winding/normals. For `Hand.Left` curves this accidentally cancels out
+against `BuildStockRailMesh`'s own internal Hand.Left reversal (reversed
+twice nets back to consistent), which is why this only became visible now
+that the frog-based fix changed which blades get reversed at all (some
+`Hand.Right` blades that previously weren't reversed now are).
+
+Fix: added `SectionedSpecialWorkBuilder.ReverseRailCurve` (internal,
+reversed points + negated direction, kept consistent) and replaced the
+single-reversal call sites: both blade-curve constructions, plus
+`CreateVeeWingRail`'s wing slice and `SliceSignedSpan` in
+`SpecialWorkHardwareRenderer.cs` (the user also reported wing rails
+rendering inside-out - same root cause, same fix). Deliberately did **not**
+touch `FlareGuardRailEnds`/`FlareGuardRailEndsAwayFrom` - those reverse
+twice back-to-back in a way that cancels out safely and inserts new points
+with freshly-computed rotations, so they're not affected by this bug. Did
+not do an exhaustive `grep -rn '\.Reverse()'` sweep of the whole codebase -
+this was a targeted fix for the reported symptoms. If a similar
+"inside-out" symptom shows up on a switch not yet checked, grep for other
+single-reversal call sites.
+
+User confirmed after all three fixes: "much better." Not claiming Nove
+fully fixed - see below.
+
+## Two new issues surfaced at Nove, not yet investigated
+
+1. User: "there should only be one blade on the right.. this is a narrow
+   diverge only standard through its a only one blade" - i.e. Nove's real
+   layout may only switch the narrow-gauge route, with standard-gauge
+   running through fixed/unswitched, meaning the second blade
+   (`NarrowStraightPointBlade`) that the current truth table produces
+   shouldn't exist.
+2. User screenshot: two rails (confirmed via `Player.log`
+   `[SpecialWorkOwnershipCutClaim]` grep to be `special-work:Nove`'s own
+   `narrow-normal`/`narrow-reversed` rails on segment `SCustom_epu2`) cross
+   directly with no frog casting there at all.
+
+These are likely the same root cause (wrong truth table / blade-spec
+generation for Nove's actual physical layout) but not yet confirmed. Full
+detail and next-turn plan in STATUS.md - not duplicating here.
+
+Diagnostic logging (`[SwitchPointDiagnostic]`, `[BladeMeshDiagnostic]`,
+`[BladeVsFrogDiagnostic]`) deliberately left in the code - it's what
+actually cracked this after multiple rounds of static reasoning got it
+wrong. Strip it once the two remaining issues are resolved.

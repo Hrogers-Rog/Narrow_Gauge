@@ -229,23 +229,14 @@ namespace NarrowGaugeMod
                         sourceSegment.id,
                         StringComparer.OrdinalIgnoreCase))))
             {
-                bool isGaugeSeparation = string.Equals(
-                    analysis.Definition.Preset.Id,
-                    SpecialWorkPresetIds.DualSplit,
-                    StringComparison.OrdinalIgnoreCase);
                 HashSet<string> sourceRouteIds = analysis.Definition.Routes
                     .Where(route => route.SourceSegmentIds.Contains(
                         sourceSegment.id,
                         StringComparer.OrdinalIgnoreCase))
                     .Select(route => route.Id)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                IEnumerable<RailWorkInterval> ownedIntervals =
-                    analysis.MeshPlan!.WorkIntervals;
-                if (isGaugeSeparation)
-                {
-                    ownedIntervals = ownedIntervals.Where(work =>
-                        work.Rail.SourceRouteIds.Any(sourceRouteIds.Contains));
-                }
+                IEnumerable<RailWorkInterval> ownedIntervals = analysis.MeshPlan!.WorkIntervals
+                    .Where(work => work.Rail.SourceRouteIds.Any(sourceRouteIds.Contains));
 
                 foreach (RailWorkInterval work in ownedIntervals)
                 {
@@ -506,6 +497,19 @@ namespace NarrowGaugeMod
 
                 float openRotation = CalculateBladeOpenRotation(blade, plan.Parameters);
                 renderedBlades[blade] = (bladeObject, openRotation);
+
+                if (plan.Frogs.Count > 0)
+                {
+                    FrogCandidate nearestFrog = plan.Frogs
+                        .OrderBy(frog => Vector3.Distance(frog.Intersection.Position, blade.BladeCurve.Head.point))
+                        .First();
+                    Main.Log(
+                        $"[BladeVsFrogDiagnostic] blade={blade.Id} " +
+                        $"headWorld={blade.BladeCurve.Head.point} tailWorld={blade.BladeCurve.Tail.point} " +
+                        $"nearestFrog={nearestFrog.Id} frogPosition={nearestFrog.Intersection.Position} " +
+                        $"distHeadToFrog={Vector3.Distance(blade.BladeCurve.Head.point, nearestFrog.Intersection.Position):0.000} " +
+                        $"distTailToFrog={Vector3.Distance(blade.BladeCurve.Tail.point, nearestFrog.Intersection.Position):0.000}");
+                }
             }
 
             ConfigureBladeAnimationGroups(root, analysis.Definition, node, renderedBlades);
@@ -1067,6 +1071,12 @@ namespace NarrowGaugeMod
                 return null;
             }
 
+            Main.Log(
+                $"[BladeMeshDiagnostic] name={name} hand={bladeCurve.hand} " +
+                $"worldCurveHead={worldCurve.Head.point} worldCurveTail={worldCurve.Tail.point} " +
+                $"point0World={points[0].point + switchHome} " +
+                $"pointLastWorld={points[points.Length - 1].point + switchHome}");
+
             var distances = new float[points.Length];
             for (int i = 1; i < points.Length; i++)
             {
@@ -1093,7 +1103,16 @@ namespace NarrowGaugeMod
                     float t = Mathf.Clamp01(distances[pointIndex] / taperLength);
                     return Mathf.SmoothStep(0f, 1f, Mathf.Pow(t, BladeTaperExponent));
                 });
-            RemoveRailEndCap(mesh, points.Length, removeStartCap: true);
+            // BuildStockRailMesh reverses the point order internally for Hand.Left
+            // curves (to keep extrusion winding consistent), remapping profileScale
+            // so the taper direction still lines up in world space - but that means
+            // for Hand.Left curves, the mesh's own "first" cap (what RemoveRailEndCap
+            // calls the start cap) corresponds to our Tail (the full-width heel), not
+            // our Head (the knife-edge tip). Removing "the start cap" unconditionally
+            // was dropping the heel's cap and leaving the tip's cap in place for every
+            // Hand.Left blade - the opposite of what's needed, since the tip is the
+            // zero-width end that doesn't need a cap at all.
+            RemoveRailEndCap(mesh, points.Length, removeStartCap: pivotedCurve.hand != Hand.Left);
 
             GameObject rail = NarrowGaugeTrackBuilder.CreateMeshObject(builder, mesh, name, root);
             rail.transform.localPosition = pivot;
@@ -1472,7 +1491,7 @@ namespace NarrowGaugeMod
                 sourceRail.Curve.Length);
             float boundaryDistance = bladeSideIsAfter ? afterDistance : beforeDistance;
             LineCurve wing = bladeSideIsAfter
-                ? Slice(sourceRail.Curve, nearDistance, boundaryDistance).Reverse()
+                ? SectionedSpecialWorkBuilder.ReverseRailCurve(Slice(sourceRail.Curve, nearDistance, boundaryDistance))
                 : Slice(sourceRail.Curve, boundaryDistance, nearDistance);
             if (wing.Points.Count() < 2)
             {
@@ -2862,7 +2881,7 @@ namespace NarrowGaugeMod
             float from = Mathf.Clamp(centerDistance + fromOffset, 0f, rail.Curve.Length);
             float to = Mathf.Clamp(centerDistance + toOffset, 0f, rail.Curve.Length);
             LineCurve curve = Slice(rail.Curve, Mathf.Min(from, to), Mathf.Max(from, to));
-            return from <= to ? curve : curve.Reverse();
+            return from <= to ? curve : SectionedSpecialWorkBuilder.ReverseRailCurve(curve);
         }
 
         private static LineCurve BuildKinkedHandoff(
