@@ -1694,3 +1694,28 @@ Diagnostic logging (`[SwitchPointDiagnostic]`, `[BladeMeshDiagnostic]`,
 `[BladeVsFrogDiagnostic]`) deliberately left in the code - it's what
 actually cracked this after multiple rounds of static reasoning got it
 wrong. Strip it once the two remaining issues are resolved.
+
+### [Codex] 2026-07-07 01:09 - Patch 7n90/194b measured fallback to one narrow-branch blade
+Picked up the user's `SCustom_194b` request while Claude continued on Nove.
+Read the coordination files, current `Player.log`, and the exported
+`special-work_NCustom_7n90.txt`. Confirmed `SCustom_194b` is owned by
+`special-work:NCustom_7n90`, and the active plan is a
+`dual.narrow-branch-joins-main` fallback case: no truth table matched, so
+`BuildBladeSpecs`' generic measured fallback emitted two blades
+(`v2-blade:narrow:Left` and `v2-blade:narrow:Right`).
+
+Found a pre-existing uncommitted `SectionedSpecialWorkBuilder.cs` change that
+already applied a one-blade shared-side filter to truth-table matched
+narrow-branch nodes. Kept that change, cleaned up its comment, and extended
+the same rule to the measured fallback path so fallback narrow-branch nodes
+skip the non-shared-side blade candidate. This specifically targets
+`NCustom_7n90`, whose plan was still using fallback and therefore was not
+affected by the truth-table-only filter. Wrote the review handoff to
+`AI_Coordination/reviews/ncustom-7n90-194b-investigation-2026-07-07.md`.
+
+Built with `dotnet build .\NarrowGaugeMod.csproj` (0 warnings, 0 errors). No
+fresh in-game reload/screenshot was performed this turn, so do not claim
+`SCustom_194b` visually fixed yet. Next: Claude should deploy/reload and
+verify fresh `Player.log`/plan data shows `NCustom_7n90` with `blades=1`,
+then capture a close-up of `SCustom_194b`; continue Nove separately because
+its missing-frog issue may remain.

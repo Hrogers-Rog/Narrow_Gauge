@@ -748,12 +748,40 @@ namespace NarrowGaugeMod
                     out TurnoutTruthTable truth)
                 && truth.Blades.Length > 0)
             {
-                Main.Log($"[BladeSpecs] Using truth table '{truth.Id}' blades ({truth.Blades.Length})");
+                // Only apply the one-blade shared-side filter to the
+                // narrow-branch-joins-main preset. That preset is specifically
+                // standard-through/narrow-diverge; other dual-gauge presets have
+                // different blade semantics and should not be inferred from this case.
+                RailSide? sharedSide = IsDualNarrowBranchPreset(definition)
+                    ? DetectSharedSide(definition)
+                    : null;
+                Main.Log(
+                    $"[BladeSpecs] Using truth table '{truth.Id}' blades ({truth.Blades.Length}) " +
+                    $"sharedSide={(sharedSide.HasValue ? sharedSide.Value.ToString() : "<none>")}");
                 foreach (TruthBlade blade in truth.Blades)
                 {
                     if (Enum.TryParse(blade.MovableSide, ignoreCase: true, out RailSide movSide)
                         && Enum.TryParse(blade.StockSide, ignoreCase: true, out RailSide stkSide))
                     {
+                        // The shared rail is the one that must move: it has to choose
+                        // between coinciding with the standard-gauge through position
+                        // (narrow-normal, closed) or peeling away to the narrow-only
+                        // diverging alignment (narrow-reversed, open) - it can't do
+                        // both while fixed. The dedicated narrow-only rail (the
+                        // non-shared side) never has to make that choice - it runs
+                        // continuous, unchanged, all the way to the frog. So for this
+                        // preset only one blade is real: whichever one sits on the
+                        // shared side. A truth-table blade whose movable side is NOT
+                        // the shared side is the spurious one for this switch's real
+                        // layout.
+                        if (sharedSide.HasValue && movSide != sharedSide.Value)
+                        {
+                            Main.Log(
+                                $"[BladeSpecs] Skipping spurious blade '{blade.Label}' - " +
+                                $"movableSide={movSide} is not the detected sharedSide={sharedSide.Value}");
+                            continue;
+                        }
+
                         yield return new BladeSpec(
                             blade.Label,
                             blade.MovableRouteId,
@@ -771,6 +799,9 @@ namespace NarrowGaugeMod
                 yield break;
             }
 
+            RailSide? fallbackSharedSide = IsDualNarrowBranchPreset(definition)
+                ? DetectSharedSide(definition)
+                : null;
             foreach (SpecialWorkSwitchGroup group in definition.SwitchGroups)
             {
                 LogicalRoute? normalRoute = definition.Routes.FirstOrDefault(route =>
@@ -816,6 +847,14 @@ namespace NarrowGaugeMod
                     RailCenterline? reversedRail = FindRail(rails, reversedRoute.Id, side);
                     if (normalRail == null || reversedRail == null)
                     {
+                        continue;
+                    }
+
+                    if (fallbackSharedSide.HasValue && side != fallbackSharedSide.Value)
+                    {
+                        Main.Log(
+                            $"[BladeSpecs] Skipping measured fallback blade group={group.Id} side={side} - " +
+                            $"side is not the detected sharedSide={fallbackSharedSide.Value}");
                         continue;
                     }
 
