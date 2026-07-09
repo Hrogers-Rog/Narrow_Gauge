@@ -297,6 +297,23 @@ namespace NarrowGaugeMod
                 ? DetectSharedSide(definition)
                 : null;
 
+            // Diagnostic only (2026-07-08): comparing this call's result against the
+            // separate DetectSharedSide call in SuppressDualBothDivergeFrogDuplicate
+            // for the same definition - both-diverge exports show narrow-normal:left
+            // gets 100% suppressed (role=Unknown) by that function while
+            // narrow-normal:right independently ends up role=SharedRail via real
+            // geometric detection (IsSharedOwnerAt), which only happens if this call
+            // built narrow-normal:right as the shared curve - i.e. this call site
+            // says Right while that one apparently disagrees. If BuildSharedSide
+            // logs a different value here than there for the same node, that proves
+            // non-determinism/inconsistency, not just a hand-detection mistake.
+            if (isDualGauge)
+            {
+                Main.Log(
+                    $"[SharedSideCheck] node={definition.Id} site=BuildPhysicalRails " +
+                    $"sharedSide={(sharedSide.HasValue ? sharedSide.Value.ToString() : "<null>")}");
+            }
+
             foreach (WheelPath path in paths)
             {
                 if (isDualGauge
@@ -304,11 +321,31 @@ namespace NarrowGaugeMod
                     && sharedSide.HasValue)
                 {
                     WheelPath? standardPair = FindMatchingStandardRoute(path, paths);
+
+                    // Diagnostic only (2026-07-07): user reports every frog candidate
+                    // is off by roughly a track-width, left or right. Logs which
+                    // standard route (if any) got matched as this narrow route's pair
+                    // and how far apart their centerlines actually are - a large
+                    // distance here means the wrong standard route got matched and the
+                    // narrow rails are being built relative to the wrong physical
+                    // track entirely; <none> means this fell through to the plain
+                    // non-shared offset path unexpectedly.
+                    Main.Log(
+                        $"[NarrowRailBuild] route={path.RouteId} sharedSide={sharedSide.Value} " +
+                        $"standardPair={(standardPair == null ? "<none>" : standardPair.RouteId)} " +
+                        (standardPair == null
+                            ? string.Empty
+                            : $"centerlineGap={Vector3.Distance(path.Centerline.Head.point, standardPair.Centerline.Head.point):0.000}"));
+
                     if (standardPair != null)
                     {
                         foreach (RailCenterline rail in BuildNarrowRailsFromStandardCenterline(
                             path, standardPair.Centerline, sharedSide.Value))
                         {
+                            Main.Log(
+                                $"[NarrowRailBuild] route={path.RouteId} built rail={rail.Id} " +
+                                $"side={rail.Side} headPos=({rail.Curve.Head.point.x:0.00}," +
+                                $"{rail.Curve.Head.point.z:0.00})");
                             yield return rail;
                         }
 
@@ -370,6 +407,25 @@ namespace NarrowGaugeMod
                 ? narrowRouteId.Substring(narrowRouteId.IndexOf('-'))
                 : string.Empty;
             string standardRouteId = "standard" + suffix;
+
+            // REVERTED (2026-07-07, same turn): tried falling back to a route
+            // literally named "standard-through" when this suffix guess fails
+            // (see reviews/narrow-branch-standard-pair-fallback-2026-07-07.md for
+            // the original hypothesis - narrow-branch-joins-main's standard side
+            // really is a single fixed "standard-through" route with no
+            // "-normal"/"-reversed" counterpart, confirmed via [NarrowRailBuild]
+            // showing standardPair=<none> for every such node). That fallback was
+            // a confirmed regression, not a fix: live-verified via [NarrowRailBuild]
+            // + Special-work plan summaries, "standard-through"'s centerline sits
+            // nowhere near the narrow route for most of these nodes
+            // (centerlineGap up to 105m), and building narrow rails as a parallel
+            // offset of it broke intersection-finding entirely - all five
+            // dual.narrow-branch-joins-main nodes dropped to frogs=0/wings=0/
+            // guards=0 (previously 1-3/2-8/2-7), and 4 of 5 flipped valid=True to
+            // valid=False. Reverted to original behavior (return null, fall
+            // through to the plain non-shared offset) pending a real fix - the
+            // <none> case is still wrong (that's the original "off by a
+            // track-width" report), but this fallback was worse.
             return allPaths.FirstOrDefault(path =>
                 path.Family == GaugeGraphFamily.Standard
                 && string.Equals(path.RouteId, standardRouteId, StringComparison.OrdinalIgnoreCase));
@@ -749,16 +805,27 @@ namespace NarrowGaugeMod
                     out TurnoutTruthTable truth)
                 && truth.Blades.Length > 0)
             {
-                // Only apply the one-blade shared-side filter to the
-                // narrow-branch-joins-main preset. That preset is specifically
-                // standard-through/narrow-diverge; other dual-gauge presets have
-                // different blade semantics and should not be inferred from this case.
-                RailSide? sharedSide = IsDualNarrowBranchPreset(definition)
+                bool isNarrowBranch = IsDualNarrowBranchPreset(definition);
+                bool hasNarrowCrossingFrog = isNarrowBranch
+                    && TryFindNarrowCrossingStockRail(
+                        intersections,
+                        out _,
+                        out _);
+
+                // Simple narrow-branch layouts with no standard x narrow crossing
+                // (N178/Nove) have one real shared-side point. Crossing layouts
+                // (g832/vdlt) need the truth table's complementary Left + Right
+                // blade pair. Applying the one-blade filter there deleted the right
+                // blade, while rewriting both entries from the one crossing rail
+                // would merely collapse the pair onto the same left blade.
+                RailSide? sharedSide = isNarrowBranch && !hasNarrowCrossingFrog
                     ? DetectSharedSide(definition)
                     : null;
                 Main.Log(
                     $"[BladeSpecs] Using truth table '{truth.Id}' blades ({truth.Blades.Length}) " +
-                    $"sharedSide={(sharedSide.HasValue ? sharedSide.Value.ToString() : "<none>")}");
+                    $"sharedSide={(sharedSide.HasValue ? sharedSide.Value.ToString() : "<none>")} " +
+                    $"narrowCrossingFrog={hasNarrowCrossingFrog}");
+                bool isBothDiverge = IsDualBothDivergePreset(definition);
                 foreach (TruthBlade blade in truth.Blades)
                 {
                     if (Enum.TryParse(blade.MovableSide, ignoreCase: true, out RailSide movSide)
@@ -783,16 +850,142 @@ namespace NarrowGaugeMod
                             continue;
                         }
 
+                        string movableRouteId = blade.MovableRouteId;
+                        string stockRouteId = blade.StockRouteId;
+
+                        // dual.both-diverge narrow blades: the truth table hardcodes
+                        // which narrow route/side is
+                        // movable, assuming narrow's normal/reversed/left/right labeling
+                        // agrees with standard's hand. That isn't guaranteed - narrow's
+                        // labeling comes from an independent base-game DecodeSwitchAt call
+                        // on the synthesized ghost node (TryBuildSwitchRoutes,
+                        // SpecialWorkRuntimeDiscovery.cs:493-510), which picks
+                        // normal/reversed purely by segment list order with no geometry
+                        // check, unrelated to the real standard node's own decode. When
+                        // they disagree (NCustom_p997) the truth table's single narrow
+                        // blade lands on the wrong rails; when they agree
+                        // (NCustom_fc97) it is correct.
+                        //
+                        // Derive the real assignment from this switch's own geometry: the
+                        // cross-family crossing frog (standard x narrow) is where the
+                        // narrow STOCK rail crosses through - that narrow rail runs
+                        // continuous to the frog, so it is the stock, and the OTHER narrow
+                        // route on the SAME physical side is the movable blade that closes
+                        // against it. Verified across presets/hands:
+                        //   fc97 crossing = standard-reversed:right x narrow-normal:right
+                        //     -> stock=narrow-normal:right, movable=narrow-reversed:right
+                        //     (matches the truth table as written, no change)
+                        //   p997 crossing = standard-normal:left x narrow-reversed:left
+                        //     -> stock=narrow-reversed:left, movable=narrow-normal:left
+                        //     (opposite side AND route from the truth table)
+                        // Narrow-branch crossing truth tables already contain both
+                        // complementary blade assignments. Mirroring their narrow
+                        // hand only swaps those two entries, so correcting each entry
+                        // from the same crossing rail incorrectly collapses the pair.
+                        if (isBothDiverge
+                            && movableRouteId.IndexOf("narrow", StringComparison.OrdinalIgnoreCase) >= 0
+                            && TryFindNarrowCrossingStockRail(
+                                intersections,
+                                out string crossingNarrowRoute,
+                                out RailSide crossingNarrowSide))
+                        {
+                            string derivedStockRoute = crossingNarrowRoute;
+                            RailSide derivedStockSide = crossingNarrowSide;
+                            string derivedMovableRoute = MirrorNarrowRouteId(crossingNarrowRoute);
+                            RailSide derivedMovableSide = crossingNarrowSide;
+
+                            if (!string.Equals(derivedMovableRoute, movableRouteId, StringComparison.OrdinalIgnoreCase)
+                                || derivedMovableSide != movSide
+                                || !string.Equals(derivedStockRoute, stockRouteId, StringComparison.OrdinalIgnoreCase)
+                                || derivedStockSide != stkSide)
+                            {
+                                Main.Log(
+                                    $"[BladeSpecs] Correcting narrow blade '{blade.Label}' from " +
+                                    $"movable={movableRouteId}:{movSide}/stock={stockRouteId}:{stkSide} " +
+                                    $"to movable={derivedMovableRoute}:{derivedMovableSide}/" +
+                                    $"stock={derivedStockRoute}:{derivedStockSide} " +
+                                    $"(crossing-frog narrow rail={crossingNarrowRoute}:{crossingNarrowSide}).");
+                            }
+
+                            movableRouteId = derivedMovableRoute;
+                            movSide = derivedMovableSide;
+                            stockRouteId = derivedStockRoute;
+                            stkSide = derivedStockSide;
+                        }
+
                         yield return new BladeSpec(
                             blade.Label,
-                            blade.MovableRouteId,
+                            movableRouteId,
                             movSide,
-                            blade.StockRouteId,
+                            stockRouteId,
                             stkSide);
                     }
                 }
 
                 yield break;
+            }
+
+            // Finds the narrow rail that forms the cross-family (standard x narrow)
+            // crossing frog for this switch. That narrow rail runs continuous through
+            // the crossing, so it is the narrow stock rail; the caller derives the
+            // movable blade as the other narrow route on the same side. Returns the
+            // first such crossing found (both-diverge switches have exactly one
+            // cross-family CrossingFrogCandidate in practice - see the [FrogAccepted]
+            // logs).
+            static bool TryFindNarrowCrossingStockRail(
+                IReadOnlyList<RailIntersection> intersections,
+                out string narrowRoute,
+                out RailSide narrowSide)
+            {
+                foreach (RailIntersection intersection in intersections)
+                {
+                    if (intersection.Kind != RailIntersectionKind.CrossingFrogCandidate)
+                    {
+                        continue;
+                    }
+
+                    RailCenterline? narrowRail =
+                        intersection.RailA.Family == GaugeGraphFamily.Narrow
+                            && intersection.RailB.Family == GaugeGraphFamily.Standard
+                            ? intersection.RailA
+                            : intersection.RailB.Family == GaugeGraphFamily.Narrow
+                                && intersection.RailA.Family == GaugeGraphFamily.Standard
+                                ? intersection.RailB
+                                : null;
+                    if (narrowRail == null)
+                    {
+                        continue;
+                    }
+
+                    string? route = narrowRail.SourceRouteIds.FirstOrDefault();
+                    if (string.IsNullOrEmpty(route))
+                    {
+                        continue;
+                    }
+
+                    narrowRoute = route!;
+                    narrowSide = narrowRail.Side;
+                    return true;
+                }
+
+                narrowRoute = string.Empty;
+                narrowSide = RailSide.Left;
+                return false;
+            }
+
+            static string MirrorNarrowRouteId(string routeId)
+            {
+                if (routeId.EndsWith("-normal", StringComparison.OrdinalIgnoreCase))
+                {
+                    return routeId.Substring(0, routeId.Length - "-normal".Length) + "-reversed";
+                }
+
+                if (routeId.EndsWith("-reversed", StringComparison.OrdinalIgnoreCase))
+                {
+                    return routeId.Substring(0, routeId.Length - "-reversed".Length) + "-normal";
+                }
+
+                return routeId;
             }
 
             if (IsDualSplitPreset(definition))
@@ -2077,6 +2270,16 @@ namespace NarrowGaugeMod
             // orientation left the true duplicate rail unsuppressed while occasionally
             // cutting the *wrong* (distinct) narrow-normal rail instead.
             RailSide? sharedSide = DetectSharedSide(definition);
+
+            // Diagnostic only (2026-07-08): see the matching [SharedSideCheck] log in
+            // BuildPhysicalRails - comparing the same DetectSharedSide(definition)
+            // call at both sites to check for disagreement/non-determinism before
+            // trusting duplicateRailId here.
+            Main.Log(
+                $"[SharedSideCheck] node={definition.Id} " +
+                "site=SuppressDualBothDivergeFrogDuplicate " +
+                $"sharedSide={(sharedSide.HasValue ? sharedSide.Value.ToString() : "<null>")}");
+
             string duplicateRailId = sharedSide == RailSide.Right
                 ? "narrow-normal:right"
                 : "narrow-normal:left";
@@ -2948,7 +3151,8 @@ namespace NarrowGaugeMod
                 RailCenterline? divergingFixed = ResolveDivergingFixedStockRail(
                     definition,
                     rails,
-                    blades);
+                    blades,
+                    frogs);
                 if (divergingFixed == null)
                 {
                     yield return "Missing fixed diverging narrow stock/running rail from truth/anatomy.";
@@ -3357,20 +3561,78 @@ namespace NarrowGaugeMod
         private static RailCenterline? ResolveDivergingFixedStockRail(
             SpecialWorkDefinition definition,
             IReadOnlyList<RailCenterline> rails,
-            IReadOnlyList<SwitchBladePlan> blades)
+            IReadOnlyList<SwitchBladePlan> blades,
+            IReadOnlyList<FrogCandidate> frogs)
         {
+            // The diverging narrow rail that runs fixed/continuous to the frog is,
+            // by definition, whichever narrow rail forms the cross-family
+            // (standard x narrow) crossing frog - it passes straight through the
+            // crossing rather than moving as a blade. That is ground truth from
+            // this switch's own measured geometry and is immune to the mislabeled
+            // narrow hand that can send the blade's own StockRail to the wrong
+            // (shared, Role=Unknown) side.
+            //
+            // Prior approach used only blades' StockRail candidates and a
+            // shared-side preference, which failed for NCustom_g832 (DualGauge_R):
+            // its single blade's stock rail is narrow-normal:right (the shared rail,
+            // suppressed -> Role=Unknown), while the real diverging fixed rail is
+            // narrow-reversed:left (the crossing frog's narrow rail, a renderable
+            // FixedRunningRail). Now include the crossing frog's narrow rail among
+            // the candidates and prefer any candidate that actually has a renderable
+            // role, so g832 resolves to the renderable rail. Switches with no
+            // cross-family crossing frog (e.g. NCustom_N178) fall back to the prior
+            // blade-stock + shared-side logic unchanged.
+            RailCenterline? crossingNarrowRail = frogs
+                .Where(frog => frog.Intersection.Kind == RailIntersectionKind.CrossingFrogCandidate)
+                .Select(frog =>
+                    frog.Intersection.RailA.Family == GaugeGraphFamily.Narrow
+                        && frog.Intersection.RailB.Family == GaugeGraphFamily.Standard
+                        ? frog.Intersection.RailA
+                        : frog.Intersection.RailB.Family == GaugeGraphFamily.Narrow
+                            && frog.Intersection.RailA.Family == GaugeGraphFamily.Standard
+                            ? frog.Intersection.RailB
+                            : null)
+                .FirstOrDefault(rail => rail != null);
+
             RailCenterline[] stockRails = blades
                 .Where(blade => blade.StockRail.Family == GaugeGraphFamily.Narrow)
                 .Select(blade => blade.StockRail)
+                .Concat(crossingNarrowRail != null
+                    ? new[] { crossingNarrowRail }
+                    : Array.Empty<RailCenterline>())
                 .Distinct()
                 .ToArray();
-            return stockRails
-                .Where(rail => rail.SourceRouteIds.Contains(
+
+            RailSide preferredSide = DetectSharedSide(definition) ?? RailSide.Left;
+
+            // Prefer a candidate that has a real (renderable) role over one blanked to
+            // Unknown/Suppressed, then prefer the narrow-reversed (diverging) route,
+            // then the shared side - keeping the prior tie-breaks for switches where
+            // multiple candidates are renderable.
+            static bool IsRenderableRole(RailCenterline rail) =>
+                rail.Role != RailRole.Unknown && rail.Role != RailRole.SuppressedRail;
+
+            RailCenterline? resolved = stockRails
+                .OrderBy(rail => IsRenderableRole(rail) ? 0 : 1)
+                .ThenBy(rail => rail.SourceRouteIds.Contains(
                     "narrow-reversed",
-                    StringComparer.OrdinalIgnoreCase))
-                .OrderBy(rail => rail.Side == RailSide.Left ? 0 : 1)
-                .FirstOrDefault()
-                ?? stockRails.FirstOrDefault();
+                    StringComparer.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(rail => rail.Side == preferredSide ? 0 : 1)
+                .FirstOrDefault();
+
+            // Diagnostic (2026-07-07/08): logs every candidate's id/side/routes/role,
+            // the crossing-frog-derived narrow rail, the preferred side, and which
+            // one won, so a live test confirms the resolution without a source dive.
+            Main.Log(
+                $"[DivergingFixedRail] node={definition.Id} preferredSide={preferredSide} " +
+                $"crossingNarrowRail={(crossingNarrowRail == null ? "<none>" : $"{crossingNarrowRail.Id}(role={crossingNarrowRail.Role})")} candidates=[" +
+                string.Join(
+                    "; ",
+                    stockRails.Select(rail =>
+                        $"{rail.Id}(side={rail.Side},role={rail.Role},routes={string.Join(",", rail.SourceRouteIds)})")) +
+                $"] resolved={(resolved == null ? "<none>" : $"{resolved.Id}(role={resolved.Role})")}");
+
+            return resolved;
         }
 
         private static IEnumerable<string> ValidateSuppressionCoverage(
@@ -3661,8 +3923,28 @@ namespace NarrowGaugeMod
             float tipDistance = movableCurve.DistanceTo(switchPoint);
             Vector3 tipPoint = movableCurve.LinePointAtDistance(tipDistance).point;
             float stockTip = stockCurve.DistanceTo(tipPoint);
-            if (Vector3.Distance(tipPoint, stockCurve.LinePointAtDistance(stockTip).point)
-                > Parameters.RailHeadWidth + Parameters.BladeDivergenceThreshold)
+            float tipToStockSeparation = Vector3.Distance(
+                tipPoint,
+                stockCurve.LinePointAtDistance(stockTip).point);
+
+            // Diagnostic only (2026-07-08): user reports NCustom_p997 is missing its
+            // narrow blade (truth table DualGauge_BothDiverge_LeftHand defines
+            // "NarrowReversedRight", movable=narrow-reversed:right,
+            // stock=narrow-normal:right - absent from the final [Blades] export).
+            // This early-exit is the only place in BuildDualNarrowBranchBlades that
+            // can silently drop a blade spec with no logged reason. Logs the actual
+            // separation vs tolerance for every call so a failing case can be
+            // compared directly against a switch where the same-shaped blade
+            // succeeds (e.g. NCustom_fc97, same truth table, blade present).
+            Main.Log(
+                $"[BladeDistanceCheck] movable={movable.Id} stock={stock.Id} " +
+                $"switchPoint={switchPoint} tipDistance={tipDistance:0.000} " +
+                $"tipPoint={tipPoint} stockTip={stockTip:0.000} " +
+                $"separation={tipToStockSeparation:0.000} " +
+                $"tolerance={(Parameters.RailHeadWidth + Parameters.BladeDivergenceThreshold):0.000} " +
+                $"passed={tipToStockSeparation <= Parameters.RailHeadWidth + Parameters.BladeDivergenceThreshold}");
+
+            if (tipToStockSeparation > Parameters.RailHeadWidth + Parameters.BladeDivergenceThreshold)
             {
                 tip = tipDistance;
                 root = tipDistance;

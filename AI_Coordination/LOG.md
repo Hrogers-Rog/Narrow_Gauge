@@ -2084,3 +2084,592 @@ next manual test should confirm `valid=True` is restored for both switches,
 and assess how the reintroduced extra-blade cosmetic issue looks for these
 two specifically (expected to be a smaller problem than losing all measured
 geometry, but not yet visually confirmed).
+
+### [Claude] 2026-07-07 (evening, third turn) — found and fixed the `ResolveDivergingFixedStockRail` hand bug via EF&A pack cross-reference, no game launch needed
+
+User supplied two new pieces of evidence outside the live save: a hand-built
+test save (`Mods.Personal\narrow_gauge test`) with 8 confirmed-working
+narrow gauge switches, and the `EFA Track Pack` mod
+(`Mods\EFA Track Pack\game-graph.json`) that the live save `2026-06-25` is
+built on top of. Walked through both interactively with the user (node
+triples, then two screenshots - one of a clean working switch at
+`NCustom_5f81` in the test save, one of a tangled/broken switch at the live
+save's `NCustom_7n90`, described as "the opposite turnout direction of
+Nove").
+
+Key move: `NCustom_vdlt`, `N178`, and `NCustom_g832` (three of the five
+"narrow-branch group" nodes from prior entries) turned out to be literal
+EF&A-authored nodes, not just similarly named - their exact geometry is
+sitting in `EFA Track Pack\game-graph.json` as plain JSON, no game launch
+required. Parsed it (PowerShell `ConvertFrom-Json`) and found `vdlt`/`N178`
+are both `DualGauge_L` (and `flipSwitchStand: false`), while `g832` is
+`DualGauge_R` (and `flipSwitchStand: true` - the original author's own
+mirrored-hand correction). `g832` is exactly the one that's `valid=False`.
+
+Traced this to a real bug, not a guess: `ResolveDivergingFixedStockRail`
+(`SectionedSpecialWorkBuilder.cs`, added as diagnostic-only earlier this
+session) picked its candidate stock rail via
+`.OrderBy(rail => rail.Side == RailSide.Left ? 0 : 1)` - hardcoded to
+prefer `RailSide.Left` regardless of the switch's actual shared side.
+`BuildNarrowRailsFromStandardCenterline` only gives the renderable
+geometry to whichever `RailSide` matches `DetectSharedSide(definition)`
+(`Left` for `DualGauge_L`, `Right` for `DualGauge_R`) - the other side is a
+synthetic non-renderable "third rail." So the hardcoded `Left` preference
+coincidentally worked for `DualGauge_L` switches and picked the wrong,
+non-renderable candidate for `DualGauge_R` ones - exactly matching
+`g832`'s "no renderable role sections" failure and the user's
+"opposite direction" framing of `NCustom_7n90`.
+
+Fix: compute `preferredSide = DetectSharedSide(definition) ?? RailSide.Left`
+and order by `rail.Side == preferredSide` instead of the hardcoded check.
+Added `preferredSide` to the existing `[DivergingFixedRail]` diagnostic log
+line. Full evidence trail in
+`reviews/diverging-fixed-stock-rail-hand-bug-2026-07-07.md`.
+
+Built and deployed (`-p:EnableModDeploy=true`): 0 warnings, 0 errors. Not
+yet live-verified - next manual load should check `[DivergingFixedRail]`
+shows `preferredSide=Right` and a renderable resolution for
+`NCustom_g832`/`NCustom_7n90`, both switches report `valid=True`, and
+`NCustom_7n90`'s close-up no longer shows the overlapping rail tangle. The
+fallback path's one-blade filter (still reverted to "yield both
+candidates") likely needs the same hand-aware treatment once this is
+confirmed - noted as a caveat in the review doc, not attempted this turn.
+
+### [Claude] 2026-07-07 (evening, fourth turn) — new report: every frog candidate off by a track-width; added targeted diagnostic logging after static tracing came up empty
+
+User live-reloaded with the `ResolveDivergingFixedStockRail` fix and
+confirmed `NCustom_7n90` still shows the tangled rail mess at the throat -
+expected, since that fix only addressed plan validity, not the fallback
+path's known-reverted one-blade filter (still open, see prior entry).
+Digging into that tangle surfaced a broader, separate report: **every frog
+candidate looks shifted left or right by roughly a full track-width**, not
+railhead-width as initially described. Confirmed via a debug-overlay
+screenshot of a `CrossingFrogCandidate` (`standard-reversed:left x
+narrow-normal:left`, 4.7°).
+
+Traced several candidates via static reading and ruled each out without
+finding the actual bug:
+
+- `TryBuildLocalCrossingGuard`'s K-frog-specific `∓RailHeadWidth` guard
+  nudge (added `bc370b4`, Jun 28, explicitly to fix this same symptom
+  before) - user confirmed via the debug overlay it's not the guard rail.
+- `BuildFrogPieces` skips `CrossingFrogCandidate` entirely (nose piece only
+  built for `VeeFrogCandidate`) - for this crossing type, wing rails are
+  the only gap-filling pieces, so checked `BuildWingRails`' crossing branch
+  too - symmetric formula, no directional bias found.
+- `BuildNarrowRailsFromStandardCenterline`'s shared/third-rail offset math
+  checked out algebraically (`ThirdRailGaugeInside = 2×0.9144 -
+  Gauge.Standard.Inside` correctly derives the offset from the actual gauge
+  difference between standard and narrow).
+- Confirmed via the decompiled base game `Core/LineCurve.cs` that
+  `Parallel(offset, hand)`'s `hand` parameter is inert metadata - offset
+  direction is purely the sign of the `offset` argument, so no hidden
+  double-negation from combining a negative offset with `Hand.Left`/`Right`.
+- Rail intersections come from real geometric crossing of the actual
+  rendered rail curves (`TryProperIntersection`), not idealized
+  centerlines - confirmed the `CrossingFrogCandidate`/`VeeFrogCandidate`
+  classification logic (`RailIntersectionPrototype.cs`) pairs same-`Side`
+  rails for crossings, which is the physically correct pairing at a
+  shallow angle.
+- Frog cut-length math (`cutHalfLength`, `railHeadSetback`, `headMargin`)
+  is symmetric around the intersection point, no directional bias found.
+
+None of that surfaced the bug. Per this session's standing rule (static
+reasoning on this file has repeatedly been wrong even when it looks correct
+on paper), stopped guessing further and added **2 targeted diagnostic log
+lines** instead of a broad trace, tagged `[NarrowRailBuild]`, in
+`BuildPhysicalRails`/`BuildNarrowRailsFromStandardCenterline`
+(`SectionedSpecialWorkBuilder.cs` ~300-330): one per narrow route logging
+`sharedSide`, which standard route got matched as the pair (or `<none>` -
+would mean it silently fell through to the wrong offset path), and the
+distance between their centerlines (large = wrong route matched); one per
+built rail logging its resolved `RailSide` and head position. Deliberately
+kept minimal rather than instrumenting the whole pipeline - designed to
+distinguish "wrong `sharedSide`" from "wrong standard route matched" from
+"something else" in one reload, cross-referenced against the existing
+`[FrogAccepted]` log. No behavior change - diagnostic only.
+
+Built and deployed (`-p:EnableModDeploy=true`): 0 warnings, 0 errors. Not
+yet live-verified - next manual load should grep `Player.log` for
+`[NarrowRailBuild]` and `[FrogAccepted]` together and report back before
+any fix is attempted.
+
+### [Claude] 2026-07-07 (evening, fourth turn continued) — found and fixed the real root cause of the track-width offset: FindMatchingStandardRoute never matches for the whole narrow-branch-joins-main preset
+
+User reloaded with the `[NarrowRailBuild]` diagnostic deployed and pasted
+back `Player.log`; read it directly (no game launch by the agent).
+
+Every `dual.narrow-branch-joins-main` node - `N178`, `NCustom_7n90`,
+`NCustom_g832`, `NCustom_vdlt`, `Nove`, i.e. the entire "narrow-branch
+group" this whole session has been chasing - showed
+`[NarrowRailBuild] ... standardPair=<none>`. The `dual.both-diverge` group
+logged later in the same run all showed real matches
+(`standardPair=standard-normal`/`standard-reversed`, `centerlineGap` 0.087
+to 0.260, i.e. genuinely close). `FindMatchingStandardRoute`
+(`SectionedSpecialWorkBuilder.cs:364-376`) guesses the paired standard
+route id by swapping the narrow route's own `-normal`/`-reversed` suffix
+onto `"standard"` - correct for both-diverge (both gauges independently
+switch, so those routes exist) but wrong for narrow-branch-joins-main,
+where the standard side is a single fixed route literally named
+`"standard-through"` (confirmed in `SpecialWorkRuntimeDiscovery.cs:158,237`,
+also used by `TryBuildDualSplitTransition`). The suffix guess never
+matches there, so every node in the preset silently fell through to
+`BuildPhysicalRails`' generic branch - building the narrow route's own
+gauge-width rails around its own centerline instead of the real shared
+standard rail. This is the actual root cause of "every frog candidate off
+by a track-width," and it's systemic to the whole preset, not situational.
+
+Notably this coexists with, rather than contradicts, this turn's earlier
+`ResolveDivergingFixedStockRail` hand fix: the same log shows
+`NCustom_7n90` now `valid=True, blades=2` - genuinely improved by that fix
+- while its narrow rails were still built on the wrong centerline the
+entire time. `valid=True` only checks role/coverage bookkeeping, not
+geometric position, so a plan can pass validation while still being
+visually wrong. Reinforces the standing rule: a clean log is not proof,
+screenshots are still required.
+
+Also confirmed in the same log: `NCustom_g832` remains `valid=False`, but
+for a distinct, narrower reason now visible in the log - it has only one
+stock-rail candidate (`narrow-normal:right`, `role=Unknown`), so the
+hand-preference fix doesn't apply there at all. Separate, not yet
+investigated bug.
+
+Fix: `FindMatchingStandardRoute` now falls back to a route literally named
+`"standard-through"` (Standard family) when the suffix guess finds
+nothing. Checked `"standard-through"` isn't used by any other preset in a
+conflicting way - it's used only by `TryBuildDualSplitTransition` and
+`TryBuildNarrowBranchTransition`, both of which have exactly this
+"one fixed standard route, narrow side switches" shape. Full evidence and
+caveats: `reviews/narrow-branch-standard-pair-fallback-2026-07-07.md`.
+
+Built and deployed (`-p:EnableModDeploy=true`): 0 warnings, 0 errors. Not
+yet live-verified with screenshots - this is the largest-impact fix of the
+session (affects every node in the preset, not one), so needs the same
+`[NarrowRailBuild]` re-check plus actual close-up screenshots before
+calling it done.
+
+### [Claude] 2026-07-07 (evening, fourth turn continued) — REVERTED the standard-through fallback: confirmed regression, not a fix
+
+User reloaded immediately with the fallback fix deployed and reported "nope
+didn't fix it." Read the fresh `Player.log` directly. It was worse than "no
+change" - a real regression: **all five** `dual.narrow-branch-joins-main`
+nodes (`N178`, `NCustom_7n90`, `NCustom_g832`, `NCustom_vdlt`, `Nove`) now
+showed `frogs=0, wings=0, guards=0` (previously `frogs=1-3, wings=2-8,
+guards=2-7`), and `N178`/`NCustom_7n90`/`NCustom_vdlt`/`Nove` all flipped
+from `valid=True` to `valid=False`. Only `NCustom_g832` stayed `valid=True`
+(but still `frogs=0`, so still visibly broken).
+
+The same `[NarrowRailBuild]` diagnostic explained why without needing
+another round-trip: `centerlineGap` (distance between the narrow route's
+and `"standard-through"`'s `Centerline.Head` points) was `55.971`,
+`105.000`, and `16.963` meters for four of the five nodes - i.e.
+`"standard-through"` is nowhere near the narrow route for most of this
+preset's instances. Only `g832` had a small gap (`0.260`) and,
+correspondingly, was the only one that didn't break. Building the narrow
+rails as a `Parallel()` offset of a centerline that's tens of meters away
+(and likely a very different length) wrecked intersection-finding entirely
+rather than just leaving things geometrically off.
+
+Reverted `FindMatchingStandardRoute` to its original behavior (suffix
+match only, `null` on failure) immediately - built and deployed
+(`-p:EnableModDeploy=true`): 0 warnings, 0 errors. Updated the review doc
+(`reviews/narrow-branch-standard-pair-fallback-2026-07-07.md`) with a
+"REVERTED" section at the top documenting this rather than editing the
+original analysis out - the root-cause finding (`standardPair=<none>` for
+this whole preset) is still believed correct, only the proposed fix was
+wrong. Added "Next steps" to that doc: log `Centerline.Length` for both
+routes and compare `Tail`/`Head` combinations, not just `Head`-to-`Head`,
+since the real problem may be curve length or orientation mismatch, not
+simply "which route to match." `[NarrowRailBuild]` diagnostic logging
+itself is untouched by the revert and still deployed - it's what made
+diagnosing this regression a five-minute log read instead of another
+guessing round.
+
+This is now the second attempted fix this turn that needed a revert or
+caveat after looking well-evidenced on paper - reinforces the standing
+rule harder than ever: this file does not yield to static reasoning alone,
+even when cross-referenced against real data, and even a targeted
+diagnostic-log-driven fix still needs live confirmation before treating it
+as done.
+
+### [Claude] 2026-07-08 (continuing the same session) — user confirmed the offset is universal (every preset); ran a 3-agent parallel sweep; found a credible upstream lead, added diagnostic logging only
+
+User checked several `dual.both-diverge` switches directly and confirmed
+the same track-width frog shift there too, not just
+`dual.narrow-branch-joins-main` - ruling out `FindMatchingStandardRoute` as
+the (sole) cause, since both-diverge's route matching is confirmed correct
+(small `centerlineGap` values in the earlier log). User then asked for an
+exhaustive trace of the codebase.
+
+Launched 3 parallel read-only Explore agents rather than trace solo, each
+given full context on what was already ruled out so they wouldn't retread
+ground:
+
+1. `SectionedSpecialWorkBuilder.cs`'s frog/wing/guard construction -
+   traced all 12 `CrossingFrogCandidate` references end to end
+   (`TryResolveFrogOwnership`, `BuildWingRails`' crossing branch,
+   `BuildGuardRails`, synthetic K-frog builders,
+   `RehomeSharedDuplicateFrogRail`). Found nothing - `TryResolveFrogOwnership`
+   doesn't branch on Vee-vs-Crossing at all, and the crossing wing-rail
+   branch does a plain `Slice()` with no offset, so any shift here would
+   have to already be baked into the source `RailCenterline.Curve`.
+2. `SpecialWorkHardwareRenderer.cs`'s mesh-rendering path
+   (`CreateCrossingFrogAssembly`, `CreateGenericCrossingPoints`,
+   `CorrectMeasuredRailRenderFrame`/`NormalizeRenderFrames`). Found nothing
+   gauge-scale - every correction is railhead-scale (~0.076m). Useful
+   structural note for the record: `TryResolveNarrowBranchCrossingRails`
+   branches only on rail `Family`, not preset, so both-diverge and
+   narrow-branch-joins-main crossing frogs may render through identical
+   code when both are standard-vs-narrow pairs - would explain the
+   cross-preset symptom without needing a preset-specific code difference.
+3. `RailIntersectionPrototype.cs`/`DualGaugeSharedRailRegistry.cs`/
+   `GhostGraphSynchronizer.cs` (the code every switch/crossing goes through
+   regardless of preset). **Found a real, credible lead**:
+   `ResolvePhysicalOwner` (`RailIntersectionPrototype.cs:380-417` before
+   this turn's diagnostic addition) collapses ambiguous same-position
+   `RailCenterline` candidates - gathered via `SharedRailInterval`
+   proximity (0.045m tolerance) - down to one "physical owner" using only
+   `Family` (prefer Standard) then alphabetical `Id`. No check that the
+   winner's own curve is actually still near the intersection point, and
+   `RailSide` is never consulted even though `Side` is exactly what decides
+   `CrossingFrogCandidate` vs `VeeFrogCandidate` immediately afterward.
+   Near a frog throat, multiple candidates (standard-through,
+   narrow-through, standard-diverge, narrow-diverge) can legitimately share
+   proximity, so this ambiguity is expected specifically at frog/crossing
+   points, on every preset - matching the reported symptom shape well.
+   Secondary, lower-confidence lead from the same agent:
+   `DualGaugeSharedRailRegistry.Propagate` does first-come-wins side
+   assignment at multi-segment nodes with no reconciliation between
+   true-continuation vs. merely-touching-the-same-node segments - real gap,
+   but its magnitude (~0.26m `OffsetMagnitude`) is smaller than the
+   reported ~0.9-1.5m, so likely a contributor at most.
+
+Both downstream agents (geometry construction, rendering) independently
+concluded the bug must be upstream of their files, in how rail curves get
+positioned/identified before reaching them - which is exactly where the
+third agent's lead lives. All three findings point the same direction.
+
+**Did not implement the `ResolvePhysicalOwner` fix yet.** Per the standing
+rule (two fixes today already needed reverting despite looking
+well-evidenced on paper), added a diagnostic instead:
+`ResolvePhysicalOwner` now takes `worldPoint` and, whenever real ambiguity
+exists (`candidates.Count > 1`), logs every candidate's `Id`/`Side`/`Family`
+and its actual lateral separation from `worldPoint`, plus which one won -
+tagged `[PhysicalOwnerAmbiguity]`. Selection logic itself is untouched, no
+behavior change. This will directly show whether the chosen candidate is
+geometrically wrong (large separation) while a passed-over candidate was
+actually correct (near-zero separation) - confirming or refuting the
+hypothesis before any selection-logic change is attempted.
+
+Built and deployed (`-p:EnableModDeploy=true`): 0 warnings, 0 errors. Not
+yet live-verified - next reload should grep `Player.log` for
+`[PhysicalOwnerAmbiguity]` and report back.
+
+### [Claude] 2026-07-08 (continuing same session) — [PhysicalOwnerAmbiguity] refuted; switched to the mod's lightweight plan-export files; found a strong role-assignment lead
+
+User reloaded with `[PhysicalOwnerAmbiguity]` deployed: refuted. Every
+logged ambiguity showed both candidates within 0.001-0.006m of the true
+intersection point, including the chosen one - `ResolvePhysicalOwner` was
+not picking a distant/wrong rail, both candidates genuinely coincide there
+(a real shared-rail point). Also checked `[FrogOwner]` (duplicate-frog
+rehome/collapse mechanism, from prior-session history) - only 3 lines fired
+in the whole log, far too rare to be "every double frog on the map."
+
+User reported the live debug overlay/`ShowSpecialWorkDebug` and the live
+adjustment panel are both effectively unusable for them (panel hangs on
+open, debug rendering is resource-intensive enough to near-lock the game).
+Pointed them at a lighter existing option instead: the mod's "Export
+measured 2D special-work plans" button (`Main.cs:157-168`, calls
+`SpecialWorkPlanExporter.ExportAll()`) - a one-time action, not a
+continuous debug render, writes `special-work_<node>.svg`/`.txt` per
+switch to `%userprofile%\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans\`.
+User clicked it; read the results directly.
+
+`special-work_NCustom_fc97.txt` and `special-work_NCustom_l4a4.txt` (both
+`dual.both-diverge`, neither near any other switch's known issues) both
+show the same pattern: `narrow-normal:left` and `narrow-reversed:left`
+have `role=Unknown`, every one of their `[RailRoleSections]` intervals is
+`SuppressedRail` across the entire work length, while the `:right` side of
+each gets a proper role (`SharedRail`/`ClosureRail`).
+
+Traced this: `ApplySections` (`SectionedSpecialWorkBuilder.cs:3679-3692`)
+sets a rail's overall `.Role` to `Unknown` when every section on it is
+`SuppressedRail`. `ResolveRole` (`SectionedSpecialWorkBuilder.cs:2292-2329`)
+checks `suppressions` **before** the real geometric shared-rail check
+(`IsSharedOwnerAt`) - so once a rail is suppressed for its whole length, it
+can never be classified `SharedRail` even if it genuinely is the shared
+rail. `SuppressDualBothDivergeFrogDuplicate`
+(`SectionedSpecialWorkBuilder.cs:2095-2152`, only touches `narrow-normal`,
+tag `dual-both-diverge:vee-frog-shared-duplicate`) picks which side to
+suppress via its own `DetectSharedSide(definition)` call. Its own comment
+already documents a prior fix attempt for hand-awareness here.
+
+The proof this is still wrong: `narrow-normal:right` independently ends up
+`role=SharedRail` via the real geometric check, which is only possible if
+`BuildPhysicalRails`' own `DetectSharedSide(definition)` call (same
+function, same `definition`, earlier in the same build) built `right` as
+the true shared curve. Yet `SuppressDualBothDivergeFrogDuplicate` suppresses
+`left` instead - meaning its `DetectSharedSide` call disagrees with
+`BuildPhysicalRails`' call, for the identical pure function and the
+identical input, within the same build pass. That shouldn't be possible for
+a genuinely pure function - either real non-determinism in
+`DualGaugeSharedRailRegistry`'s underlying state, or something not yet
+understood.
+
+Did not fix blindly (same discipline as every other lead today - two
+confirmed regressions already this session from solid-looking static
+fixes). Added `[SharedSideCheck]` diagnostic logs at both call sites
+(`BuildPhysicalRails` ~line 296, `SuppressDualBothDivergeFrogDuplicate`
+~line 2135), printing `node=<id> site=<caller> sharedSide=<value>` - if
+they disagree for the same node in the log, that's confirmed proof and
+tells us exactly where to look next. Built and deployed: 0 warnings, 0
+errors.
+
+Flagged for whoever picks this up: if confirmed, this looks like the real
+root cause of the whole "every double frog on the map is off by a
+track-width" report from earlier - an unconditionally-blanked (not just
+offset) narrow rail at every both-diverge switch would explain
+inconsistent/tangled-looking crossings, matching the screenshots shown
+this session. `dual.narrow-branch-joins-main` doesn't call this exact
+function (guarded by `IsDualBothDivergePreset`), so worth checking
+separately whether it has an analogous issue once this is confirmed for
+both-diverge.
+
+### [Claude] 2026-07-08 (continuing same session) — user pivoted to fine-tune-per-switch strategy; found and fixed a real, well-evidenced bug in BuildNarrowBranchStockHandoff
+
+User decided against continuing to chase the `[SharedSideCheck]`
+disagreement as a systemic fix, and against the live adjustment panel
+(hangs on open) - opted to fine-tune/verify switches individually via code
+changes confirmed by build+load instead. Started with `NCustom_p997`.
+
+First checked ground truth for `p997` directly from `EFA Track Pack`'s
+`game-graph.json`: all three of its connecting segments are tagged
+`DualGauge_R`, unambiguously - so unlike the earlier `[SharedSideCheck]`
+concern, there's no possible disagreement between call sites for this node
+specifically (nothing to disagree about). Its `Right=Unknown,
+Left=FixedRunningRail` narrow-rail pattern may not even be a bug the same
+way `fc97`/`l4a4`'s was - flagged this nuance to the user before assuming.
+
+User then supplied a concrete screenshot: a debug label reading
+`CrossingFrog-2-ContinuousStockHandoff`, "needs to move to the left to be
+in line with the left narrow diverge track." Confirmed via
+`special-work_NCustom_p997.txt` this maps to `p997`'s one
+`CrossingFrogCandidate` (`v2-frog:1`, `standard-normal:left x
+narrow-reversed:left`) - the shared `frogIndex` counter in
+`SpecialWorkHardwareRenderer.cs`'s piece-creation loop (DoubleVeeFrog →
+VeeFrog → CrossingFrog, all incrementing the same counter) lands on 2
+because p997 has exactly 2 `VeeFrogCandidate` frogs rendered first.
+
+Root cause: `BuildNarrowBranchStockHandoff`
+(`SpecialWorkHardwareRenderer.cs:2804-2848` - builds the
+"ContinuousStockHandoff" piece for any standard-vs-narrow crossing frog,
+used across every preset, not p997-specific) builds a kinked line whose
+`Head` is a point on the standard rail and `Tail` a point on the narrow
+rail, then picks between two candidate lateral offsets
+(`+-Gauge.Standard.HeadWidth`) by checking which one lands closer to two
+reference points. Both reference points (`stdBefore` and a
+misleadingly-named `stdAfter`) were sampled from `standardRail.Curve` -
+meaning the `Tail` (narrow-side) endpoint was being validated against a
+point on the *standard* rail, not the narrow one. The offset pick had zero
+signal about whether the narrow end was actually correct - it optimized
+purely for the standard side. Matches the report exactly: standard end
+fine, narrow end needs to shift.
+
+Fixed: renamed the second sample point to `nrwAfter` and sourced it from
+`narrowRail.Curve` (using `narrowDistance`) instead of `standardRail.Curve`.
+Left a comment explaining the Head/Tail correspondence so this doesn't
+regress silently again. Built and deployed (`-p:EnableModDeploy=true`): 0
+warnings, 0 errors.
+
+**Not yet live-verified.** This is potentially the actual root cause of
+the whole-session "every double frog off by a track-width" report, since
+this function is used by every preset's standard/narrow crossing frogs,
+not just p997's - but per the standing rule, wait for confirmation on the
+one concrete report (p997's `CrossingFrog-2-ContinuousStockHandoff`) before
+treating it as fixed everywhere.
+
+### [Claude] 2026-07-08 (continuing same session) — first fix had zero effect; two more iterations on BuildNarrowBranchStockHandoff
+
+User reloaded: no visible change. Reasoned through why - `positiveToRef`/
+`negativeToRef` both used `Mathf.Min()` across the standard-side (`Head`)
+and narrow-side (`Tail`) distance checks. Since the standard end is
+reliably well-anchored (confirmed by every report so far - "standard end
+looks fine"), `Min()` always picked up that small distance regardless of
+what the narrow-side term said, so the previous turn's fix (correctly
+sourcing the narrow reference point) never actually influenced the
+outcome - silently a no-op. Changed `Min` to `Max` so the pick would
+reflect the worse-fitting end, not just whichever was already close. Built
+and deployed.
+
+User reloaded again and gave a much more precise, repeated signal this
+time: the piece needs to move left by exactly **one railhead width**, and
+**the same fixed amount on every switch** - not a per-switch geometric
+difference at all. That uniformity ruled out both prior attempts at once:
+a fixed, universal offset means neither `+HeadWidth` nor `-HeadWidth` (the
+two candidates being picked between, regardless of which selection logic
+chose them) was ever the correct answer - both are wrong by the same
+one-railhead-width amount in opposite directions from the true position.
+Confirmed `PointAtSignedOffset` (`SpecialWorkHardwareRenderer.cs:3146-3153`)
+moves along the curve, not laterally, so `standardStockBoundary`/
+`narrowStockBoundary` are already real points on their own rails - meaning
+the raw `BuildKinkedHandoff(...)` result needs no additional lateral
+correction at all.
+
+Simplified `BuildNarrowBranchStockHandoff` to return the raw `handoff`
+curve directly - removed the entire `+-Gauge.Standard.HeadWidth`
+pick-between-two-candidates logic (both the original code and both of
+today's attempted refinements). Built and deployed
+(`-p:EnableModDeploy=true`): 0 warnings, 0 errors. User separately
+confirmed (while this was in progress) that it's specifically the
+**narrow-gauge side** of the continuous frog that's off, on every double
+frog, consistent with the `Tail`/narrow end of this function being the
+affected side all along.
+
+### [Claude] 2026-07-08 (continuing same session) — CONFIRMED LIVE: narrow-side continuous-frog offset fixed
+
+User reloaded and confirmed: "Wait that fixed it..." The third iteration
+of `BuildNarrowBranchStockHandoff` (raw, unshifted `handoff` curve, no
+`+-Gauge.Standard.HeadWidth` pick at all) resolved the narrow-gauge-side
+offset on the continuous stock handoff piece at `NCustom_p997`.
+
+This is very likely the actual root cause of the entire session-long
+"every double frog on the map is off by [a railhead width / a track
+width]" thread that started many turns ago with a debug-overlay screenshot
+and went through several other real-but-not-the-answer leads first:
+`TryBuildLocalCrossingGuard`'s K-frog guard nudge (ruled out via debug
+overlay), `ResolvePhysicalOwner`'s tie-break (ruled out via
+`[PhysicalOwnerAmbiguity]` - real candidates, no wrong pick),
+`FindMatchingStandardRoute`'s route-matching gap (real bug, but a
+different one, affects `dual.narrow-branch-joins-main` route/centerline
+matching, not this), `SuppressDualBothDivergeFrogDuplicate`'s
+`[SharedSideCheck]` disagreement (real anomaly, still unexplained, but not
+this bug either - see below). The eventual answer was much simpler than
+any of those: one rendering function, used by every preset's
+standard-vs-narrow crossing frogs, applying a fixed, wrong lateral
+correction to only one end of a piece that didn't need any correction at
+all.
+
+**Confirmed on `NCustom_p997` only so far.** Since
+`BuildNarrowBranchStockHandoff` is shared across presets (not
+`p997`-specific, not even `dual.both-diverge`-specific -
+`TryResolveNarrowBranchCrossingRails` branches only on rail `Family`), the
+fix should generalize, but per the standing rule established hard this
+session, don't claim it's fixed everywhere without spot-checking a few
+more of the switches that have a `CrossingFrogCandidate`: `NCustom_7n90`,
+`NCustom_fc97`, `NCustom_g832`, `NCustom_l4a4`, `NCustom_ltci`,
+`NCustom_vdlt`, `Npv2`.
+
+**Still open, not addressed by this fix, tracked separately:**
+- `[SharedSideCheck]` disagreement between `BuildPhysicalRails` and
+  `SuppressDualBothDivergeFrogDuplicate`'s `DetectSharedSide(definition)`
+  calls for the same node/definition, found via `p997`'s and other
+  both-diverge exports showing `narrow-normal:left`/`narrow-reversed:left`
+  entirely `role=Unknown`/suppressed. Not yet explained - diagnostic still
+  deployed, not yet checked against a fresh log.
+- `NCustom_g832`'s separate `role=Unknown` single-stock-rail-candidate
+  issue (unrelated to today's fixes).
+- The fallback path's reverted one-blade filter
+  (`SectionedSpecialWorkBuilder.cs:803-815`) - `NCustom_7n90`'s
+  overlapping-rail-tangle cosmetic issue.
+- `NCustom_ltci`/`SCustom_ttpp` ownership-boundary overlap with `g832`.
+
+### [Claude] 2026-07-08 (continuing same session) — DeduplicateBlades fix reverted on request; found and fixed the real root cause via user's precise geometric description
+
+User rejected the `DeduplicateBlades` gauge-family fix immediately after
+deploy, before any live-test result - reverted on request (built/deployed,
+0 warnings/errors) without arguing the theory, since something about it was
+apparently wrong even if the diagnosis had real evidence behind it.
+
+User then gave an exact physical description, twice, insisting on being
+heard precisely: on `NCustom_p997`, `narrow-reversed:left` (`Fixed-14`)
+should run continuously from the frog through the switch stand to the end
+of the node (the **stock** rail), and `narrow-normal:left` (`Fixed-12`)
+should run from the wing rail and become a **blade** near the switch
+stand, closing against `Fixed-14` (the **movable** rail). That's backwards
+from the `DualGauge_BothDiverge_LeftHand` truth table's hardcoded
+`movableRouteId: narrow-reversed, movableSide: Right` on both axes - wrong
+route (normal vs reversed) and wrong side (left vs right).
+
+Traced this precisely, not guessed: `TryBuildSwitchRoutes`
+(`SpecialWorkRuntimeDiscovery.cs:493-510`) calls the base game's
+`Graph.DecodeSwitchAt` (read the decompiled implementation, `Graph.cs:462-502`)
+to label a switch's two outgoing routes "normal"/"reversed" - it picks
+purely by which segment comes first in `SegmentsConnectedTo`'s list order,
+no geometry or angle comparison anywhere in it. This mod calls it twice per
+both-diverge switch, completely independently: once on the real standard
+node, once on the synthesized narrow ghost node. Nothing ties the two
+calls' results together - when the two independent list orderings happen
+to agree, narrow's hand matches standard's (`fc97`, confirmed working);
+when they don't, narrow's normal/reversed and left/right come out mirrored
+relative to standard's, while the standard-side blades stay correct
+throughout (matches every report exactly - the user never once flagged the
+standard blades as wrong).
+
+Verified this against p997's own raw frog data before writing any code:
+both of its real accepted frogs (`v2-frog:1` crossing, `v2-frog:2` vee)
+involve only `narrow-normal:left`/`narrow-reversed:left` - never the `:right`
+side the truth table assumes. Confirmed the fix target with the user
+explicitly before implementing, given how much reverting happened earlier
+in this same thread.
+
+Fixed `BuildBladeSpecs`'s truth-table branch
+(`SectionedSpecialWorkBuilder.cs:795-895`), scoped tightly to
+`dual.both-diverge` via `IsDualBothDivergePreset` so it cannot touch
+`dual.narrow-branch-joins-main`'s already-confirmed-working blade logic at
+all. For a narrow-family blade, checks whether the truth table's assumed
+`(movableRouteId, movableSide)` actually participates in one of this
+switch's own real, measured accepted frogs
+(`VeeFrogCandidate`/`CrossingFrogCandidate` intersections, via two new
+local functions `ParticipatesInAcceptedFrog`/`MirrorNarrowRouteId`/
+`MirrorSide`). If the assumed pairing doesn't participate in a real frog
+but the fully mirrored one (route and side both flipped) does, uses the
+mirrored pairing instead, logged as `[BladeSpecs] Mirroring narrow blade
+...`. This verifies against real per-switch geometry rather than hardcoding
+an override list, so it should self-correct for both hand outcomes without
+needing to enumerate every affected node by id.
+
+Built and deployed (`-p:EnableModDeploy=true`): 0 warnings, 0 errors. Not
+yet live-verified - next reload should confirm `p997`/`ltci`/
+`NDeHartPassing_wqbb` show `blades=3` with the narrow blade correctly on
+the `:left` rails, and that `fc97`/`l4a4`/`Npv2`/`u6n0` are unaffected
+(mirror condition shouldn't fire for switches whose assumed assignment
+already matches a real frog).
+
+### [Codex] 2026-07-09 19:34 - Fix G832's missing right blade and uncut narrow through rail
+
+Read the full coordination state and the fresh 2026-07-09 `Player.log` after
+the user reported that G832 had the correct left blade/frogs but no right
+blade, with a full-length narrow through rail rendering over the correct
+hardware. The live log made both causes concrete.
+
+G832 selected `DualGauge_NarrowBranch_Left` (two blade entries), then the
+new crossing-frog correction rewrote `NarrowPointBlade` from the right-side
+pair onto the left-side pair. The existing shared-side one-blade filter then
+discarded `NarrowStraightPointBlade`, which already described that left-side
+pair, leaving `blades=1`. Fixed this anatomically: truth-matched narrow-branch
+layouts with an accepted standard x narrow crossing keep the table's complete
+complementary left/right blade set; the crossing-derived rewrite remains for
+`dual.both-diverge`, whose truth table has a single narrow blade to correct.
+The no-crossing narrow-branch one-blade path used by N178/Nove and 7n90's
+measured fallback are unchanged.
+
+For the overlaid rail, G832's current ownership log showed claims on
+`SCustom_snvo`/`SCustom_6wx3` only from `standard-through`, never
+`narrow-normal`. The narrow routes identify those same physical dual-gauge
+segments by their deterministic ghost ids (`fuse-ng:s:<source>`), so the
+source-route ownership filter excluded the narrow work intervals and left the
+ordinary visible third rail uncut. Updated `OwnershipCuts` to consider the
+authored dual-gauge id and its ghost counterpart the same physical source
+corridor for route eligibility. This keeps the route-boundary filter rather
+than reopening it globally.
+
+Documented evidence, scope, and manual checks in
+`reviews/g832-blade-and-through-rail-2026-07-09.md`. The worktree already
+contained Claude's preceding uncommitted special-work changes and diagnostics;
+preserved them and verified the complete combined state. Built and deployed
+with `dotnet build .\NarrowGaugeMod.csproj
+-p:RailroaderDir="C:\Steam\steamapps\common\Railroader"
+-p:EnableModDeploy=true`: 0 warnings, 0 errors. Built/deployed DLL timestamp
+2026-07-09 19:34:25, size 734,720 bytes. Per the standing rule, did not launch
+or drive Railroader. Next is a full game restart and manual G832/vdlt check,
+then Claude review of the actual diff.

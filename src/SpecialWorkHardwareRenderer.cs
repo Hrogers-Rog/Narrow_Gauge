@@ -222,17 +222,28 @@ namespace NarrowGaugeMod
             LineCurve worldVisibleRail,
             TrackSegment sourceSegment)
         {
+            var physicalSourceSegmentIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                sourceSegment.id
+            };
+            if (NarrowGaugeManager.IsDualGauge(sourceSegment))
+            {
+                // A narrow logical route traverses the generated ghost segment while
+                // the visible three-rail mesh belongs to the authored dual-gauge
+                // source segment. They are two graph ids for one physical corridor.
+                // Excluding the ghost id here left the ordinary third rail uncut over
+                // measured narrow blades/frogs (first confirmed on NCustom_g832).
+                physicalSourceSegmentIds.Add(
+                    GhostGraphSynchronizer.GetGhostSegmentId(sourceSegment.id));
+            }
+
             foreach (SpecialWorkAnalysis analysis in SpecialWorkRuntimeRegistry.Analyses.Where(item =>
                 item.MeshPlan?.IsValid == true
                 && item.Definition.Routes.Any(route =>
-                    route.SourceSegmentIds.Contains(
-                        sourceSegment.id,
-                        StringComparer.OrdinalIgnoreCase))))
+                    route.SourceSegmentIds.Any(physicalSourceSegmentIds.Contains))))
             {
                 HashSet<string> sourceRouteIds = analysis.Definition.Routes
-                    .Where(route => route.SourceSegmentIds.Contains(
-                        sourceSegment.id,
-                        StringComparer.OrdinalIgnoreCase))
+                    .Where(route => route.SourceSegmentIds.Any(physicalSourceSegmentIds.Contains))
                     .Select(route => route.Id)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
                 IEnumerable<RailWorkInterval> ownedIntervals = analysis.MeshPlan!.WorkIntervals
@@ -2832,19 +2843,22 @@ namespace NarrowGaugeMod
                 standardStockBoundary,
                 narrowStockBoundary,
                 frog.Intersection.Position);
-            LineCurve positive = handoff.Parallel(Gauge.Standard.HeadWidth);
-            LineCurve negative = handoff.Parallel(-Gauge.Standard.HeadWidth);
-            Vector3 stdBefore = standardRail.Curve.LinePointAtDistance(
-                Mathf.Max(0f, standardDistance - frog.CutHalfLength * 1.5f)).point;
-            Vector3 stdAfter = standardRail.Curve.LinePointAtDistance(
-                Mathf.Min(standardRail.Curve.Length, standardDistance + frog.CutHalfLength * 1.5f)).point;
-            float positiveToStd = Mathf.Min(
-                Vector3.Distance(positive.Head.point, stdBefore),
-                Vector3.Distance(positive.Tail.point, stdAfter));
-            float negativeToStd = Mathf.Min(
-                Vector3.Distance(negative.Head.point, stdBefore),
-                Vector3.Distance(negative.Tail.point, stdAfter));
-            return positiveToStd <= negativeToStd ? positive : negative;
+
+            // Previously picked between handoff.Parallel(+-Gauge.Standard.HeadWidth)
+            // via a closest-to-reference heuristic (first comparing both ends against
+            // standardRail only, then against each end's own rail, then by worst-case
+            // instead of best-case) - none of those actually fixed the reported
+            // offset. User confirmed live, repeatedly, and across every switch: the
+            // piece needs to move left by exactly one railhead width, by the same
+            // fixed amount every time - not a per-switch geometric decision at all.
+            // That means neither +HeadWidth nor -HeadWidth was ever the correct
+            // answer - both are wrong by the same one-railhead-width amount in
+            // opposite directions from the true position, which is the unshifted
+            // handoff curve itself (standardStockBoundary/narrowStockBoundary are
+            // already real points on their own rails - see PointAtSignedOffset,
+            // which moves along the curve, not laterally - so the raw kinked line
+            // between them needs no additional lateral correction at all).
+            return handoff;
         }
 
         private static float CrossingPointSetback(FrogCandidate frog)

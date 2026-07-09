@@ -301,12 +301,14 @@ namespace NarrowGaugeMod
                                 railA,
                                 localPoint,
                                 rails,
-                                shared);
+                                shared,
+                                worldPoint);
                             RailCenterline physicalRailB = ResolvePhysicalOwner(
                                 railB,
                                 localPoint,
                                 rails,
-                                shared);
+                                shared,
+                                worldPoint);
                             if (physicalRailA == physicalRailB)
                             {
                                 continue;
@@ -381,7 +383,8 @@ namespace NarrowGaugeMod
             RailCenterline rail,
             Vector2 localPoint,
             IReadOnlyList<RailCenterline> rails,
-            IReadOnlyList<SharedRailInterval> shared)
+            IReadOnlyList<SharedRailInterval> shared,
+            Vector3 worldPoint)
         {
             var candidates = new List<RailCenterline> { rail };
             bool added;
@@ -409,11 +412,42 @@ namespace NarrowGaugeMod
             }
             while (added);
 
-            return candidates
+            RailCenterline resolved = candidates
                 .OrderBy(candidate =>
                     candidate.Family == GaugeGraphFamily.Standard ? 0 : 1)
                 .ThenBy(candidate => candidate.Id, StringComparer.OrdinalIgnoreCase)
                 .First();
+
+            // Diagnostic only (2026-07-07): user reports every crossing/double frog
+            // on the map is shifted left/right by roughly a track-width, across
+            // every preset. This tie-break (Family then alphabetical Id) never
+            // checks whether the winning candidate's own curve is actually still
+            // near worldPoint, and never consults RailSide even though Side is what
+            // decides CrossingFrogCandidate vs VeeFrogCandidate downstream. Logs the
+            // real separation-from-worldPoint for every candidate whenever there was
+            // genuine ambiguity (more than one candidate), and which one won, so a
+            // live reload can confirm or refute whether the chosen candidate is
+            // geometrically wrong before any selection-logic change is attempted.
+            if (candidates.Count > 1)
+            {
+                Main.Log(
+                    $"[PhysicalOwnerAmbiguity] resolving={rail.Id}(side={rail.Side}) " +
+                    "candidates=[" +
+                    string.Join(
+                        "; ",
+                        candidates.Select(candidate =>
+                        {
+                            float distance = candidate.Curve.DistanceTo(worldPoint);
+                            float separation = Vector3.Distance(
+                                worldPoint,
+                                candidate.Curve.LinePointAtDistance(distance).point);
+                            return $"{candidate.Id}(side={candidate.Side}," +
+                                $"family={candidate.Family},sep={separation:0.000})";
+                        })) +
+                    $"] chosen={resolved.Id}(side={resolved.Side})");
+            }
+
+            return resolved;
         }
 
         private static RailIntersection CreateIntersection(
