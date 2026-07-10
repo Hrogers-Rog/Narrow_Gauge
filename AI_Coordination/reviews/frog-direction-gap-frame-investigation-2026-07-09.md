@@ -764,3 +764,36 @@ warnings and 0 errors. Built and deployed DLLs both have timestamp
 Claude's concurrent blade-selection files remain present in the shared build
 but separate from the focused changes for this turn. No game process was
 launched or controlled.
+
+## Generic own-heel change rejected; vdlt WingB is a stock-owned opposed pair - 2026-07-10
+
+The next full-restart screenshot shows `VeeFrog-0-WingB` still at the improper
+angle. The user clarified that every other switch is correct and only vdlt's
+Wing B is affected. Therefore the global own-heel mapping is rejected and must
+be restored to the established opposite-heel behavior for all ordinary wings.
+
+The vdlt plan isolates the exceptional anatomy. Renderer Vee 0 is plan
+`v2-frog:1`: Rail A is `standard-through:right`, while Rail B is the outside
+`narrow-reversed:right` stock rail. Their measured traversal tangents oppose
+one another at the frog. g832's analogous Rail A/Rail B pair traverses in the
+same direction, and its Wing B is a closure rail rather than a stock rail.
+
+For ordinary wings, the 100 mm flare beyond the opposite heel remains correct.
+For a `DualNarrowBranch` Rail-B wing whose source role is `StockRail` and whose
+measured A/B tangents oppose, that flare imports the other rail's angle. The
+bounded correction is to append the exact source stock heel with no lateral
+flare only for that measured anatomy. Wing A, same-direction pairs, non-stock B
+wings, and all other presets retain the prior path.
+
+Implemented `ShouldFollowSourceStockHeel` with exactly those measured
+conditions. The rejected global own-heel change is reverted. When the bounded
+case matches, Wing B appends its unshifted source stock heel; otherwise the
+established opposite-heel plus 100 mm flare remains unchanged. A
+`[VeeWingStockHeel]` runtime line records the node, frog, rail, and object when
+the exceptional path activates.
+
+Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
+both have timestamp 2026-07-10 01:29:21, size 743,424 bytes, and SHA-256
+`FFC3304EECDEAD600CD9B1E039C87228041E98B0BD08E40B672C43F5D55A4139`.
+Claude's concurrent blade-selection changes remain in the shared build but
+outside this focused commit. No game process was launched or controlled.

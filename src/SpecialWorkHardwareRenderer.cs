@@ -1513,17 +1513,27 @@ namespace NarrowGaugeMod
                 return;
             }
 
-            Vector3 outward = sourceHeel.point - oppositeHeel.point;
-            outward.y = 0f;
-            if (outward.sqrMagnitude <= 0.0001f)
+            if (ShouldFollowSourceStockHeel(analysis, frog, sourceRail))
             {
-                outward = sourceHeel.Rotation
-                    * (sourceRail.Side == RailSide.Left ? Vector3.left : Vector3.right);
+                Main.Log(
+                    $"[VeeWingStockHeel] node={analysis.Definition.Id} " +
+                    $"frog={frog.Id} rail={sourceRail.Id} object={name}");
+                wing.Add(sourceHeel);
             }
+            else
+            {
+                Vector3 outward = oppositeHeel.point - sourceHeel.point;
+                outward.y = 0f;
+                if (outward.sqrMagnitude <= 0.0001f)
+                {
+                    outward = oppositeHeel.Rotation
+                        * (sourceRail.Side == RailSide.Left ? Vector3.left : Vector3.right);
+                }
 
-            wing.Add(new LinePoint(
-                sourceHeel.point + outward.normalized * 0.1f,
-                sourceHeel.Rotation));
+                wing.Add(new LinePoint(
+                    oppositeHeel.point + outward.normalized * 0.1f,
+                    oppositeHeel.Rotation));
+            }
             CreateRail(
                 builder,
                 root,
@@ -1535,6 +1545,30 @@ namespace NarrowGaugeMod
                 switchHome,
                 name,
                 _ => 1f);
+        }
+
+        private static bool ShouldFollowSourceStockHeel(
+            SpecialWorkAnalysis analysis,
+            FrogCandidate frog,
+            RailCenterline sourceRail)
+        {
+            if (!string.Equals(
+                    analysis.Definition.Preset.Id,
+                    SpecialWorkPresetIds.DualNarrowBranch,
+                    StringComparison.OrdinalIgnoreCase)
+                || sourceRail != frog.Intersection.RailB
+                || sourceRail.Role != RailRole.StockRail)
+            {
+                return false;
+            }
+
+            Vector3 tangentA = frog.Intersection.TangentA;
+            Vector3 tangentB = frog.Intersection.TangentB;
+            tangentA.y = 0f;
+            tangentB.y = 0f;
+            return tangentA.sqrMagnitude > 0.0001f
+                && tangentB.sqrMagnitude > 0.0001f
+                && Vector3.Dot(tangentA.normalized, tangentB.normalized) < 0f;
         }
 
         private static IEnumerable<(FrogCandidate First, FrogCandidate Second)> FindCloseVeeFrogPairs(
