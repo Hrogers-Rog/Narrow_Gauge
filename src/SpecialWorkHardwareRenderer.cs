@@ -1591,13 +1591,13 @@ namespace NarrowGaugeMod
                 fixedRail.Curve.DistanceTo(fixedHeel.point),
                 0f,
                 fixedRail.Curve.Length);
-            bool fixedSideIsBefore = heelDistance < frog.Intersection.DistanceA;
-            float referenceStart = fixedSideIsBefore
-                ? Mathf.Max(0f, heelDistance - frog.CutHalfLength)
-                : heelDistance;
-            float referenceEnd = fixedSideIsBefore
+            bool frogSideIsAfter = heelDistance < frog.Intersection.DistanceA;
+            float referenceStart = frogSideIsAfter
                 ? heelDistance
-                : Mathf.Min(fixedRail.Curve.Length, heelDistance + frog.CutHalfLength);
+                : Mathf.Max(0f, heelDistance - frog.CutHalfLength);
+            float referenceEnd = frogSideIsAfter
+                ? Mathf.Min(fixedRail.Curve.Length, heelDistance + frog.CutHalfLength)
+                : heelDistance;
             if (referenceEnd - referenceStart < MinimumRailPieceLength)
             {
                 wing = null!;
@@ -1613,13 +1613,13 @@ namespace NarrowGaugeMod
                 -centerSeparation,
                 fixedRail.Curve.hand);
             LinePoint positiveAtHeel = positive.LinePointAtDistance(
-                fixedSideIsBefore ? positive.Length : 0f);
+                frogSideIsAfter ? 0f : positive.Length);
             LinePoint negativeAtHeel = negative.LinePointAtDistance(
-                fixedSideIsBefore ? negative.Length : 0f);
+                frogSideIsAfter ? 0f : negative.Length);
             LineCurve selected = Vector3.Distance(
                     positiveAtHeel.point,
                     sourceHeel.point)
-                >= Vector3.Distance(negativeAtHeel.point, sourceHeel.point)
+                <= Vector3.Distance(negativeAtHeel.point, sourceHeel.point)
                     ? positive
                     : negative;
             wing = new LineCurve(selected.Points, fixedRail.Curve.hand);

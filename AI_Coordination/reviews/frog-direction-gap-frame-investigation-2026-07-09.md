@@ -893,3 +893,26 @@ warnings and 0 errors. Built and deployed DLLs both have timestamp
 2026-07-10 01:56:46, size 743,936 bytes, and SHA-256
 `F04EE5892D7FBADB202BBD223E3226E1BB9D2AA412173ECA5FFA3756C7B32063`.
 No game process was launched or controlled.
+
+## Working-switch comparison: WingB belongs on Fixed-1's frog side - 2026-07-10
+
+The post-flip screenshot remains wrong. Direct comparison with g832's working
+plan identifies the misread: “wrong side of Fixed-1” is longitudinal, not just
+the `+/-126 mm` lateral candidate. The current helper slices Rail A away from
+the frog, so the short parallel rail sits beside the body of `Fixed-1` instead
+of occupying the gap beyond its endpoint.
+
+In the working layout, the wing begins beside the fixed rail's gap boundary and
+runs toward the frog. Apply that same relationship to vdlt: slice Rail A from
+the `Fixed-1` heel toward the intersection for the existing cut-half length,
+then select the 126 mm parallel candidate closest to Rail B's heel. This places
+WingB on the adjacent lateral side with a 50 mm clear head gap, but on the frog
+side longitudinally. Do not change angle, length, hand, or scope.
+
+Implemented the working-switch relationship: the reference slice now runs from
+the `Fixed-1` heel toward the frog, and candidate selection again chooses the
+adjacent side closest to Rail B's heel. Build/deploy completed with 0 warnings
+and 0 errors. Built and deployed DLLs both have timestamp
+2026-07-10 02:04:22, size 743,936 bytes, and SHA-256
+`A6679F5EF22FB59869AF9B434C05CBCB8C33F5AAACA9DC0EF86B162EEF1F7381`.
+No game process was launched or controlled.
