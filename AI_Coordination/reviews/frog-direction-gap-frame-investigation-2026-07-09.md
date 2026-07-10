@@ -797,3 +797,35 @@ both have timestamp 2026-07-10 01:29:21, size 743,424 bytes, and SHA-256
 `FFC3304EECDEAD600CD9B1E039C87228041E98B0BD08E40B672C43F5D55A4139`.
 Claude's concurrent blade-selection changes remain in the shared build but
 outside this focused commit. No game process was launched or controlled.
+
+## Stock-wing predicate did not activate; align WingB exactly with Fixed-1 - 2026-07-10
+
+The next full-restart result is still wrong. The deployed DLL hash matches,
+but the fresh `Player.log` contains no `[VeeWingStockHeel]` line for vdlt, so
+the bounded path never activated. The user then supplied the decisive physical
+constraint: `VeeFrog-0-WingB` must run parallel to, with exactly the same angle
+as, `Fixed-1`.
+
+In the vdlt plan, `Fixed-1` is the Rail-A `standard-through:right` piece ending
+at the Vee 0 gap. The generic WingB path already crosses toward Rail A's
+`oppositeHeel`, but then adds another 100 mm in the heel-to-heel direction.
+That lateral flare moves the final point off Rail A's measured line and changes
+the last segment's angle. Sending WingB to its own Rail-B heel was also wrong;
+the correct endpoint is Rail A's exact heel, which is the continuation of
+`Fixed-1`.
+
+The bounded rule therefore needs no tangent inference. For a
+`DualNarrowBranch` Rail-B wing whose source role is `StockRail`, append the
+unmodified `oppositeHeel` with no 100 mm flare. That makes its final segment
+collinear with `Fixed-1`. All other wings retain the established flared path.
+
+Implemented `ShouldAlignWithOppositeFixedRail` using only the established
+`DualNarrowBranch`, Rail-B, and `StockRail` gates. The matching wing appends
+the exact Rail-A `oppositeHeel`; all other wings still append the 100 mm flared
+point. The runtime marker is now `[VeeWingFixedRailAlignment]`.
+
+Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
+both have timestamp 2026-07-10 01:36:16, size 743,424 bytes, and SHA-256
+`6E5F09D3C5177086D811C1304130C8C7648ECB887F0515815C9B18758C012D2A`.
+Claude's concurrent blade-selection changes remain in the shared build but
+outside this focused correction. No game process was launched or controlled.

@@ -1513,12 +1513,12 @@ namespace NarrowGaugeMod
                 return;
             }
 
-            if (ShouldFollowSourceStockHeel(analysis, frog, sourceRail))
+            if (ShouldAlignWithOppositeFixedRail(analysis, frog, sourceRail))
             {
                 Main.Log(
-                    $"[VeeWingStockHeel] node={analysis.Definition.Id} " +
+                    $"[VeeWingFixedRailAlignment] node={analysis.Definition.Id} " +
                     $"frog={frog.Id} rail={sourceRail.Id} object={name}");
-                wing.Add(sourceHeel);
+                wing.Add(oppositeHeel);
             }
             else
             {
@@ -1547,7 +1547,7 @@ namespace NarrowGaugeMod
                 _ => 1f);
         }
 
-        private static bool ShouldFollowSourceStockHeel(
+        private static bool ShouldAlignWithOppositeFixedRail(
             SpecialWorkAnalysis analysis,
             FrogCandidate frog,
             RailCenterline sourceRail)
@@ -1562,13 +1562,7 @@ namespace NarrowGaugeMod
                 return false;
             }
 
-            Vector3 tangentA = frog.Intersection.TangentA;
-            Vector3 tangentB = frog.Intersection.TangentB;
-            tangentA.y = 0f;
-            tangentB.y = 0f;
-            return tangentA.sqrMagnitude > 0.0001f
-                && tangentB.sqrMagnitude > 0.0001f
-                && Vector3.Dot(tangentA.normalized, tangentB.normalized) < 0f;
+            return true;
         }
 
         private static IEnumerable<(FrogCandidate First, FrogCandidate Second)> FindCloseVeeFrogPairs(
