@@ -1,6 +1,6 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-09 21:35 EDT
+Last updated by: Codex - 2026-07-09 21:48 EDT
 
 ## Critical testing constraints
 
@@ -9,39 +9,42 @@ Last updated by: Codex - 2026-07-09 21:35 EDT
 - The user retired the automated Railroader/TestBridge pipeline. Do not launch
   or drive Railroader. Build/deploy is allowed; live verification is manual.
 
-## Current phase: narrow point-hand regression removed; standard-only correction deployed
+## Current phase: frog-local NarrowReversed point push deployed
 
-The three-path point-hand build was live-rejected. In screenshot `212930`,
-`NarrowThroughFrog` moved left by exactly one railhead width and some
-`NarrowReversedFrog` meshes retained only half a rail. This directly identifies
-the new narrow hand reversals as regressions: the asymmetric head moved while
-the existing flangeway half-planes stayed fixed.
+The narrow hand rollback restored full-width rendering, but screenshot
+`214109` proves `NarrowReversedFrog`'s frog end remains outside the frog by
+exactly one railhead width. This distinguishes a local point displacement from
+a profile-hand correction: the approach end and measured hand are correct,
+while only the frog-local nose must move inward.
 
-Both narrow paths now retain their original measured hands again. The inward
-profile correction remains only on the standard outside point copy,
-`StandardThroughFrog`, matching the user's narrower outside-stock report. The
-helper is renamed `FaceBothDivergeStandardCrossingPointInward` to make that
-scope explicit.
+`PushBothDivergeNarrowReversedPointIntoFrog` now applies that geometry only to
+the both-diverge `NarrowReversedFrog` path:
 
-No cutter, cut window, span, centerline, continuous handoff, guard, or ordinary
-running-rail changes were made.
+- zero lateral offset at the crossing cut boundaries/approach seam;
+- a smooth increase to one `HeadWidth` at the measured frog center;
+- signed inward direction derived from the curve's own hand;
+- rebuilt curve rotations but unchanged hand.
+
+`NarrowThroughFrog`, all flangeway cutters/keep-side rules, the continuous
+handoff, guards, and ordinary running rails are unchanged. The prior
+standard-only point correction also remains unchanged.
 
 Built and deployed: 0 warnings, 0 errors. Built/deployed DLL timestamp
-2026-07-09 21:35:11, size 737,792 bytes, SHA-256
-`98FBEC1381450E4344011D0452C0E29B0C7E14381ECAECFDEA5B349733426437` on both
+2026-07-09 21:48:04, size 738,304 bytes, SHA-256
+`67877FCF903C39801BCF2127EABDC70F929F3B4753D50B1AD5CF85AE8EE89896` on both
 copies. No game process was launched or controlled. Full evidence:
 `reviews/frog-direction-gap-frame-investigation-2026-07-09.md`.
 
 ## Next turn
 
 1. Fully quit and restart Railroader; a save reload is insufficient.
-2. Repeat the `212930` view: `NarrowThroughFrog` should return one head width
-   to its measured alignment and `NarrowReversedFrog` should render its full
-   head again.
-3. At fc97, confirm the standard outside point remains projected inward as
-   intended by the `211109` report.
-4. Confirm the continuous handoff and guard remain unchanged.
-5. Spot-check l4a4 and a mirror-hand switch such as p997/ltci.
+2. Repeat the `214109` view: the `NarrowReversedFrog` approach should retain
+   its full-width alignment while its frog-local nose moves inward one head
+   width.
+3. Confirm `NarrowThroughFrog` remains in the restored measured position from
+   the prior build.
+4. Confirm the standard point, continuous handoff, and guard remain unchanged.
+5. Spot-check a mirror-hand switch for the signed local push.
 
 ## Open questions / blockers
 

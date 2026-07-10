@@ -2146,10 +2146,13 @@ namespace NarrowGaugeMod
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
-                        CorrectMeasuredRailRenderFrame(
+                        PushBothDivergeNarrowReversedPointIntoFrog(
                             analysis,
-                            narrowRail.Id,
-                            Slice(narrowRail.Curve, piece.StartDistance, pocketEnd)),
+                            CorrectMeasuredRailRenderFrame(
+                                analysis,
+                                narrowRail.Id,
+                                Slice(narrowRail.Curve, piece.StartDistance, pocketEnd)),
+                            frog),
                         new[] { standardFlangeway, narrowFlangeway },
                         keepPoint,
                         parameters.FlangewayWidth,
@@ -2176,6 +2179,57 @@ namespace NarrowGaugeMod
             // so its head must project to the opposite side, into the crossing.
             Hand inwardHand = curve.hand == Hand.Left ? Hand.Right : Hand.Left;
             return new LineCurve(curve.Points.ToArray(), inwardHand);
+        }
+
+        private static LineCurve PushBothDivergeNarrowReversedPointIntoFrog(
+            SpecialWorkAnalysis analysis,
+            LineCurve curve,
+            FrogCandidate frog)
+        {
+            if (!IsDualBothDiverge(analysis)
+                || curve.Points.Count() < 2)
+            {
+                return curve;
+            }
+
+            LineCurve sampled = curve.Subdivide(0.12f);
+            LinePoint[] source = sampled.Points.ToArray();
+            var distances = new float[source.Length];
+            for (int index = 1; index < source.Length; index++)
+            {
+                distances[index] = distances[index - 1]
+                    + Vector3.Distance(source[index - 1].point, source[index].point);
+            }
+
+            float frogDistance = Mathf.Clamp(
+                sampled.DistanceTo(frog.Intersection.Position),
+                0f,
+                sampled.Length);
+            float pushRadius = Mathf.Max(frog.CutHalfLength, 0.25f);
+            float signedPush = sampled.hand == Hand.Left
+                ? Gauge.Standard.HeadWidth
+                : -Gauge.Standard.HeadWidth;
+            var adjusted = new LinePoint[source.Length];
+            for (int index = 0; index < source.Length; index++)
+            {
+                float weight = 1f - Mathf.Clamp01(
+                    Mathf.Abs(distances[index] - frogDistance) / pushRadius);
+                weight = Mathf.SmoothStep(0f, 1f, weight);
+                Vector3 lateral = source[index].Rotation * Vector3.right;
+                lateral.y = 0f;
+                if (lateral.sqrMagnitude > 0.0001f)
+                {
+                    lateral.Normalize();
+                }
+
+                adjusted[index] = new LinePoint(
+                    source[index].point + lateral * signedPush * weight,
+                    source[index].Rotation);
+            }
+
+            return NormalizeRenderFrames(
+                new LineCurve(adjusted, sampled.hand),
+                preserveProfileCenter: false);
         }
 
         private static bool TryResolveRailFlangeway(

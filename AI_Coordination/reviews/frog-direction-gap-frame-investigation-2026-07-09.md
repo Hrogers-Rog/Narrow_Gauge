@@ -415,3 +415,38 @@ warnings and 0 errors. Built and deployed DLLs both have timestamp
 2026-07-09 21:35:11, size 737,792 bytes, and SHA-256
 `98FBEC1381450E4344011D0452C0E29B0C7E14381ECAECFDEA5B349733426437`.
 No game process was launched or controlled.
+
+## NarrowReversed needs a local push, not a hand reversal - 2026-07-09 21:45
+
+After the narrow-hand rollback, the user supplied
+`Screenshot 2026-07-09 214109.png`: `NarrowReversedFrog` again renders at full
+profile width, but its frog end remains laterally outside the frog by exactly
+one railhead width. This separates two requirements that the rejected hand
+flip conflated:
+
+1. the outside/approach end must retain its measured curve and hand so it joins
+   the full-width running rail;
+2. only the frog-local point must move inward by one railhead width.
+
+A uniform hand reversal moves the asymmetric profile for the complete object
+and changes its extrusion/clipping behavior, producing the prior shifted and
+half-rail regression. A uniform parallel offset would likewise break the
+approach seam. The required geometry is a local point push: keep zero lateral
+offset at the crossing cut boundaries, smoothly reach one `HeadWidth` of
+inward offset at the measured frog center, and retain the original `Hand`.
+
+The correction will apply only to the both-diverge `NarrowReversedFrog`
+render path. Its signed inward direction is the displacement that an opposite
+profile hand would have produced (`+HeadWidth` for a left-hand source and
+`-HeadWidth` for a right-hand source), but applied to curve points with a
+smooth frog-centered weight. `NarrowThroughFrog`, flangeway cutters, keep-side
+selection, and the continuous handoff remain unchanged.
+
+Implemented `PushBothDivergeNarrowReversedPointIntoFrog`. It subdivides the
+existing corrected render curve, applies a smooth signed lateral weight that
+is zero at the cut boundaries and one head width at the frog center, then
+rebuilds point rotations while preserving the original hand. Build/deploy
+completed with 0 warnings and 0 errors. Built and deployed DLLs both have
+timestamp 2026-07-09 21:48:04, size 738,304 bytes, and SHA-256
+`67877FCF903C39801BCF2127EABDC70F929F3B4753D50B1AD5CF85AE8EE89896`.
+No game process was launched or controlled.

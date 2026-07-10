@@ -2901,3 +2901,25 @@ Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
 No game process was launched or controlled. Next is a full-restart `212930`
 comparison plus confirmation that the standard-only point correction remains
 appropriate.
+
+### [Codex] 2026-07-09 21:48 - Push NarrowReversed locally into the frog without changing hand
+
+The user supplied screenshot `214109` after the narrow hand rollback.
+`NarrowReversedFrog` renders at full width again but remains outside the frog
+by exactly one railhead width. This proves the approach alignment/hand is
+correct and only the frog-local point requires displacement.
+
+Added `PushBothDivergeNarrowReversedPointIntoFrog` around the existing
+measured-frame curve on the `NarrowReversedFrog` branch only. The helper keeps
+the measured hand, leaves the approach and cut-boundary positions unchanged,
+and smoothly increases a hand-signed lateral offset to one railhead width at
+the measured frog center. It rebuilds rotations from the adjusted path to keep
+mesh extrusion consistent. `NarrowThroughFrog`, cutters, handoff, guards, and
+ordinary rails are untouched.
+
+The first build exposed one nullable warning from a redundant null check;
+removed it and rebuilt/deployed cleanly with 0 warnings and 0 errors. Both DLLs
+have timestamp 2026-07-09 21:48:04, size 738,304 bytes, and matching SHA-256
+`67877FCF903C39801BCF2127EABDC70F929F3B4753D50B1AD5CF85AE8EE89896`.
+No game process was launched or controlled. Next is a full-restart `214109`
+comparison and a mirror-hand spot check.
