@@ -605,3 +605,51 @@ Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
 both have timestamp 2026-07-09 23:31:13, size 737,280 bytes, and SHA-256
 `4AA7E65E1D2553738C83A9DFF537926BF7C9361E90FC44987C8AA314CC17A3CC`.
 No game process was launched or controlled.
+
+## Editor identifies Fixed-10 StandardThrough and the physical cutter - 2026-07-10 00:32
+
+The user isolated the bad mesh in the Special Work Editor: disabling
+`Fixed-10-StandardThroughFrog` removes the rail being diagnosed. The current
+fc97 export maps fixed 10 to source rail `standard-reversed:right`, interval
+64.536-69.210. Its crossing frog is
+`standard-reversed:right x narrow-normal:right`.
+
+This corrects the naming mix-up in the preceding attempts: the target is not
+the object named `NarrowReversedFrog`; it is the extended
+`StandardThroughFrog`. The user then used the editor's manual cut on fixed 10
+with physical rail `narrow-normal:right`. That cut landed in the correct
+inside-face position, proving both the target and cutter, but the editor's
+default 63 mm full width was visibly narrower than the other frog clearances.
+
+The manual-cut path differs from the automatic frog path in the relevant way:
+it rebuilds the extended standard rail with a single corrected slice of the
+physical `narrow-normal:right` rail as the cutter. The automatic path instead
+uses the route's narrow flange-guide curve as one of two retained half-planes.
+Therefore the bounded automatic correction should reproduce the successful
+manual geometry, not invert either keep sign:
+
+- target only both-diverge `StandardThroughFrog` whose crossing cutter is the
+  semantic `narrow-normal:right` rail;
+- slice and render-correct that physical rail over the extended point span;
+- use it as the sole cut center with the same keep-tail/fixed-piece anchor;
+- use `RailHeadWidth + FlangewayWidth` (76 + 50 = 126 mm) as the full cut width,
+  so its 63 mm half-width matches the intended railhead-plus-flangeway
+  clearance rather than the editor's 31.5 mm half-width;
+- mirror the same cutter selection in adjustment reconstruction.
+
+Do not alter other `StandardThroughFrog` orientations, any
+`NarrowReversedFrog`, the continuous handoff, rail spans/hands, or keep signs.
+
+Implemented the physical-cutter path in both initial rendering and adjustment
+reconstruction. `ShouldUsePhysicalNarrowThroughCutter` scopes it to a
+both-diverge `StandardThroughFrog` cut by the semantic narrow-normal right
+rail. The target span and keep point are unchanged; the cutter is a physical
+rail slice covering that span and the full width is 126 mm. All other frog
+roles retain the existing flange-guide path.
+
+Build/deploy completed with 0 warnings and 0 errors. The build intentionally
+preserved the concurrent vdlt truth-table work already present in the shared
+working tree. Built and deployed DLLs both have timestamp
+2026-07-10 00:34:11, size 742,400 bytes, and SHA-256
+`E9A491AB31078528C24028F732418D7FA5065788EE8D2C2E41126E3C0E0D417B`.
+No game process was launched or controlled.

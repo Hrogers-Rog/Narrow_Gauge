@@ -2066,18 +2066,39 @@ namespace NarrowGaugeMod
                             piece.StartDistance + MinimumRailPieceLength,
                             0f,
                             standardRail.Curve.Length)).point;
+                    string frogName = name + "-StandardThroughFrog";
+                    LineCurve pointCurve = Slice(
+                        standardRail.Curve,
+                        pocketStart,
+                        piece.EndDistance);
+                    bool usePhysicalNarrowCutter = ShouldUsePhysicalNarrowThroughCutter(
+                        analysis,
+                        frogName,
+                        narrowRail);
+                    IReadOnlyList<LineCurve> cutters = usePhysicalNarrowCutter
+                        ? new[]
+                        {
+                            CorrectMeasuredRailRenderFrame(
+                                analysis,
+                                narrowRail.Id,
+                                SlicePhysicalRailCutterForTarget(narrowRail, pointCurve))
+                        }
+                        : new[] { standardFlangeway, narrowFlangeway };
+                    float cutWidth = usePhysicalNarrowCutter
+                        ? parameters.RailHeadWidth + parameters.FlangewayWidth
+                        : parameters.FlangewayWidth;
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
                         CorrectMeasuredRailRenderFrame(
                             analysis,
                             standardRail.Id,
-                            Slice(standardRail.Curve, pocketStart, piece.EndDistance)),
-                        new[] { standardFlangeway, narrowFlangeway },
+                            pointCurve),
+                        cutters,
                         keepPoint,
-                        parameters.FlangewayWidth,
+                        cutWidth,
                         switchHome,
-                        name + "-StandardThroughFrog");
+                        frogName);
                     return true;
                 }
 
@@ -2184,6 +2205,40 @@ namespace NarrowGaugeMod
 
             flangeway = path.FlangeGuide(guideSide);
             return flangeway != null && flangeway.Points.Count() >= 2;
+        }
+
+        internal static bool ShouldUsePhysicalNarrowThroughCutter(
+            SpecialWorkAnalysis analysis,
+            string objectName,
+            RailCenterline narrowRail)
+        {
+            return IsDualBothDiverge(analysis)
+                && objectName.IndexOf(
+                    "StandardThroughFrog",
+                    StringComparison.OrdinalIgnoreCase) >= 0
+                && narrowRail.Side == RailSide.Right
+                && narrowRail.SourceRouteIds.Any(routeId => string.Equals(
+                    routeId,
+                    "narrow-normal",
+                    StringComparison.OrdinalIgnoreCase));
+        }
+
+        internal static LineCurve SlicePhysicalRailCutterForTarget(
+            RailCenterline cutterRail,
+            LineCurve targetCurve)
+        {
+            float headDistance = Mathf.Clamp(
+                cutterRail.Curve.DistanceTo(targetCurve.Head.point),
+                0f,
+                cutterRail.Curve.Length);
+            float tailDistance = Mathf.Clamp(
+                cutterRail.Curve.DistanceTo(targetCurve.Tail.point),
+                0f,
+                cutterRail.Curve.Length);
+            return Slice(
+                cutterRail.Curve,
+                Mathf.Min(headDistance, tailDistance),
+                Mathf.Max(headDistance, tailDistance));
         }
 
         private static RailSide OppositeSide(RailSide side)

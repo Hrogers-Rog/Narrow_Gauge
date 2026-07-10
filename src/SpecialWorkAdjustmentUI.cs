@@ -1453,7 +1453,33 @@ namespace NarrowGaugeMod
                         standardRail.Curve.Length);
                     frogSide = FrogEndpointSide.Start;
                     frogDistance = standardDistance;
-                    if (hasFlangewayCenters)
+                    bool usePhysicalNarrowCutter =
+                        SpecialWorkHardwareRenderer.ShouldUsePhysicalNarrowThroughCutter(
+                            analysis,
+                            objectName,
+                            narrowRail);
+                    if (usePhysicalNarrowCutter)
+                    {
+                        LineCurve targetCurve = standardRail.Curve
+                            .Skip(start, true)
+                            .Take(piece.EndDistance - start);
+                        SetFlangewayCut(
+                            new[]
+                            {
+                                SpecialWorkHardwareRenderer.SlicePhysicalRailCutterForTarget(
+                                    narrowRail,
+                                    targetCurve)
+                            },
+                            standardRail.Curve.LinePointAtDistance(Mathf.Clamp(
+                                piece.StartDistance + RenderedMinimumRailPieceLength,
+                                0f,
+                                standardRail.Curve.Length)).point,
+                            plan.Parameters.RailHeadWidth + plan.Parameters.FlangewayWidth,
+                            out flangewayCenters,
+                            out flangewayKeepPoint,
+                            out flangewayWidth);
+                    }
+                    else if (hasFlangewayCenters)
                     {
                         SetFlangewayCut(
                             new[] { standardFlangeway, narrowFlangeway },
