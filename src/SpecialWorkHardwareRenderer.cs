@@ -1619,7 +1619,7 @@ namespace NarrowGaugeMod
             LineCurve selected = Vector3.Distance(
                     positiveAtHeel.point,
                     sourceHeel.point)
-                <= Vector3.Distance(negativeAtHeel.point, sourceHeel.point)
+                >= Vector3.Distance(negativeAtHeel.point, sourceHeel.point)
                     ? positive
                     : negative;
             wing = new LineCurve(selected.Points, fixedRail.Curve.hand);

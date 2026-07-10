@@ -878,3 +878,18 @@ Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
 both have timestamp 2026-07-10 01:52:08, size 743,936 bytes, and SHA-256
 `A82B67AB3F2A8BB5C240C92928F33BABEE0A577EDEFB0DC1B5B31CAC2C5BADE3`.
 No game process was launched or controlled.
+
+## vdlt parallel WingB selected the wrong side of Fixed-1 - 2026-07-10
+
+The live result confirms the parallel construction but places WingB on the
+wrong lateral side of `Fixed-1`. `TryBuildFixedRailParallelWing` currently
+chooses the `+/-126 mm` candidate whose heel is closest to Rail B's measured
+heel. The user confirms the required wing is the opposite candidate. Invert
+only that candidate selection; retain the reference curve, length, hand,
+126 mm center spacing, and all scope gates.
+
+Implemented the single candidate inversion. Build/deploy completed with 0
+warnings and 0 errors. Built and deployed DLLs both have timestamp
+2026-07-10 01:56:46, size 743,936 bytes, and SHA-256
+`F04EE5892D7FBADB202BBD223E3226E1BB9D2AA412173ECA5FFA3756C7B32063`.
+No game process was launched or controlled.
