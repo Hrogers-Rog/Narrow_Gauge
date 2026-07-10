@@ -2072,10 +2072,12 @@ namespace NarrowGaugeMod
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
-                        CorrectMeasuredRailRenderFrame(
+                        FaceBothDivergeCrossingPointInward(
                             analysis,
-                            standardRail.Id,
-                            Slice(standardRail.Curve, pocketStart, piece.EndDistance)),
+                            CorrectMeasuredRailRenderFrame(
+                                analysis,
+                                standardRail.Id,
+                                Slice(standardRail.Curve, pocketStart, piece.EndDistance))),
                         new[] { standardFlangeway, narrowFlangeway },
                         keepPoint,
                         parameters.FlangewayWidth,
@@ -2110,10 +2112,12 @@ namespace NarrowGaugeMod
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
-                        CorrectMeasuredRailRenderFrame(
+                        FaceBothDivergeCrossingPointInward(
                             analysis,
-                            narrowRail.Id,
-                            Slice(narrowRail.Curve, pocketStart, piece.EndDistance)),
+                            CorrectMeasuredRailRenderFrame(
+                                analysis,
+                                narrowRail.Id,
+                                Slice(narrowRail.Curve, pocketStart, piece.EndDistance))),
                         new[] { standardFlangeway, narrowFlangeway },
                         keepPoint,
                         parameters.FlangewayWidth,
@@ -2144,10 +2148,12 @@ namespace NarrowGaugeMod
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
-                        CorrectMeasuredRailRenderFrame(
+                        FaceBothDivergeCrossingPointInward(
                             analysis,
-                            narrowRail.Id,
-                            Slice(narrowRail.Curve, piece.StartDistance, pocketEnd)),
+                            CorrectMeasuredRailRenderFrame(
+                                analysis,
+                                narrowRail.Id,
+                                Slice(narrowRail.Curve, piece.StartDistance, pocketEnd))),
                         new[] { standardFlangeway, narrowFlangeway },
                         keepPoint,
                         parameters.FlangewayWidth,
@@ -2158,6 +2164,22 @@ namespace NarrowGaugeMod
             }
 
             return false;
+        }
+
+        private static LineCurve FaceBothDivergeCrossingPointInward(
+            SpecialWorkAnalysis analysis,
+            LineCurve curve)
+        {
+            if (!IsDualBothDiverge(analysis))
+            {
+                return curve;
+            }
+
+            // Ordinary measured rails place their asymmetric profile outside
+            // the gauge-face curve. This copy is the complementary frog point,
+            // so its head must project to the opposite side, into the crossing.
+            Hand inwardHand = curve.hand == Hand.Left ? Hand.Right : Hand.Left;
+            return new LineCurve(curve.Points.ToArray(), inwardHand);
         }
 
         private static bool TryResolveRailFlangeway(

@@ -2850,3 +2850,31 @@ Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
 `3850E8CD4E322223ACE9D42C4D27B3D15E6794E1E171390164B01E7C9BCC3785`.
 No game process was launched or controlled. Next is a full restart to verify
 fc97's continuous handoff and guard, then the previously regressed guards.
+
+### [Codex] 2026-07-09 21:24 - Face complementary both-diverge crossing points inward
+
+The user supplied `Screenshot 2026-07-09 211109.png` after the measured-hand
+handoff build and identified the remaining fc97 defect: the outside stock
+alignment is present, but one complementary point rail is not projected into
+the crossing frog. The fresh 21:13 log still reports fc97 valid with 18 fixed
+pieces and 3 frogs, so this is a render profile-side error rather than missing
+anatomy.
+
+Traced all three complementary crossing-point render paths in
+`TryCreateNarrowBranchExtendedFixedPoint`. `StandardThroughFrog`,
+`NarrowThroughFrog`, and `NarrowReversedFrog` all kept the source running
+rail's hand. That hand correctly projects an ordinary asymmetric rail profile
+outside its gauge-face curve, but the frog-point copy must face the opposite
+way to project inward into the frog.
+
+Added `FaceBothDivergeCrossingPointInward` after measured-frame correction and
+applied it only to those three both-diverge point paths. It reverses each
+curve's own hand, so mirror and reversed-route layouts follow their measured
+geometry. It does not move centerlines, alter spans/cutters, or touch the
+continuous handoff, guards, or ordinary running rails.
+
+Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
+2026-07-09 21:24:00, size 737,792 bytes, and matching SHA-256
+`BD512634D9931B3288F773120328D0F32467021E031D60DFA14816FB1B411078`.
+No game process was launched or controlled. Next is a full-restart fc97
+`211109` comparison and a mirror-hand regression check.

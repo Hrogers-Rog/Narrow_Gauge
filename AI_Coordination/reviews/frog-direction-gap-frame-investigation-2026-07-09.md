@@ -348,3 +348,45 @@ errors. Built and deployed DLLs both have timestamp 2026-07-09 20:59:50, size
 737,792 bytes, and SHA-256
 `3850E8CD4E322223ACE9D42C4D27B3D15E6794E1E171390164B01E7C9BCC3785`.
 No game process was launched or controlled.
+
+## Both-diverge complementary point profiles still face outward - 2026-07-09 21:22
+
+After the measured-hand handoff build, the user supplied
+`Screenshot 2026-07-09 211109.png` and identified the remaining profile-side
+error: the outside running/stock rail is present, but one complementary point
+rail is not projected inward into the crossing frog. The fresh 21:13 runtime
+log confirms fc97 is still a valid 18-fixed/3-frog plan, so no point piece was
+lost by validation or fallback selection.
+
+The remaining distinction is between a continuous running rail and a frog
+point made from that rail's measured curve. `CreateCrossingFrogAssembly` now
+correctly preserves the continuous stock handoff's measured hand. However,
+`TryCreateNarrowBranchExtendedFixedPoint` also preserves the ordinary running
+rail hand on all three possible complementary point objects:
+
+- `StandardThroughFrog`;
+- `NarrowThroughFrog`;
+- `NarrowReversedFrog`.
+
+That is wrong specifically inside a both-diverge crossing envelope. A normal
+left/right running rail uses its hand to place the asymmetric head outside its
+gauge-face centerline. A complementary frog point uses the same measured path
+but must project the head to the opposite, inward side so it enters the frog
+and can be clipped against the flangeways. fc97's crossing rails are both
+right-hand, so their point copies also remain right-hand today; changing a
+point copy to left-hand produces the exact one-head-width inward projection
+the screenshot is missing. Mirror layouts require the inverse operation.
+
+The general correction is therefore to reverse only the profile hand of the
+three complementary fixed-point render curves when the preset is
+`DualBothDiverge`. Curve points, rotations, spans, flangeway centers, keep-side
+selection, and the continuous stock handoff remain unchanged. Reversing each
+source curve's own hand rather than assigning a fixed hand also handles route
+curves whose traversal direction and route-relative `RailSide` are reversed.
+
+Implemented `FaceBothDivergeCrossingPointInward` after measured-frame
+correction and applied it only to those three point-object paths. Build/deploy
+completed with 0 warnings and 0 errors. Built and deployed DLLs both have
+timestamp 2026-07-09 21:24:00, size 737,792 bytes, and SHA-256
+`BD512634D9931B3288F773120328D0F32467021E031D60DFA14816FB1B411078`.
+No game process was launched or controlled.
