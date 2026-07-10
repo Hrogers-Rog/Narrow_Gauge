@@ -2825,3 +2825,28 @@ Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
 No game was launched or driven. Next full restart should repeat the user's
 fc97 handoff-hidden comparison, then check guard 6 and the mirror-hand
 both-diverge switches.
+
+### [Codex] 2026-07-09 21:00 - Preserve measured rail hand on kinked handoff and local guard
+
+The full-restart result showed the prior guard change fixed fc97 but moved the
+other switches' local guards too far. The user clarified that the second new
+screenshot (`204917`) is fc97 and reported that its continuous stock handoff
+remained off by exactly one railhead width.
+
+Traced both generated kinked-rail helpers to a forced `Hand.Left`. Because the
+rendered rail profile is asymmetric about its curve, this produces exactly one
+full head-width displacement when the measured owner is right-hand. fc97's
+standard crossing rail and local narrow guard owner are both right-hand.
+
+Changed the continuous handoff to inherit `standardRail.Curve.hand`. Changed
+the local guard diagonal to inherit `guardOwner.Curve.hand`, its comparison
+handoff to inherit the standard owner's hand, and restored the original
+one-head-width centerline compensation needed by the other switches. This is
+measured-geometry logic with no node-id case. The flangeway mirror fix remains
+unchanged.
+
+Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
+2026-07-09 20:59:50, size 737,792 bytes, and matching SHA-256
+`3850E8CD4E322223ACE9D42C4D27B3D15E6794E1E171390164B01E7C9BCC3785`.
+No game process was launched or controlled. Next is a full restart to verify
+fc97's continuous handoff and guard, then the previously regressed guards.

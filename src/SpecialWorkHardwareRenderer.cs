@@ -2847,7 +2847,8 @@ namespace NarrowGaugeMod
             LineCurve handoff = BuildKinkedHandoff(
                 standardStockBoundary,
                 narrowStockBoundary,
-                frog.Intersection.Position);
+                frog.Intersection.Position,
+                standardRail.Curve.hand);
 
             // Previously picked between handoff.Parallel(+-Gauge.Standard.HeadWidth)
             // via a closest-to-reference heuristic (first comparing both ends against
@@ -2906,7 +2907,8 @@ namespace NarrowGaugeMod
         private static LineCurve BuildKinkedHandoff(
             LinePoint start,
             LinePoint end,
-            Vector3 crossing)
+            Vector3 crossing,
+            Hand hand)
         {
             Vector3 spanDirection = end.point - start.point;
             Vector3 startTangent = start.direction;
@@ -2941,7 +2943,7 @@ namespace NarrowGaugeMod
                     new LinePoint(crossing, Quaternion.LookRotation(kinkDirection, Vector3.up)),
                     new LinePoint(end.point, Quaternion.LookRotation(endTangent, Vector3.up))
                 },
-                Hand.Left);
+                hand);
         }
 
         private static void CreateTaperedPointRail(

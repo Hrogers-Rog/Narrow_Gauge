@@ -2954,7 +2954,8 @@ namespace NarrowGaugeMod
             LineCurve guardCenterPath = BuildKinkedHandoff(
                 standardGuardBoundary,
                 narrowGuardBoundary,
-                frog.Intersection.Position);
+                frog.Intersection.Position,
+                guardOwner.Curve.hand);
 
             LinePoint standardStockBoundary = PointAtSignedOffset(
                 other,
@@ -2967,7 +2968,8 @@ namespace NarrowGaugeMod
             LineCurve stockHandoff = BuildKinkedHandoff(
                 standardStockBoundary,
                 narrowStockBoundary,
-                frog.Intersection.Position);
+                frog.Intersection.Position,
+                other.Curve.hand);
 
             LineCurve positive = guardCenterPath.Parallel(Parameters.GuardCenterOffset);
             LineCurve negative = guardCenterPath.Parallel(-Parameters.GuardCenterOffset);
@@ -2981,14 +2983,19 @@ namespace NarrowGaugeMod
                 >= DistancePointToCurve(negativeMiddle, stockHandoff)
                 ? positive
                 : negative;
-            guardCurve = selectedGuard;
+            float guardShift = DistancePointToCurve(positiveMiddle, stockHandoff)
+                >= DistancePointToCurve(negativeMiddle, stockHandoff)
+                ? -RailHeadWidth
+                : RailHeadWidth;
+            guardCurve = selectedGuard.Parallel(guardShift);
             return true;
         }
 
         private static LineCurve BuildKinkedHandoff(
             LinePoint start,
             LinePoint end,
-            Vector3 crossing)
+            Vector3 crossing,
+            Hand hand)
         {
             Vector3 span = end.point - start.point;
             Vector3 startDirection = start.direction;
@@ -3024,7 +3031,7 @@ namespace NarrowGaugeMod
                     new LinePoint(crossing, Quaternion.LookRotation(kinkDirection, Vector3.up)),
                     new LinePoint(end.point, Quaternion.LookRotation(endDirection, Vector3.up))
                 },
-                Hand.Left);
+                hand);
         }
 
         private static Vector3 DirectionTowardBlades(

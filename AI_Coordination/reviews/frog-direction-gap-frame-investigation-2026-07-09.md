@@ -308,3 +308,43 @@ the narrow through rail rather than the blue outside edge, and guard 6 should
 move outward by exactly one railhead width into its intended check-rail
 position. Then spot-check the mirror-hand both-diverge switches to confirm the
 anatomy-based rule flips correctly there too.
+
+## Live guard regression and one-railhead handoff offset - 2026-07-09 21:00
+
+The full-restart result separated the remaining errors. The user reports that
+removing the local guard's final `RailHeadWidth` shift puts fc97's guard in the
+correct position, but moves the corresponding guards on the other switches too
+far. The fc97 continuous stock handoff also remains displaced by exactly one
+railhead width. The user identified the second supplied image
+(`Screenshot 2026-07-09 204917.png`) as fc97.
+
+Both generated kinked-rail helpers hardcode `Hand.Left` in the returned
+`LineCurve`. That metadata is not merely descriptive: Railroader's asymmetric
+rail profile is centered half a head width to one side of the curve, so
+changing the rendered curve between `Hand.Left` and `Hand.Right` moves the
+visible railhead by one complete head width. fc97's measured standard crossing
+rail and selected narrow guard owner are right-hand curves. The continuous
+handoff therefore has the exact one-head-width error reported by the user even
+though its boundary points are correct.
+
+The removed local-guard shift was compensating for the same forced-left
+profile frame. The correct general rule is to preserve the measured owner
+hand, not to delete the geometric compensation globally:
+
+- construct the continuous stock handoff with `standardRail.Curve.hand`;
+- construct the local guard diagonal with `guardOwner.Curve.hand` and its
+  comparison handoff with the standard owner's hand;
+- restore the original one-head-width guard-center compensation.
+
+For an existing left-hand guard this preserves the pre-regression placement.
+For fc97's right-hand guard, the corrected profile hand moves the visible
+railhead one width while the restored centerline compensation moves it back
+the opposite width, retaining the live-confirmed guard position. This is based
+on measured rail handedness and introduces no node-id or switch-name case.
+
+Implemented the measured-hand propagation in both kinked helpers and restored
+the guard-center compensation. Build/deploy completed with 0 warnings and 0
+errors. Built and deployed DLLs both have timestamp 2026-07-09 20:59:50, size
+737,792 bytes, and SHA-256
+`3850E8CD4E322223ACE9D42C4D27B3D15E6794E1E171390164B01E7C9BCC3785`.
+No game process was launched or controlled.
