@@ -2969,3 +2969,25 @@ Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
 `6D31FCA3EED9D6E38D365A14E0DEA94C8B0965E7DAC366E50C6BE00596CADCA1`.
 No game process was launched or controlled. Next is a full-restart `224732`
 comparison before making any further point-alignment change.
+
+### [Codex] 2026-07-09 23:25 - Mirror only the NarrowReversed narrow-through bevel
+
+After the wrong-side extension rollback fixed most switches, the user supplied
+screenshots `231157` and `231931` and clarified the remaining geometry. Only
+`NarrowReversedFrog` is wrong: it is pushed sufficiently deep and is already
+being cut by the correct narrow-through rail, but the cut removes the outside
+of the railhead instead of the inside.
+
+The cutter order is standard index 0, narrow index 1. The rejected symmetric
+build had inverted index 0 on `NarrowReversedFrog`; that changed which
+crossing-side extension survived and caused the overlay regression. Enabled
+automatic inversion only for both-diverge `NarrowReversedFrog` and selected
+index 1, the narrow-through bevel boundary. `StandardThroughFrog`, index 0,
+`NarrowThroughFrog`, spans, measured curves/hands, and the continuous frog are
+unchanged. The adjustment rebuild path reads the same role rule.
+
+Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
+2026-07-09 23:25:48, size 737,280 bytes, and matching SHA-256
+`4B9806ED5909F7B7BEB25B477228197A333BAE303D77A21044C5DF70A7F4DFDE`.
+No game process was launched or controlled. Next is a full-restart `231931`
+comparison plus confirmation the `224732` overlay remains absent.

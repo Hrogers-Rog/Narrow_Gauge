@@ -544,3 +544,39 @@ remain removed. Build/deploy completed with 0 warnings and 0 errors. Built and
 deployed DLLs both have timestamp 2026-07-09 23:04:46, size 737,280 bytes, and
 SHA-256 `6D31FCA3EED9D6E38D365A14E0DEA94C8B0965E7DAC366E50C6BE00596CADCA1`.
 No game process was launched or controlled.
+
+## NarrowReversed needs cutter 1 mirrored, not cutter 0 - 2026-07-09 23:24
+
+`Screenshot 2026-07-09 231931.png` and the user's close visual identification
+resolve the remaining ambiguity. `NarrowReversedFrog` is already extended well
+into the frog and is being cut; the bevel is simply taken from the outside of
+the railhead instead of the inside. The cutter is correctly sourced from the
+narrow through rail.
+
+The flangeway inputs are ordered `[standardFlangeway, narrowFlangeway]`. The
+rejected symmetric build inverted index 0 for `NarrowReversedFrog`. That is the
+standard crossing boundary, so negating it retained the extension on the wrong
+side of the frog and produced the overlay in `224732`. It did not mirror the
+narrow-through bevel the user was identifying.
+
+The bounded correction is therefore:
+
+- keep `StandardThroughFrog` entirely on measured/default keep sides;
+- enable automatic mirror only for both-diverge objects named
+  `NarrowReversedFrog`;
+- invert ordered cutter index 1, the narrow-through boundary;
+- do not localize the cut or alter spans, curves, profile hands, the continuous
+  frog, or `NarrowThroughFrog`.
+
+Because the role name is emitted only on the reverse-side branch, this is
+orientation-scoped without any node-ID special case.
+
+Implemented exactly that role/index correction. Initial rendering passes
+automatic inversion with index 1 only for both-diverge
+`NarrowReversedFrog`; `SpecialWorkAdjustmentUI` already reconstructs meshes
+from the same helper values. `ShouldLocalizeFrogFlangewayCut` remains false.
+
+Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
+both have timestamp 2026-07-09 23:25:48, size 737,280 bytes, and SHA-256
+`4B9806ED5909F7B7BEB25B477228197A333BAE303D77A21044C5DF70A7F4DFDE`.
+No game process was launched or controlled.
