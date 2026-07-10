@@ -2945,3 +2945,27 @@ Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
 `C770A49E4F94C984C05335BE73340654FCDEF5252244B5C9D4F6268F51D153A3`.
 No game process was launched or controlled. Next is a full-restart fc97
 `221009` comparison and a second both-diverge/mirror-layout spot check.
+
+### [Codex] 2026-07-09 23:04 - Remove wrong-side extended-frog overlay
+
+The user's paired screenshots `224542` (g832) and `224656` (the other
+switches), followed by close-up `224732`, separated the correct continuous
+frog from the regression. `StandardThroughFrog` and `NarrowReversedFrog` were
+surviving as separate cut meshes over the continuous frog and clipping through
+it. The current log confirms g832 is `dual.narrow-branch-joins-main`, while the
+affected group is `dual.both-diverge`, exactly matching the scope of the new
+automatic keep-side inversion.
+
+The clipper's `keepPoint` is deliberately located on the measured fixed piece
+and already selects the side that owns the extension. Negating a cutter's keep
+sign broke that invariant and could retain the wrong-side extension. Removed
+the both-diverge inversion and local-window arguments for both
+`StandardThroughFrog` and `NarrowReversedFrog`, including adjustment rebuild
+parity. Measured curves/hands and the correct continuous frog are unchanged;
+the earlier curve/profile deformation helpers remain removed.
+
+Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
+2026-07-09 23:04:46, size 737,280 bytes, and matching SHA-256
+`6D31FCA3EED9D6E38D365A14E0DEA94C8B0965E7DAC366E50C6BE00596CADCA1`.
+No game process was launched or controlled. Next is a full-restart `224732`
+comparison before making any further point-alignment change.

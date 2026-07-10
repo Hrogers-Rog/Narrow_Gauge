@@ -2066,9 +2066,6 @@ namespace NarrowGaugeMod
                             piece.StartDistance + MinimumRailPieceLength,
                             0f,
                             standardRail.Curve.Length)).point;
-                    string frogName = name + "-StandardThroughFrog";
-                    bool localFlip = ShouldAutoFlipFlangewayKeepSide(analysis, frogName);
-                    bool localizeCut = ShouldLocalizeFrogFlangewayCut(analysis, frogName);
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
@@ -2080,11 +2077,7 @@ namespace NarrowGaugeMod
                         keepPoint,
                         parameters.FlangewayWidth,
                         switchHome,
-                        frogName,
-                        localFlip,
-                        AutoFlipFlangewayKeepSideIndex(analysis, frogName),
-                        localizeCut ? frog.Intersection.Position : (Vector3?)null,
-                        localizeCut ? FrogFlangewayCutWindowLength(frog) : 0f);
+                        name + "-StandardThroughFrog");
                     return true;
                 }
 
@@ -2141,9 +2134,6 @@ namespace NarrowGaugeMod
                             piece.EndDistance - MinimumRailPieceLength,
                             0f,
                             narrowRail.Curve.Length)).point;
-                    string frogName = name + "-NarrowReversedFrog";
-                    bool localFlip = ShouldAutoFlipFlangewayKeepSide(analysis, frogName);
-                    bool localizeCut = ShouldLocalizeFrogFlangewayCut(analysis, frogName);
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
@@ -2155,11 +2145,7 @@ namespace NarrowGaugeMod
                         keepPoint,
                         parameters.FlangewayWidth,
                         switchHome,
-                        frogName,
-                        localFlip,
-                        AutoFlipFlangewayKeepSideIndex(analysis, frogName),
-                        localizeCut ? frog.Intersection.Position : (Vector3?)null,
-                        localizeCut ? FrogFlangewayCutWindowLength(frog) : 0f);
+                        name + "-NarrowReversedFrog");
                     return true;
                 }
             }
@@ -2387,42 +2373,21 @@ namespace NarrowGaugeMod
             SpecialWorkAnalysis analysis,
             string objectName)
         {
-            return IsDualBothDiverge(analysis)
-                && (objectName.IndexOf(
-                        "StandardThroughFrog",
-                        StringComparison.OrdinalIgnoreCase) >= 0
-                    || objectName.IndexOf(
-                        "NarrowReversedFrog",
-                        StringComparison.OrdinalIgnoreCase) >= 0);
+            return false;
         }
 
         internal static int AutoFlipFlangewayKeepSideIndex(
             SpecialWorkAnalysis analysis,
             string objectName)
         {
-            if (!ShouldAutoFlipFlangewayKeepSide(analysis, objectName))
-            {
-                return -1;
-            }
-
-            return objectName.IndexOf(
-                    "NarrowReversedFrog",
-                    StringComparison.OrdinalIgnoreCase) >= 0
-                ? 0
-                : 1;
+            return -1;
         }
 
         internal static bool ShouldLocalizeFrogFlangewayCut(
             SpecialWorkAnalysis analysis,
             string objectName)
         {
-            return IsDualBothDiverge(analysis)
-                && (objectName.IndexOf(
-                        "StandardThroughFrog",
-                        StringComparison.OrdinalIgnoreCase) >= 0
-                    || objectName.IndexOf(
-                        "NarrowReversedFrog",
-                        StringComparison.OrdinalIgnoreCase) >= 0);
+            return false;
         }
 
         internal static float FrogFlangewayCutWindowLength(FrogCandidate frog)

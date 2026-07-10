@@ -1465,14 +1465,6 @@ namespace NarrowGaugeMod
                             out flangewayCenters,
                             out flangewayKeepPoint,
                             out flangewayWidth);
-                        if (SpecialWorkHardwareRenderer.ShouldLocalizeFrogFlangewayCut(
-                            analysis,
-                            objectName))
-                        {
-                            flangewayCutFocusPoint = frog.Intersection.Position;
-                            flangewayCutWindowLength =
-                                SpecialWorkHardwareRenderer.FrogFlangewayCutWindowLength(frog);
-                        }
                     }
 
                     return;
@@ -1537,14 +1529,6 @@ namespace NarrowGaugeMod
                             out flangewayCenters,
                             out flangewayKeepPoint,
                             out flangewayWidth);
-                        if (SpecialWorkHardwareRenderer.ShouldLocalizeFrogFlangewayCut(
-                            analysis,
-                            objectName))
-                        {
-                            flangewayCutFocusPoint = frog.Intersection.Position;
-                            flangewayCutWindowLength =
-                                SpecialWorkHardwareRenderer.FrogFlangewayCutWindowLength(frog);
-                        }
                     }
 
                     return;

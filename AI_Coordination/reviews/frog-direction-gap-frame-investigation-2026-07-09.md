@@ -504,3 +504,43 @@ Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
 both have timestamp 2026-07-09 22:41:25, size 737,792 bytes, and SHA-256
 `C770A49E4F94C984C05335BE73340654FCDEF5252244B5C9D4F6268F51D153A3`.
 No game process was launched or controlled.
+
+## Keep-side inversion retains the wrong-side extension - 2026-07-09 22:57
+
+The paired live screenshots isolate the newest regression:
+
+- `Screenshot 2026-07-09 224542.png` shows g832 without the new overlay;
+- `Screenshot 2026-07-09 224656.png` shows the bad extended/cut rails on the
+  other switches;
+- close-up `Screenshot 2026-07-09 224732.png` proves the correct continuous
+  frog remains underneath. The visible defect is the separately rendered
+  `StandardThroughFrog` / `NarrowReversedFrog` mesh surviving over it and
+  clipping through it.
+
+The current `Player.log` explains the group boundary. g832 is
+`dual.narrow-branch-joins-main`; fc97, l4a4, ltci, p997, u6n0, wqbb, and pv2
+are `dual.both-diverge`. Therefore g832 did not exercise the new
+`IsDualBothDiverge` keep-side inversion, while every reported regression did.
+
+The mesh builder already derives each flangeway keep sign from a `keepPoint`
+located safely on the measured fixed piece. That is the ownership invariant:
+the clip must retain the side containing the fixed-piece anchor. Negating one
+of those signs deliberately violates the invariant and can retain the
+extension across the frog instead, which is precisely the overlaid rail shown
+in `224732`. The local distance window only confines the wrong-side remnant;
+it does not make the inversion valid.
+
+Reject the symmetric cutter inversion conclusion. Restore automatic inversion
+to false and remove both-diverge local-window arguments from
+`StandardThroughFrog` and `NarrowReversedFrog`, including adjustment rebuild
+parity. Keep the measured curves/hands and the continuous frog unchanged. This
+rollback addresses the new overlay regression without reviving either rejected
+curve/profile deformation.
+
+Implemented the rollback. Both affected render calls now use their measured
+fixed-piece `keepPoint` without automatic inversion or a local distance window;
+the adjustment rebuild path restores the same inputs. The deformation helpers
+remain removed. Build/deploy completed with 0 warnings and 0 errors. Built and
+deployed DLLs both have timestamp 2026-07-09 23:04:46, size 737,280 bytes, and
+SHA-256 `6D31FCA3EED9D6E38D365A14E0DEA94C8B0965E7DAC366E50C6BE00596CADCA1`.
+No game process was launched or controlled.
