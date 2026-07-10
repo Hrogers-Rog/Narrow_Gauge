@@ -104,8 +104,10 @@ inside-out rail profiles. It should use the project's hand-aware
    sites farther than 0.35 m from every measured frog. Invalid plans still
    receive all fallback sites and the fallback blade. Supplemental mode never
    adds a blade.
-4. `dual.both-diverge` crossing frogs now use generic crossing-point geometry;
-   the continuous stock handoff remains available to narrow-branch anatomy.
+4. An attempted change routed `dual.both-diverge` crossing frogs to generic
+   crossing-point geometry. Live testing proved that geometry incompatible
+   with the existing cut envelope, so this item was rolled back; both-diverge
+   standard/narrow crossings again use the continuous stock handoff.
 5. Render-frame normalization now covers every `DualNarrowBranch` measured
    plan, and procedural gauge-separation slices use the hand-aware reverse
    helper.
@@ -131,9 +133,42 @@ fresh-log evidence:
   values, with its opposed-route frog kinds swapped to their physical types;
 - `fuse-ng:n:NCustom_7n90` logs one covered and one supplemental procedural
   frog site, with `blade=0`;
-- `fc97` and `l4a4` keep valid plans, while their crossing candidates render
-  generic double-frog point rails rather than a continuous stock handoff.
+- `fc97` and `l4a4` keep valid plans and, after the rollback below, return to
+  their pre-turn continuous stock handoff while their localized defect remains
+  open.
 
 Visually recheck all five named switches and spot-check `Nove`, `G832`, and a
 previously good both-diverge switch. Static compilation cannot prove mesh
 winding or final scene overlap.
+
+## Live regression and rollback - 2026-07-09 20:13
+
+The first full restart after deployment showed an immediate systemic
+regression on every inspected double frog: long cut spans were left empty,
+with generic tapered point rails ending well before the rail resumed. The
+user supplied `Screenshot 2026-07-09 201150.png` showing the failure.
+
+The fresh log confirms all both-diverge plans remain valid with their expected
+three frogs, so classification/count changes did not invalidate or remove the
+plans. The regression is the renderer change in item 4 above: routing every
+`dual.both-diverge` crossing through `CreateGenericCrossingPoints` replaced the
+previous continuous standard/narrow handoff across the existing
+cut/wing-rail envelope. The generic assembly does not cover that envelope in
+these plans and causes the visible long gaps.
+
+The user then supplied `Screenshot 2026-07-09 201352.png` and confirmed G832
+was not affected by this new regression. G832 is
+`dual.narrow-branch-joins-main`, so that negative control further isolates the
+failure to the new `dual.both-diverge` early renderer branch rather than the
+shared direction, frame, or frog-plan changes.
+
+That renderer change is rolled back. Both-diverge standard/narrow crossings
+again use the previously live-confirmed continuous stock handoff. The other
+changes in this review are retained: direction-aware classification,
+post-owner recalculation, uncovered gauge-separation supplementation, and
+frame/reversal corrections. `fc97`/`l4a4` therefore return to their pre-turn
+double-frog rendering while their original localized defect remains open for
+a renderer-compatible investigation.
+
+Rollback build/deploy completed with 0 warnings and 0 errors. The built and
+deployed DLLs both have timestamp 2026-07-09 20:14:22 and size 737,280 bytes.

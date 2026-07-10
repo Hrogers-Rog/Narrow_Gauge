@@ -2718,3 +2718,35 @@ Built and deployed with `dotnet build .\NarrowGaugeMod.csproj
 2026-07-09 20:00:40, size 737,792 bytes. Per the standing constraint, did not
 launch or drive Railroader. A full manual restart and checks of the five named
 switches plus Nove/G832/a known-good both-diverge switch are next.
+
+### [Codex] 2026-07-09 20:14 - Roll back systemic generic double-frog renderer regression
+
+The user restarted with `07e4edd` and immediately reported that every double
+frog on every inspected switch now had a long empty span, supplying
+`Screenshot 2026-07-09 201150.png`. The fresh 20:13 `Player.log` showed all
+both-diverge plans still valid with the expected three frogs, while their
+classification remained the same as the preceding build. That isolated the
+only systemic rendering-path change: `CreateCrossingFrogAssembly` had been
+forced to use `CreateGenericCrossingPoints` for every `dual.both-diverge`
+crossing.
+
+The user followed with a G832 screenshot and confirmed the new regression did
+not affect it. G832 uses `dual.narrow-branch-joins-main`, not
+`dual.both-diverge`, which is the expected negative control if the removed
+both-diverge-only branch is the cause and provides further evidence against
+rolling back the independent shared changes.
+
+The screenshot shows the generic tapered points ending far before the
+existing plan cut/wing envelope resumes. This renderer is not a drop-in
+replacement for the continuous standard/narrow stock handoff used by these
+plans. Removed only the both-diverge early branch, restoring the exact
+previous `TryResolveNarrowBranchCrossingRails` / continuous-handoff path. Kept
+the independent direction-aware classification, frog-owner recalculation,
+7n90/Nove uncovered procedural frog supplementation, and frame/reversal
+changes. `fc97`/`l4a4`'s original localized double-frog defect is open again;
+it must be investigated without replacing the whole assembly type.
+
+Updated the existing review with the live regression evidence and rollback.
+Built/deployed with 0 warnings and 0 errors. Built/deployed DLL timestamp
+2026-07-09 20:14:22, size 737,280 bytes. Did not launch or drive Railroader;
+one more full manual restart is required to load and verify the rollback.

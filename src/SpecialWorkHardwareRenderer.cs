@@ -1746,19 +1746,6 @@ namespace NarrowGaugeMod
             Vector3 switchHome,
             string name)
         {
-            if (IsDualBothDiverge(analysis))
-            {
-                CreateGenericCrossingPoints(
-                    builder,
-                    root,
-                    analysis,
-                    frog,
-                    blades,
-                    switchHome,
-                    name);
-                return;
-            }
-
             if (!TryResolveNarrowBranchCrossingRails(
                     frog,
                     out RailCenterline standardRail,
