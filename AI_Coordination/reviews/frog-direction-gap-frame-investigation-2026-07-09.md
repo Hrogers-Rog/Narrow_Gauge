@@ -653,3 +653,48 @@ working tree. Built and deployed DLLs both have timestamp
 2026-07-10 00:34:11, size 742,400 bytes, and SHA-256
 `E9A491AB31078528C24028F732418D7FA5065788EE8D2C2E41126E3C0E0D417B`.
 No game process was launched or controlled.
+
+## vdlt standard-right transition profile reversal - 2026-07-10
+
+After the narrow-branch truth-table correction fixed vdlt's blades, the user
+identified the two remaining displaced objects in the Special Work Editor as
+`VeeFrog-0-WingA` and `CrossingFrog-2-ContinuousStockHandoff`. The current
+vdlt plan maps both objects to `standard-through:right`: renderer Vee 0 is plan
+`v2-frog:1`, whose RailA is `standard-through:right`, and the crossing handoff
+is built from plan `v2-frog:0`'s standard rail, also
+`standard-through:right`. The user reports both visible heads displaced by
+exactly one railhead width while their centerline geometry is otherwise in the
+correct place.
+
+Both renderer paths reverse traversal relative to that measured standard rail
+but retain its original `Hand.Right` metadata. A stock-rail profile center is
+offset by half a head width on the hand side of the curve. Reversing the curve
+direction reverses its local right vector; retaining the same hand therefore
+moves the visible profile from one side of the centerline to the other, a full
+`HeadWidth`. The centerline must not be shifted. The physically invariant rule
+is instead:
+
+- when `BuildNarrowBranchStockHandoff` runs from its standard boundary opposite
+  the measured standard-rail tangent, use the opposite hand for the generated
+  handoff;
+- when `CreateVeeWingRail` reverses a measured source slice, reverse its hand
+  along with its point order/directions so the visible profile remains on the
+  same world-space side.
+
+This is traversal-derived rather than node-id-, switch-name-, or fixed-side
+specific. It leaves aligned handoffs and non-reversed wings unchanged, and it
+does not alter frog positions, cut spans, blades, guards, or source rail
+centerlines.
+
+Implemented the traversal-relative correction in
+`SpecialWorkHardwareRenderer`. Reversed vee-wing source slices now also invert
+their hand, preserving their visible profile side. Narrow-branch stock
+handoffs compare their generated traversal with the measured standard-rail
+tangent and invert the source hand only when those directions oppose.
+
+Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
+both have timestamp 2026-07-10 00:58:15, size 742,912 bytes, and SHA-256
+`6A6BBB48FDD5FEC6DF1F3B2D141D65D275ED8AB16B17D8571061DC791961B941`.
+The shared build includes Claude's concurrent vdlt blade-selection changes;
+those files remain separate and were not staged as part of this correction.
+No game process was launched or controlled.

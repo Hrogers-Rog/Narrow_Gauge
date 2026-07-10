@@ -1505,7 +1505,8 @@ namespace NarrowGaugeMod
                 sourceRail.Curve.Length);
             float boundaryDistance = bladeSideIsAfter ? afterDistance : beforeDistance;
             LineCurve wing = bladeSideIsAfter
-                ? SectionedSpecialWorkBuilder.ReverseRailCurve(Slice(sourceRail.Curve, nearDistance, boundaryDistance))
+                ? ReverseRailCurvePreservingProfileSide(
+                    Slice(sourceRail.Curve, nearDistance, boundaryDistance))
                 : Slice(sourceRail.Curve, boundaryDistance, nearDistance);
             if (wing.Points.Count() < 2)
             {
@@ -2890,7 +2891,10 @@ namespace NarrowGaugeMod
                 standardStockBoundary,
                 narrowStockBoundary,
                 frog.Intersection.Position,
-                standardRail.Curve.hand);
+                HandForTraversal(
+                    standardRail.Curve.hand,
+                    standardStockBoundary.direction,
+                    narrowStockBoundary.point - standardStockBoundary.point));
 
             // Previously picked between handoff.Parallel(+-Gauge.Standard.HeadWidth)
             // via a closest-to-reference heuristic (first comparing both ends against
@@ -2907,6 +2911,35 @@ namespace NarrowGaugeMod
             // which moves along the curve, not laterally - so the raw kinked line
             // between them needs no additional lateral correction at all).
             return handoff;
+        }
+
+        private static LineCurve ReverseRailCurvePreservingProfileSide(LineCurve curve)
+        {
+            LineCurve reversed = SectionedSpecialWorkBuilder.ReverseRailCurve(curve);
+            return new LineCurve(reversed.Points, OppositeHand(reversed.hand));
+        }
+
+        private static Hand HandForTraversal(
+            Hand sourceHand,
+            Vector3 sourceDirection,
+            Vector3 traversalDirection)
+        {
+            sourceDirection.y = 0f;
+            traversalDirection.y = 0f;
+            if (sourceDirection.sqrMagnitude <= 0.0001f
+                || traversalDirection.sqrMagnitude <= 0.0001f)
+            {
+                return sourceHand;
+            }
+
+            return Vector3.Dot(sourceDirection, traversalDirection) < 0f
+                ? OppositeHand(sourceHand)
+                : sourceHand;
+        }
+
+        private static Hand OppositeHand(Hand hand)
+        {
+            return hand == Hand.Left ? Hand.Right : Hand.Left;
         }
 
         private static float CrossingPointSetback(FrogCandidate frog)
