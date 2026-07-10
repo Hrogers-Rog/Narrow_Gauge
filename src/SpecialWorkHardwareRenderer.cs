@@ -2072,12 +2072,10 @@ namespace NarrowGaugeMod
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
-                        FaceBothDivergeStandardCrossingPointInward(
+                        CorrectMeasuredRailRenderFrame(
                             analysis,
-                            CorrectMeasuredRailRenderFrame(
-                                analysis,
-                                standardRail.Id,
-                                Slice(standardRail.Curve, pocketStart, piece.EndDistance))),
+                            standardRail.Id,
+                            Slice(standardRail.Curve, pocketStart, piece.EndDistance)),
                         new[] { standardFlangeway, narrowFlangeway },
                         keepPoint,
                         parameters.FlangewayWidth,
@@ -2143,93 +2141,30 @@ namespace NarrowGaugeMod
                             piece.EndDistance - MinimumRailPieceLength,
                             0f,
                             narrowRail.Curve.Length)).point;
+                    string frogName = name + "-NarrowReversedFrog";
+                    bool localFlip = ShouldAutoFlipFlangewayKeepSide(analysis, frogName);
+                    bool localizeCut = ShouldLocalizeFrogFlangewayCut(analysis, frogName);
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
-                        PushBothDivergeNarrowReversedPointIntoFrog(
+                        CorrectMeasuredRailRenderFrame(
                             analysis,
-                            CorrectMeasuredRailRenderFrame(
-                                analysis,
-                                narrowRail.Id,
-                                Slice(narrowRail.Curve, piece.StartDistance, pocketEnd)),
-                            frog),
+                            narrowRail.Id,
+                            Slice(narrowRail.Curve, piece.StartDistance, pocketEnd)),
                         new[] { standardFlangeway, narrowFlangeway },
                         keepPoint,
                         parameters.FlangewayWidth,
                         switchHome,
-                        name + "-NarrowReversedFrog");
+                        frogName,
+                        localFlip,
+                        AutoFlipFlangewayKeepSideIndex(analysis, frogName),
+                        localizeCut ? frog.Intersection.Position : (Vector3?)null,
+                        localizeCut ? FrogFlangewayCutWindowLength(frog) : 0f);
                     return true;
                 }
             }
 
             return false;
-        }
-
-        private static LineCurve FaceBothDivergeStandardCrossingPointInward(
-            SpecialWorkAnalysis analysis,
-            LineCurve curve)
-        {
-            if (!IsDualBothDiverge(analysis))
-            {
-                return curve;
-            }
-
-            // Ordinary measured rails place their asymmetric profile outside
-            // the gauge-face curve. This copy is the complementary frog point,
-            // so its head must project to the opposite side, into the crossing.
-            Hand inwardHand = curve.hand == Hand.Left ? Hand.Right : Hand.Left;
-            return new LineCurve(curve.Points.ToArray(), inwardHand);
-        }
-
-        private static LineCurve PushBothDivergeNarrowReversedPointIntoFrog(
-            SpecialWorkAnalysis analysis,
-            LineCurve curve,
-            FrogCandidate frog)
-        {
-            if (!IsDualBothDiverge(analysis)
-                || curve.Points.Count() < 2)
-            {
-                return curve;
-            }
-
-            LineCurve sampled = curve.Subdivide(0.12f);
-            LinePoint[] source = sampled.Points.ToArray();
-            var distances = new float[source.Length];
-            for (int index = 1; index < source.Length; index++)
-            {
-                distances[index] = distances[index - 1]
-                    + Vector3.Distance(source[index - 1].point, source[index].point);
-            }
-
-            float frogDistance = Mathf.Clamp(
-                sampled.DistanceTo(frog.Intersection.Position),
-                0f,
-                sampled.Length);
-            float pushRadius = Mathf.Max(frog.CutHalfLength, 0.25f);
-            float signedPush = sampled.hand == Hand.Left
-                ? Gauge.Standard.HeadWidth
-                : -Gauge.Standard.HeadWidth;
-            var adjusted = new LinePoint[source.Length];
-            for (int index = 0; index < source.Length; index++)
-            {
-                float weight = 1f - Mathf.Clamp01(
-                    Mathf.Abs(distances[index] - frogDistance) / pushRadius);
-                weight = Mathf.SmoothStep(0f, 1f, weight);
-                Vector3 lateral = source[index].Rotation * Vector3.right;
-                lateral.y = 0f;
-                if (lateral.sqrMagnitude > 0.0001f)
-                {
-                    lateral.Normalize();
-                }
-
-                adjusted[index] = new LinePoint(
-                    source[index].point + lateral * signedPush * weight,
-                    source[index].Rotation);
-            }
-
-            return NormalizeRenderFrames(
-                new LineCurve(adjusted, sampled.hand),
-                preserveProfileCenter: false);
         }
 
         private static bool TryResolveRailFlangeway(
@@ -2453,18 +2388,28 @@ namespace NarrowGaugeMod
             string objectName)
         {
             return IsDualBothDiverge(analysis)
-                && objectName.IndexOf(
-                    "StandardThroughFrog",
-                    StringComparison.OrdinalIgnoreCase) >= 0;
+                && (objectName.IndexOf(
+                        "StandardThroughFrog",
+                        StringComparison.OrdinalIgnoreCase) >= 0
+                    || objectName.IndexOf(
+                        "NarrowReversedFrog",
+                        StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         internal static int AutoFlipFlangewayKeepSideIndex(
             SpecialWorkAnalysis analysis,
             string objectName)
         {
-            return ShouldAutoFlipFlangewayKeepSide(analysis, objectName)
-                ? 1
-                : -1;
+            if (!ShouldAutoFlipFlangewayKeepSide(analysis, objectName))
+            {
+                return -1;
+            }
+
+            return objectName.IndexOf(
+                    "NarrowReversedFrog",
+                    StringComparison.OrdinalIgnoreCase) >= 0
+                ? 0
+                : 1;
         }
 
         internal static bool ShouldLocalizeFrogFlangewayCut(
@@ -2472,7 +2417,12 @@ namespace NarrowGaugeMod
             string objectName)
         {
             return IsDualBothDiverge(analysis)
-                && objectName.IndexOf("StandardThroughFrog", StringComparison.OrdinalIgnoreCase) >= 0;
+                && (objectName.IndexOf(
+                        "StandardThroughFrog",
+                        StringComparison.OrdinalIgnoreCase) >= 0
+                    || objectName.IndexOf(
+                        "NarrowReversedFrog",
+                        StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         internal static float FrogFlangewayCutWindowLength(FrogCandidate frog)

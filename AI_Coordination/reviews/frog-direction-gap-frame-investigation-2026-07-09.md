@@ -450,3 +450,57 @@ completed with 0 warnings and 0 errors. Built and deployed DLLs both have
 timestamp 2026-07-09 21:48:04, size 738,304 bytes, and SHA-256
 `67877FCF903C39801BCF2127EABDC70F929F3B4753D50B1AD5CF85AE8EE89896`.
 No game process was launched or controlled.
+
+## Curve deformations rejected; missing opposing-cutter symmetry - 2026-07-09 22:35
+
+The full-restart result in `Screenshot 2026-07-09 221009.png` rejects both
+remaining deformation experiments. fc97's `NarrowReversedFrog` is still one
+railhead outside the frog despite the frog-centered curve push, which means
+the pushed portion is removed by the subsequent flangeway clipping.
+`StandardThroughFrog` now has a visible kink and malformed cut from the
+profile-hand reversal. Neither rail curve should be bent or re-handed.
+
+The actual clipper inputs expose the missing symmetric correction. Every
+crossing-point rail is cut by two ordered flangeway centers:
+
+1. `standardFlangeway` at index 0;
+2. `narrowFlangeway` at index 1.
+
+For `StandardThroughFrog`, the opposing-family cutter is the narrow cutter at
+index 1; the earlier red/blue evidence correctly led to flipping that index.
+For `NarrowReversedFrog`, the opposing-family cutter is instead the standard
+cutter at index 0. That keep-side was never inverted, so the clipper continues
+to retain the outside part of the narrow point regardless of attempted curve
+movement.
+
+The next build removes `FaceBothDivergeStandardCrossingPointInward` and
+`PushBothDivergeNarrowReversedPointIntoFrog` completely. It extends the
+existing both-diverge keep-side/local-window rule to
+`NarrowReversedFrog`, selecting index 0 there while retaining index 1 for
+`StandardThroughFrog`. `NarrowThroughFrog` remains unchanged. This alters only
+which side of the opposing flangeway is retained inside the frog window; rail
+centerlines, hands, rotations, spans, and the continuous handoff remain
+measured.
+
+### Adjustment rebuild parity follow-up - 2026-07-09 22:42
+
+- `SpecialWorkHardwareRenderer` passes the localized cut focus/window when it
+  first creates `StandardThroughFrog` and `NarrowReversedFrog`.
+- `SpecialWorkAdjustmentUI.ResolveSpecialRenderedInterval` reconstructs the
+  same flangeway-cut inputs, but its two corresponding branches did not restore
+  that focus/window. A later adjustment rebuild could therefore apply the
+  opposing flangeway cutter along the full frog rail and reintroduce the kink
+  and malformed point visible in `Screenshot 2026-07-09 221009.png`.
+- Restore the existing `ShouldLocalizeFrogFlangewayCut` / frog-window values in
+  those two branches only. Leave `NarrowThroughFrog` unchanged.
+
+Implemented the symmetric cutter fix and removed both deformation helpers.
+`StandardThroughFrog` now retains its measured rail and flips opposing cutter
+index 1; `NarrowReversedFrog` retains its measured rail and flips opposing
+cutter index 0. Both initial rendering and adjustment reconstruction pass the
+same frog-local cut focus/window. `NarrowThroughFrog` remains unchanged.
+
+Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
+both have timestamp 2026-07-09 22:41:25, size 737,792 bytes, and SHA-256
+`C770A49E4F94C984C05335BE73340654FCDEF5252244B5C9D4F6268F51D153A3`.
+No game process was launched or controlled.

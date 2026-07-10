@@ -2923,3 +2923,25 @@ have timestamp 2026-07-09 21:48:04, size 738,304 bytes, and matching SHA-256
 `67877FCF903C39801BCF2127EABDC70F929F3B4753D50B1AD5CF85AE8EE89896`.
 No game process was launched or controlled. Next is a full-restart `214109`
 comparison and a mirror-hand spot check.
+
+### [Codex] 2026-07-09 22:41 - Replace frog-point deformations with symmetric cutter sides
+
+The user supplied screenshot `221009`: fc97's `NarrowReversedFrog` remained
+one railhead outside the crossing despite the local curve push, while
+`StandardThroughFrog` was visibly kinked and cut incorrectly by the remaining
+profile-hand reversal. This falsified both rail-deformation approaches.
+
+Removed `PushBothDivergeNarrowReversedPointIntoFrog` and
+`FaceBothDivergeStandardCrossingPointInward`, restoring both paths to their
+measured curves and hands. The flangeway cutters are ordered standard index 0,
+narrow index 1, so the both-diverge fix now flips only the opposing cutter:
+index 1 for `StandardThroughFrog`, index 0 for `NarrowReversedFrog`. Both cuts
+are localized to the crossing-frog window. Added the same window propagation
+to `SpecialWorkAdjustmentUI` so an adjustment rebuild cannot reapply a
+full-length cut. `NarrowThroughFrog` is unchanged.
+
+Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
+2026-07-09 22:41:25, size 737,792 bytes, and matching SHA-256
+`C770A49E4F94C984C05335BE73340654FCDEF5252244B5C9D4F6268F51D153A3`.
+No game process was launched or controlled. Next is a full-restart fc97
+`221009` comparison and a second both-diverge/mirror-layout spot check.
