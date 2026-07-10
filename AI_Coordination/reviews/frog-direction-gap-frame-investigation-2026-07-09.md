@@ -850,3 +850,31 @@ Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
 both have timestamp 2026-07-10 01:42:01, size 743,424 bytes, and SHA-256
 `9A52EE2310749008DDF2CBEA5ECFD37EE57AA60136B179965E8F088C91E12476`.
 No game process was launched or controlled.
+
+## vdlt WingB must be parallel-offset from Fixed-1, not connected - 2026-07-10
+
+The fresh log now contains `[VeeWingFixedRailAlignment]`, proving the physical
+pair gate activates. The new screenshots show the resulting endpoint reaches
+`Fixed-1`, but the user clarified that the rails must not connect: WingB must
+have exactly the same angle as `Fixed-1` while retaining the same clear gap
+that WingA has beside its parallel rail.
+
+The required geometry is therefore a parallel copy of the Rail-A fixed path,
+not the prior Rail-B source slice with a changed endpoint. The standard visual
+spacing is `RailHeadWidth + FlangewayWidth` = 76 + 50 = 126 mm between curve
+centers, leaving a 50 mm clear gap between the two 76 mm railheads. Build the
+target WingB from the Rail-A curve on the fixed side of its heel, offset 126 mm
+toward Rail B. Retain the source WingB hand and the existing cut-half length.
+All other wings remain on the generic path.
+
+Implemented `TryBuildFixedRailParallelWing`. It slices Rail A on the measured
+fixed side of the heel for the existing frog cut-half length, creates both
+`+/-126 mm` parallel candidates, and selects the side whose heel is closest to
+Rail B's heel. The selected curve retains the fixed rail's traversal hand, so
+its rendered angle and profile offset match `Fixed-1` while preserving the
+50 mm clear railhead gap.
+
+Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
+both have timestamp 2026-07-10 01:52:08, size 743,936 bytes, and SHA-256
+`A82B67AB3F2A8BB5C240C92928F33BABEE0A577EDEFB0DC1B5B31CAC2C5BADE3`.
+No game process was launched or controlled.

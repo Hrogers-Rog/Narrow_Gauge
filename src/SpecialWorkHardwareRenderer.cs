@@ -1513,12 +1513,18 @@ namespace NarrowGaugeMod
                 return;
             }
 
-            if (ShouldAlignWithOppositeFixedRail(analysis, frog, sourceRail))
+            if (ShouldAlignWithOppositeFixedRail(analysis, frog, sourceRail)
+                && TryBuildFixedRailParallelWing(
+                    frog,
+                    sourceRail,
+                    oppositeHeel,
+                    sourceHeel,
+                    out LineCurve parallelWing))
             {
                 Main.Log(
                     $"[VeeWingFixedRailAlignment] node={analysis.Definition.Id} " +
                     $"frog={frog.Id} rail={sourceRail.Id} object={name}");
-                wing.Add(oppositeHeel);
+                wing = parallelWing;
             }
             else
             {
@@ -1570,6 +1576,53 @@ namespace NarrowGaugeMod
                 return false;
             }
 
+            return true;
+        }
+
+        private static bool TryBuildFixedRailParallelWing(
+            FrogCandidate frog,
+            RailCenterline sourceRail,
+            LinePoint fixedHeel,
+            LinePoint sourceHeel,
+            out LineCurve wing)
+        {
+            RailCenterline fixedRail = frog.Intersection.RailA;
+            float heelDistance = Mathf.Clamp(
+                fixedRail.Curve.DistanceTo(fixedHeel.point),
+                0f,
+                fixedRail.Curve.Length);
+            bool fixedSideIsBefore = heelDistance < frog.Intersection.DistanceA;
+            float referenceStart = fixedSideIsBefore
+                ? Mathf.Max(0f, heelDistance - frog.CutHalfLength)
+                : heelDistance;
+            float referenceEnd = fixedSideIsBefore
+                ? heelDistance
+                : Mathf.Min(fixedRail.Curve.Length, heelDistance + frog.CutHalfLength);
+            if (referenceEnd - referenceStart < MinimumRailPieceLength)
+            {
+                wing = null!;
+                return false;
+            }
+
+            LineCurve reference = Slice(fixedRail.Curve, referenceStart, referenceEnd);
+            float centerSeparation = Gauge.Standard.HeadWidth + 0.05f;
+            LineCurve positive = reference.Parallel(
+                centerSeparation,
+                fixedRail.Curve.hand);
+            LineCurve negative = reference.Parallel(
+                -centerSeparation,
+                fixedRail.Curve.hand);
+            LinePoint positiveAtHeel = positive.LinePointAtDistance(
+                fixedSideIsBefore ? positive.Length : 0f);
+            LinePoint negativeAtHeel = negative.LinePointAtDistance(
+                fixedSideIsBefore ? negative.Length : 0f);
+            LineCurve selected = Vector3.Distance(
+                    positiveAtHeel.point,
+                    sourceHeel.point)
+                <= Vector3.Distance(negativeAtHeel.point, sourceHeel.point)
+                    ? positive
+                    : negative;
+            wing = new LineCurve(selected.Points, fixedRail.Curve.hand);
             return true;
         }
 
