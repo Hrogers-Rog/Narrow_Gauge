@@ -390,3 +390,28 @@ completed with 0 warnings and 0 errors. Built and deployed DLLs both have
 timestamp 2026-07-09 21:24:00, size 737,792 bytes, and SHA-256
 `BD512634D9931B3288F773120328D0F32467021E031D60DFA14816FB1B411078`.
 No game process was launched or controlled.
+
+## Narrow point-profile flip rejected by live result - 2026-07-09 21:33
+
+The full-restart result in `Screenshot 2026-07-09 212930.png` falsifies the
+three-path conclusion above. The user reports that `NarrowThroughFrog` moved
+left by exactly one railhead width and that some `NarrowReversedFrog` objects
+now render only half a rail. Those are the direct expected signatures of the
+new narrow profile-hand reversal: changing hand moves the asymmetric profile
+one full head width while the unchanged flangeway half-planes can then retain
+only part of the displaced head.
+
+The narrow crossing rails were already correct in the measured-hand build and
+must retain `CorrectMeasuredRailRenderFrame`'s original hand. The reported
+outside-stock correction therefore applies only to the standard
+`StandardThroughFrog` point copy. The next build removes
+`FaceBothDivergeCrossingPointInward` from both `NarrowThroughFrog` and
+`NarrowReversedFrog`, retaining it only on `StandardThroughFrog`. No cutter,
+span, centerline, handoff, or guard changes are needed.
+
+Implemented that narrow rollback and renamed the remaining helper to
+`FaceBothDivergeStandardCrossingPointInward`. Build/deploy completed with 0
+warnings and 0 errors. Built and deployed DLLs both have timestamp
+2026-07-09 21:35:11, size 737,792 bytes, and SHA-256
+`98FBEC1381450E4344011D0452C0E29B0C7E14381ECAECFDEA5B349733426437`.
+No game process was launched or controlled.

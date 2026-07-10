@@ -2878,3 +2878,26 @@ Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
 `BD512634D9931B3288F773120328D0F32467021E031D60DFA14816FB1B411078`.
 No game process was launched or controlled. Next is a full-restart fc97
 `211109` comparison and a mirror-hand regression check.
+
+### [Codex] 2026-07-09 21:35 - Roll back narrow crossing-point hand reversal
+
+The user live-tested the three-path point-hand build and supplied screenshot
+`212930`: `NarrowThroughFrog` shifted left by exactly one railhead width and
+some `NarrowReversedFrog` objects rendered only half a rail. This falsifies the
+assumption that all complementary crossing-point paths require reversed
+profile hands. The result matches the mechanics exactly: reversing a narrow
+curve's asymmetric profile moves its head one full width, after which the
+unchanged flangeway clip can retain only part of it.
+
+Removed the new hand wrapper from both narrow branches, restoring their
+pre-regression `CorrectMeasuredRailRenderFrame` output. Retained the correction
+only on `StandardThroughFrog` and renamed the helper
+`FaceBothDivergeStandardCrossingPointInward` to prevent another blanket use.
+No geometry spans, cutters, handoff, guard, or ordinary running rails changed.
+
+Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
+2026-07-09 21:35:11, size 737,792 bytes, and matching SHA-256
+`98FBEC1381450E4344011D0452C0E29B0C7E14381ECAECFDEA5B349733426437`.
+No game process was launched or controlled. Next is a full-restart `212930`
+comparison plus confirmation that the standard-only point correction remains
+appropriate.

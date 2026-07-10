@@ -1,6 +1,6 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-09 21:24 EDT
+Last updated by: Codex - 2026-07-09 21:35 EDT
 
 ## Critical testing constraints
 
@@ -9,45 +9,39 @@ Last updated by: Codex - 2026-07-09 21:24 EDT
 - The user retired the automated Railroader/TestBridge pipeline. Do not launch
   or drive Railroader. Build/deploy is allowed; live verification is manual.
 
-## Current phase: inward-facing both-diverge crossing points deployed
+## Current phase: narrow point-hand regression removed; standard-only correction deployed
 
-The measured-hand build corrected the continuous handoff/guard path, but the
-user's new fc97 screenshot (`211109`) shows one complementary crossing point
-still failing to project inward into the frog. The fresh 21:13 runtime log
-confirms fc97 remains a valid 18-fixed/3-frog plan, ruling out a missing plan
-piece.
+The three-path point-hand build was live-rejected. In screenshot `212930`,
+`NarrowThroughFrog` moved left by exactly one railhead width and some
+`NarrowReversedFrog` meshes retained only half a rail. This directly identifies
+the new narrow hand reversals as regressions: the asymmetric head moved while
+the existing flangeway half-planes stayed fixed.
 
-The complementary flangeway-cut point objects retained ordinary running-rail
-hands. Ordinary rail profiles project outside their gauge-face curves; a frog
-point made from that same path must project to the opposite, inward side. The
-deployed renderer now reverses the profile hand only for both-diverge:
+Both narrow paths now retain their original measured hands again. The inward
+profile correction remains only on the standard outside point copy,
+`StandardThroughFrog`, matching the user's narrower outside-stock report. The
+helper is renamed `FaceBothDivergeStandardCrossingPointInward` to make that
+scope explicit.
 
-- `StandardThroughFrog`;
-- `NarrowThroughFrog`;
-- `NarrowReversedFrog`.
-
-The continuous stock handoff, ordinary outside stock rails, curve points,
-rotations, spans, flangeway centers, and keep-side logic are unchanged. Each
-point reverses its own measured hand, so mirrored and reversed route curves do
-not require a node-id or fixed-left/fixed-right case.
+No cutter, cut window, span, centerline, continuous handoff, guard, or ordinary
+running-rail changes were made.
 
 Built and deployed: 0 warnings, 0 errors. Built/deployed DLL timestamp
-2026-07-09 21:24:00, size 737,792 bytes, SHA-256
-`BD512634D9931B3288F773120328D0F32467021E031D60DFA14816FB1B411078` on both
+2026-07-09 21:35:11, size 737,792 bytes, SHA-256
+`98FBEC1381450E4344011D0452C0E29B0C7E14381ECAECFDEA5B349733426437` on both
 copies. No game process was launched or controlled. Full evidence:
 `reviews/frog-direction-gap-frame-investigation-2026-07-09.md`.
 
 ## Next turn
 
 1. Fully quit and restart Railroader; a save reload is insufficient.
-2. At fc97, repeat the `211109` view. Both complementary point heads should
-   now project inward into the crossing instead of remaining on the outside
-   gauge-face side.
-3. Confirm the continuous handoff and guard retain their corrected positions;
-   this change does not touch either path.
-4. Spot-check a mirror-hand both-diverge switch such as p997/ltci and a second
-   right-side switch such as l4a4.
-5. Confirm original point spans and flangeway cuts remain intact.
+2. Repeat the `212930` view: `NarrowThroughFrog` should return one head width
+   to its measured alignment and `NarrowReversedFrog` should render its full
+   head again.
+3. At fc97, confirm the standard outside point remains projected inward as
+   intended by the `211109` report.
+4. Confirm the continuous handoff and guard remain unchanged.
+5. Spot-check l4a4 and a mirror-hand switch such as p997/ltci.
 
 ## Open questions / blockers
 

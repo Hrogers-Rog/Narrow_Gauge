@@ -2072,7 +2072,7 @@ namespace NarrowGaugeMod
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
-                        FaceBothDivergeCrossingPointInward(
+                        FaceBothDivergeStandardCrossingPointInward(
                             analysis,
                             CorrectMeasuredRailRenderFrame(
                                 analysis,
@@ -2112,12 +2112,10 @@ namespace NarrowGaugeMod
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
-                        FaceBothDivergeCrossingPointInward(
+                        CorrectMeasuredRailRenderFrame(
                             analysis,
-                            CorrectMeasuredRailRenderFrame(
-                                analysis,
-                                narrowRail.Id,
-                                Slice(narrowRail.Curve, pocketStart, piece.EndDistance))),
+                            narrowRail.Id,
+                            Slice(narrowRail.Curve, pocketStart, piece.EndDistance)),
                         new[] { standardFlangeway, narrowFlangeway },
                         keepPoint,
                         parameters.FlangewayWidth,
@@ -2148,12 +2146,10 @@ namespace NarrowGaugeMod
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
-                        FaceBothDivergeCrossingPointInward(
+                        CorrectMeasuredRailRenderFrame(
                             analysis,
-                            CorrectMeasuredRailRenderFrame(
-                                analysis,
-                                narrowRail.Id,
-                                Slice(narrowRail.Curve, piece.StartDistance, pocketEnd))),
+                            narrowRail.Id,
+                            Slice(narrowRail.Curve, piece.StartDistance, pocketEnd)),
                         new[] { standardFlangeway, narrowFlangeway },
                         keepPoint,
                         parameters.FlangewayWidth,
@@ -2166,7 +2162,7 @@ namespace NarrowGaugeMod
             return false;
         }
 
-        private static LineCurve FaceBothDivergeCrossingPointInward(
+        private static LineCurve FaceBothDivergeStandardCrossingPointInward(
             SpecialWorkAnalysis analysis,
             LineCurve curve)
         {
