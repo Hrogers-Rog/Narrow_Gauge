@@ -314,6 +314,17 @@ namespace NarrowGaugeMod
                                 continue;
                             }
 
+                            tangentA = AlignTangentToPhysicalOwner(
+                                railA,
+                                physicalRailA,
+                                worldPoint,
+                                tangentA);
+                            tangentB = AlignTangentToPhysicalOwner(
+                                railB,
+                                physicalRailB,
+                                worldPoint,
+                                tangentB);
+
                             float angle = AcuteAngle(tangentA, tangentB);
                             bool endpointJoin =
                                 IsRailEndpoint(
@@ -339,7 +350,11 @@ namespace NarrowGaugeMod
                             }
                             else if (definition.Preset.Category == SpecialWorkCategory.Crossing
                                 || definition.Preset.Category == SpecialWorkCategory.Slip
-                                || physicalRailA.Side == physicalRailB.Side)
+                                || SamePhysicalRailSide(
+                                    physicalRailA,
+                                    physicalRailB,
+                                    tangentA,
+                                    tangentB))
                             {
                                 kind = RailIntersectionKind.CrossingFrogCandidate;
                             }
@@ -377,6 +392,50 @@ namespace NarrowGaugeMod
                 intersection.TangentB,
                 intersection.AcuteAngleDegrees,
                 intersection.Kind));
+        }
+
+        private static bool SamePhysicalRailSide(
+            RailCenterline railA,
+            RailCenterline railB,
+            Vector2 tangentA,
+            Vector2 tangentB)
+        {
+            bool sameSide = railA.Side == railB.Side;
+            if (tangentA.sqrMagnitude > OrientationEpsilon
+                && tangentB.sqrMagnitude > OrientationEpsilon
+                && Vector2.Dot(tangentA, tangentB) < 0f)
+            {
+                sameSide = !sameSide;
+            }
+
+            return sameSide;
+        }
+
+        private static Vector2 AlignTangentToPhysicalOwner(
+            RailCenterline source,
+            RailCenterline physicalOwner,
+            Vector3 position,
+            Vector2 tangent)
+        {
+            if (source == physicalOwner)
+            {
+                return tangent;
+            }
+
+            Vector3 sourceDirection = source.Curve.LinePointAtDistance(
+                Mathf.Clamp(source.Curve.DistanceTo(position), 0f, source.Curve.Length)).direction;
+            Vector3 ownerDirection = physicalOwner.Curve.LinePointAtDistance(
+                Mathf.Clamp(
+                    physicalOwner.Curve.DistanceTo(position),
+                    0f,
+                    physicalOwner.Curve.Length)).direction;
+            sourceDirection.y = 0f;
+            ownerDirection.y = 0f;
+            return sourceDirection.sqrMagnitude > OrientationEpsilon
+                    && ownerDirection.sqrMagnitude > OrientationEpsilon
+                    && Vector3.Dot(sourceDirection, ownerDirection) < 0f
+                ? -tangent
+                : tangent;
         }
 
         private static RailCenterline ResolvePhysicalOwner(

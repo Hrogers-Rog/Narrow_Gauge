@@ -1,72 +1,78 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-09 19:34 EDT
+Last updated by: Codex - 2026-07-09 20:00 EDT
 
 ## Critical testing constraints
 
-- `NarrowGaugeMod.dll` is loaded once at full Railroader process startup. A
-  save reload does not load a newly deployed DLL; every live check below needs
-  a full game quit and restart.
+- `NarrowGaugeMod.dll` is loaded only at full Railroader process startup. A
+  save reload does not load this deployment.
 - The user retired the automated Railroader/TestBridge pipeline. Do not launch
-  or drive Railroader. Build/deploy is allowed; live verification is manual by
-  the user.
+  or drive Railroader. Build/deploy is allowed; live verification is manual.
 
-## Current phase: G832 blade pair and overlaid third rail fixed, awaiting manual verification
+## Current phase: direction-aware frog and 7n90 gap fixes deployed
 
-The user's current live report is specific: `NCustom_g832` now renders the
-correct left blade and frog hardware, but lacks the right blade, while an
-ordinary full-length narrow-gauge left through rail renders over and clips
-through that correct measured hardware.
+After restarting with commit `826054a`, the user supplied four screenshots
+and reported:
 
-The fresh `Player.log` (2026-07-09 19:28) provided direct evidence for both:
+- malformed double frogs at `l4a4`, `fc97`, and `N178`;
+- a large empty cut plus malformed frog work at `NCustom_7n90`;
+- overlapping/wrong V and double-frog anatomy at `NCustom_vdlt`;
+- inside-out rail pieces.
 
-1. G832 selects the two-entry `DualGauge_NarrowBranch_Left` blade truth table,
-   but the crossing-frog correction rewrites the original right blade onto the
-   left pairing and the one-blade shared-side filter skips the table's other
-   entry. Final summary: `valid=True ... blades=1`.
-2. G832 emits ownership claims on its authored dual-gauge through segments
-   (`SCustom_snvo`, `SCustom_6wx3`) only for `standard-through` rails. The
-   corresponding narrow routes traverse deterministic ghost ids
-   `fuse-ng:s:<source>`, so the source-route ownership filter excludes their
-   work intervals and leaves the ordinary third rail uncut over the measured
-   assembly.
+Fresh 19:45 `Player.log` evidence made four independent general causes
+concrete:
 
-Implemented two general fixes:
+1. Frog kind compared route-relative `Left`/`Right` without reversing that
+   relationship when route tangents oppose. `vdlt` has two such opposed-route
+   intersections.
+2. `N178` rehomes an accepted frog from `narrow-normal:right` to
+   `standard-through:left`, but retained its pre-rehome V kind and dimensions.
+3. `SCustom_194b` has a gauge-separation cut at `20.832-23.761` outside its
+   valid measured ownership/replacement span. The valid-plan control shell
+   suppressed all procedural replacement hardware, leaving the cut empty.
+4. Every standard/narrow crossing was sent through narrow-branch continuous
+   stock-handoff geometry, including `dual.both-diverge` switches such as
+   `fc97`/`l4a4`, where full generic crossing points are required.
 
-- Truth-matched narrow-branch layouts with an accepted standard x narrow
-  crossing retain the truth table's complementary left+right blade pair and do
-  not apply the single-crossing-rail rewrite to both entries. Simple no-crossing
-  narrow-branch layouts (`N178`/`Nove`) retain their existing shared-side
-  one-blade rule. `NCustom_7n90`'s measured fallback path is unchanged.
-- `SpecialWorkHardwareRenderer.OwnershipCuts` treats an authored dual-gauge
-  source id and `fuse-ng:s:<source>` as the same physical source corridor for
-  route eligibility. This admits the narrow-through interval needed to clip
-  the third rail while preserving the source-route boundary filter.
+Inside-out geometry had two related causes: frame normalization covered only
+the left narrow-branch truth-table hand, and procedural reversed slices used
+raw `LineCurve.Reverse()` with stale per-point rotations.
 
-Full investigation: `reviews/g832-blade-and-through-rail-2026-07-09.md`.
+Implemented:
+
+- direction-aware physical-side frog classification in prototype and accepted
+  plan stages;
+- full reclassification/recalculation after frog physical-owner replacement;
+- measured-plan-aware gauge-separation supplementation that renders only
+  uncovered procedural frog sites and never adds a blade to a valid plan;
+- generic crossing points for `dual.both-diverge` crossing frogs;
+- render-frame correction for all `DualNarrowBranch` plans and hand-aware
+  procedural curve reversal.
+
+No switch ids are used in the fixes. Full evidence and implementation details:
+`reviews/frog-direction-gap-frame-investigation-2026-07-09.md`.
 
 Built and deployed against the real Railroader install: 0 warnings, 0 errors.
-The deployed DLL timestamp is 2026-07-09 19:34:25. No game process was launched
-or controlled.
+Built/deployed DLL timestamp 2026-07-09 20:00:40, size 737,792 bytes. No game
+process was launched or controlled.
 
 ## Next turn
 
-Next: Claude review, after the user's manual verification.
-
-1. Fully quit and restart Railroader, load the save, and inspect G832. Expected:
-   two blades, no full-length third rail over the left blade/frogs.
-2. Check `Player.log`: G832 should report `blades=2`; its through source
-   segments should gain `narrow-normal` ownership claims/cuts where the third
-   rail overlaps the measured work interval.
-3. Spot-check `NCustom_vdlt`, the mirror crossing anatomy; it should also have
-   two blades. `N178` and `Nove` should remain at one blade. `NCustom_7n90`
-   should remain unchanged.
-4. Claude should read the actual diff plus the new review file and agree or
-   raise a disagreement under the coordination protocol.
+1. Fully quit and restart Railroader, then inspect `l4a4`, `fc97`, `N178`,
+   `NCustom_7n90`, and `NCustom_vdlt` in both switch states where relevant.
+2. Confirm the 7n90 gap is filled without adding another blade. The fresh log
+   should report gauge-separation supplemental hardware with `frogs=1`,
+   `covered=1`, `blade=0`.
+3. Confirm N178 logs `[FrogOwner] ... reclassified` and its double-frog
+   hardware is complete.
+4. Confirm vdlt no longer places the V and double frog on the wrong physical
+   crossings, and that no tapered rail profiles are inside-out.
+5. Spot-check `Nove`, `G832`, and one previously good both-diverge turnout for
+   regression. Then review the fresh plan summaries and frog-kind logs.
 
 ## Open questions / blockers
 
-- Manual live verification is required; static build cannot prove visual rail
-  clipping or blade animation.
+- Manual live verification is required; static build cannot prove final scene
+  overlap, animation, or mesh winding.
 - `NCustom_ltci` / `SCustom_ttpp` neighboring ownership overlap remains open
-  and is not addressed by this physical ghost/source counterpart fix.
+  and is outside this change.

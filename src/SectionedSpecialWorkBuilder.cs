@@ -146,6 +146,7 @@ namespace NarrowGaugeMod
             AddBladeCorridorSuppressions(definition, rails, blades, cuts, suppressions);
             frogs = CollapseDuplicateFrogHardware(
                 RehomeSharedDuplicateFrogRails(
+                    definition,
                     rails,
                     cuts,
                     frogs,
@@ -1138,14 +1139,14 @@ namespace NarrowGaugeMod
                     && item.AcuteAngleDegrees >= MinimumFrogAngle
                     && !InsideBladeZone(item, blades))
                 .ToArray();
-            if (IsDualBothDivergePreset(definition))
+            foreach (RailIntersection item in accepted)
             {
-                foreach (RailIntersection item in accepted)
-                {
-                    item.Kind = item.RailA.Side == item.RailB.Side
-                        ? RailIntersectionKind.CrossingFrogCandidate
-                        : RailIntersectionKind.VeeFrogCandidate;
-                }
+                item.Kind = ClassifyFrogKind(
+                    definition,
+                    item.RailA,
+                    item.RailB,
+                    item.TangentA,
+                    item.TangentB);
             }
 
             bool useNoveSplitFrogCatalog =
@@ -1167,7 +1168,9 @@ namespace NarrowGaugeMod
                 Main.Log(
                     $"[FrogKindOverride] {intersection.Id} railA={intersection.RailA.Id}({intersection.RailA.Side}) " +
                     $"railB={intersection.RailB.Id}({intersection.RailB.Side}) " +
-                    $"sameSide={intersection.RailA.Side == intersection.RailB.Side} → {intersection.Kind}");
+                    $"samePhysicalSide={SamePhysicalRailSide(intersection.RailA, intersection.RailB, intersection.TangentA, intersection.TangentB)} " +
+                    $"tangentDot={Vector3.Dot(intersection.TangentA.normalized, intersection.TangentB.normalized):0.000} " +
+                    $"→ {intersection.Kind}");
                 if (!TryResolveFrogOwnership(
                     intersection,
                     out string ownerRoute,
@@ -1978,6 +1981,7 @@ namespace NarrowGaugeMod
         }
 
         private static IEnumerable<FrogCandidate> RehomeSharedDuplicateFrogRails(
+            SpecialWorkDefinition definition,
             IReadOnlyList<RailCenterline> rails,
             IReadOnlyList<RailCut> cuts,
             IEnumerable<FrogCandidate> frogs,
@@ -1985,11 +1989,17 @@ namespace NarrowGaugeMod
         {
             foreach (FrogCandidate frog in frogs)
             {
-                yield return RehomeSharedDuplicateFrogRail(rails, cuts, frog, blades);
+                yield return RehomeSharedDuplicateFrogRail(
+                    definition,
+                    rails,
+                    cuts,
+                    frog,
+                    blades);
             }
         }
 
         private static FrogCandidate RehomeSharedDuplicateFrogRail(
+            SpecialWorkDefinition definition,
             IReadOnlyList<RailCenterline> rails,
             IReadOnlyList<RailCut> cuts,
             FrogCandidate frog,
@@ -2023,6 +2033,12 @@ namespace NarrowGaugeMod
                 return frog;
             }
 
+            RailIntersectionKind kind =
+                SpecialWorkHardwareProfileCatalog.ShouldUseNoveSplitFrogCatalog(definition)
+                    ? frog.Intersection.Kind
+                    : ClassifyFrogKind(definition, railA, railB, tangentA, tangentB);
+            float acuteAngle = AcuteAngleDegrees(tangentA, tangentB);
+
             var intersection = new RailIntersection(
                 frog.Intersection.Id,
                 railA,
@@ -2035,8 +2051,8 @@ namespace NarrowGaugeMod
                 Tangent2D(tangentB),
                 tangentA,
                 tangentB,
-                AcuteAngleDegrees(tangentA, tangentB),
-                frog.Intersection.Kind);
+                acuteAngle,
+                kind);
 
             string ownerRoute = frog.OwnerRouteId;
             string crossingRoute = frog.CrossingRouteId;
@@ -2068,15 +2084,48 @@ namespace NarrowGaugeMod
                     $"to {railB.Id}@{distanceB:0.000}.");
             }
 
+            if (kind != frog.Intersection.Kind)
+            {
+                Main.Log(
+                    $"[FrogOwner] {frog.Id} reclassified {frog.Intersection.Kind} " +
+                    $"to {kind} after physical-owner replacement.");
+            }
+
+            float halfAngle = Mathf.Max(acuteAngle * 0.5f * Mathf.Deg2Rad, 0.01f);
+            float railHeadSetback = RailHeadWidth / Mathf.Tan(halfAngle);
+            float flangewaySetback = FlangewayWidth / Mathf.Sin(halfAngle);
+            float headMargin = kind == RailIntersectionKind.CrossingFrogCandidate
+                ? RailHeadWidth * 3f
+                : RailHeadWidth * 0.5f;
+            float cutHalfLength = Mathf.Clamp(
+                Mathf.Max(railHeadSetback + headMargin, flangewaySetback + 0.06f),
+                MinimumFrogSetback,
+                MaximumFrogSetback);
+            Vector3 alignedTangentB = Vector3.Dot(tangentA, tangentB) < 0f
+                ? -tangentB
+                : tangentB;
+            Vector3 nose = (tangentA + alignedTangentB).normalized;
+            if (nose.sqrMagnitude <= 0.0001f)
+            {
+                nose = tangentA.normalized;
+            }
+
+            if (kind == RailIntersectionKind.VeeFrogCandidate)
+            {
+                nose = OrientVeeNoseTowardBlades(nose, intersection.Position, blades);
+            }
+
             return new FrogCandidate(
                 frog.Id,
                 intersection,
-                frog.NoseDirection,
-                frog.HeelDirection,
-                frog.Handedness,
-                frog.RailHeadSetback,
-                frog.FlangewaySetback,
-                frog.CutHalfLength,
+                nose,
+                -nose,
+                Vector3.Cross(tangentA, alignedTangentB).y >= 0f
+                    ? FrogHandedness.Left
+                    : FrogHandedness.Right,
+                railHeadSetback,
+                flangewaySetback,
+                cutHalfLength,
                 ownerRoute,
                 crossingRoute,
                 protectedRoute);
@@ -2197,6 +2246,42 @@ namespace NarrowGaugeMod
 
             float angle = Vector3.Angle(a, b);
             return angle > 90f ? 180f - angle : angle;
+        }
+
+        private static RailIntersectionKind ClassifyFrogKind(
+            SpecialWorkDefinition definition,
+            RailCenterline railA,
+            RailCenterline railB,
+            Vector3 tangentA,
+            Vector3 tangentB)
+        {
+            if (definition.Preset.Category == SpecialWorkCategory.Crossing
+                || definition.Preset.Category == SpecialWorkCategory.Slip
+                || SamePhysicalRailSide(railA, railB, tangentA, tangentB))
+            {
+                return RailIntersectionKind.CrossingFrogCandidate;
+            }
+
+            return RailIntersectionKind.VeeFrogCandidate;
+        }
+
+        private static bool SamePhysicalRailSide(
+            RailCenterline railA,
+            RailCenterline railB,
+            Vector3 tangentA,
+            Vector3 tangentB)
+        {
+            bool sameSide = railA.Side == railB.Side;
+            tangentA.y = 0f;
+            tangentB.y = 0f;
+            if (tangentA.sqrMagnitude > 0.0001f
+                && tangentB.sqrMagnitude > 0.0001f
+                && Vector3.Dot(tangentA, tangentB) < 0f)
+            {
+                sameSide = !sameSide;
+            }
+
+            return sameSide;
         }
 
         private static IReadOnlyDictionary<string, RailCenterline> BuildSharedCorridorOwners(

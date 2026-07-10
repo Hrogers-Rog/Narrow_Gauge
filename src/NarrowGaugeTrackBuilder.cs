@@ -42,6 +42,7 @@ namespace NarrowGaugeMod
         private const float DuplicateRailTolerance = 0.055f;
         private const float DuplicateRailSampleSpacing = 0.1f;
         private const float GaugeSeparationFrogMatchTolerance = 0.06f;
+        private const float GaugeSeparationMeasuredFrogMatchTolerance = 0.35f;
         private const float SharedRailFlipMinSpan = 5.0f;
         private const float SharedRailFlipMaxSpan = 7.5f;
         private const float SharedRailFlipMatchTolerance = 0.08f;
@@ -3499,24 +3500,31 @@ namespace NarrowGaugeMod
                 vanillaRailObjects: 16,
                 vanillaTieObjects: 1);
             CreateSwitchStand(builder, geometry, node, root.transform);
-            if (!SpecialWorkHardwareRenderer.HasValidPlan(node))
-            {
-                CreateGaugeSeparationFallbackHardware(
-                    builder,
-                    node,
-                    parent,
-                    geometry.switchHome);
-            }
+            SpecialWorkMeshPlan? measuredPlan =
+                SpecialWorkRuntimeRegistry.FindByNativeNodeId(node.id)?.MeshPlan;
+            bool validMeasuredPlan = measuredPlan?.IsValid == true;
+            CreateGaugeSeparationFallbackHardware(
+                builder,
+                node,
+                parent,
+                geometry.switchHome,
+                validMeasuredPlan
+                    ? measuredPlan!.Frogs
+                    : Array.Empty<FrogCandidate>(),
+                includeBlade: !validMeasuredPlan);
             Main.Log(
-                $"[Build] Gauge-separation switch '{node.id}' rendered control shell only; " +
-                "measured special-work owns all turnout rails, blades, frogs, guards, and ties.");
+                $"[Build] Gauge-separation switch '{node.id}' rendered control shell; " +
+                $"validMeasuredPlan={validMeasuredPlan}. Uncovered procedural frog sites " +
+                "are supplemented without duplicating measured hardware.");
         }
 
         private static void CreateGaugeSeparationFallbackHardware(
             TrackObjectBuilder builder,
             TrackNode ghostNode,
             Transform parent,
-            Vector3 switchHome)
+            Vector3 switchHome,
+            IReadOnlyList<FrogCandidate> measuredFrogs,
+            bool includeBlade)
         {
             if (!TryResolveGaugeSeparationRailLayout(
                     ghostNode,
@@ -3537,13 +3545,28 @@ namespace NarrowGaugeMod
                 return;
             }
 
+            GaugeSeparationFrogSite[] uncoveredSites = sites
+                .Where(site => !measuredFrogs.Any(frog =>
+                    HorizontalDistance(
+                        site.Intersection.point,
+                        frog.Intersection.Position)
+                    <= GaugeSeparationMeasuredFrogMatchTolerance))
+                .ToArray();
+            if (uncoveredSites.Length == 0 && !includeBlade)
+            {
+                Main.Log(
+                    $"[Build] Gauge-separation supplemental hardware '{ghostNode.id}': " +
+                    "all procedural frog sites are covered by measured frogs.");
+                return;
+            }
+
             GameObject root = CreateTrackRoot(
                 builder,
                 "gauge-separation-special-work-" + ghostNode.id,
                 parent);
 
             int frogIndex = 0;
-            foreach (GaugeSeparationFrogSite site in sites.OrderByDescending(site => site.IsVee))
+            foreach (GaugeSeparationFrogSite site in uncoveredSites.OrderByDescending(site => site.IsVee))
             {
                 CreateGaugeSeparationFallbackFrog(
                     builder,
@@ -3554,16 +3577,25 @@ namespace NarrowGaugeMod
                     "GaugeSeparationFrog-" + frogIndex++);
             }
 
-            bool bladeCreated = TryCreateGaugeSeparationFallbackBlade(
-                builder,
-                root,
-                ghostNode,
-                layout,
-                sites,
-                switchHome);
+            bool bladeCreated = includeBlade
+                && TryCreateGaugeSeparationFallbackBlade(
+                    builder,
+                    root,
+                    ghostNode,
+                    layout,
+                    sites,
+                    switchHome);
             Main.Log(
-                $"[Build] Gauge-separation fallback hardware '{ghostNode.id}': " +
-                $"frogs={sites.Count}, blade={(bladeCreated ? 1 : 0)}.");
+                $"[Build] Gauge-separation {(includeBlade ? "fallback" : "supplemental")} " +
+                $"hardware '{ghostNode.id}': frogs={uncoveredSites.Length}, " +
+                $"covered={sites.Count - uncoveredSites.Length}, blade={(bladeCreated ? 1 : 0)}.");
+        }
+
+        private static float HorizontalDistance(Vector3 first, Vector3 second)
+        {
+            first.y = 0f;
+            second.y = 0f;
+            return Vector3.Distance(first, second);
         }
 
         private static void CreateGaugeSeparationFallbackFrog(
@@ -3917,7 +3949,9 @@ namespace NarrowGaugeMod
             LineCurve curve = rail
                 .Skip(Mathf.Min(clampedStart, clampedEnd), true)
                 .Take(Mathf.Abs(clampedEnd - clampedStart));
-            return clampedStart <= clampedEnd ? curve : curve.Reverse();
+            return clampedStart <= clampedEnd
+                ? curve
+                : SectionedSpecialWorkBuilder.ReverseRailCurve(curve);
         }
 
         private static LineCurve GaugeSeparationSharedRail(

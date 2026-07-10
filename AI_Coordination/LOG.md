@@ -2673,3 +2673,48 @@ with `dotnet build .\NarrowGaugeMod.csproj
 2026-07-09 19:34:25, size 734,720 bytes. Per the standing rule, did not launch
 or drive Railroader. Next is a full game restart and manual G832/vdlt check,
 then Claude review of the actual diff.
+
+### [Codex] 2026-07-09 20:00 - Fix direction-dependent frogs, 7n90's uncovered cut, both-diverge crossing anatomy, and inverted frames
+
+Read the full coordination state, the user's four new screenshots, and the
+fresh post-`826054a` `Player.log`. All named plans were valid, so this was not
+an invalid-plan fallback problem. Documented the evidence before compiler
+changes in
+`reviews/frog-direction-gap-frame-investigation-2026-07-09.md`.
+
+Found four separate general causes. Frog type used raw route-relative rail
+side equality even when intersecting route tangents faced opposite ways;
+`NCustom_vdlt`'s exported geometry has tangent dots about -0.995 and -0.990 at
+the two affected sites. `N178` then exposed a second stale-state bug: its fresh
+log accepts a V on `narrow-normal:right / narrow-reversed:left`, rehomes the
+first physical rail to `standard-through:left`, but copies the old kind and
+dimensions. Frog classification now accounts for tangent direction at
+prototype and accepted-plan stages, aligns tangents when prototype physical
+ownership changes, and fully recalculates kind/angle/setbacks/cut/nose/hand
+after late frog-owner rehoming.
+
+For `NCustom_7n90`, `SCustom_194b`'s measured ownership ends near 15.6 m while
+its procedural gauge-separation cuts include a separate 20.832-23.761 m span.
+The prior valid-plan control shell suppressed all fallback hardware, so that
+second cut was empty. The control shell now spatially matches procedural sites
+against measured frog centers: valid plans get only unmatched supplemental
+frogs and no blade; invalid plans retain the full two-frog plus blade fallback.
+
+For `fc97`/`l4a4`, `CreateCrossingFrogAssembly` had been routing every
+standard/narrow crossing through the narrow-branch continuous stock handoff.
+Both-diverge crossings now use the existing generic crossing-point assembly,
+which supplies the complete double-frog point rails. Narrow-branch handoff
+behavior remains unchanged.
+
+Finally, measured render-frame correction now applies to every
+`DualNarrowBranch` plan instead of only the left truth-table hand, and
+gauge-separation `SliceRail` uses the existing hand-aware
+`ReverseRailCurve` helper rather than raw rotation-stale
+`LineCurve.Reverse()`.
+
+Built and deployed with `dotnet build .\NarrowGaugeMod.csproj
+-p:RailroaderDir="C:\Steam\steamapps\common\Railroader"
+-p:EnableModDeploy=true`: 0 warnings, 0 errors. Built/deployed DLL timestamp
+2026-07-09 20:00:40, size 737,792 bytes. Per the standing constraint, did not
+launch or drive Railroader. A full manual restart and checks of the five named
+switches plus Nove/G832/a known-good both-diverge switch are next.

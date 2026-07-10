@@ -858,7 +858,10 @@ namespace NarrowGaugeMod
 
         private static bool NeedsMeasuredRailFrameCorrection(SpecialWorkAnalysis analysis)
         {
-            return IsLeftNarrowBranchTruth(analysis)
+            return string.Equals(
+                    analysis.Definition.Preset.Id,
+                    SpecialWorkPresetIds.DualNarrowBranch,
+                    StringComparison.OrdinalIgnoreCase)
                 || string.Equals(
                     analysis.Definition.Preset.Id,
                     SpecialWorkPresetIds.DualSplit,
@@ -1743,6 +1746,19 @@ namespace NarrowGaugeMod
             Vector3 switchHome,
             string name)
         {
+            if (IsDualBothDiverge(analysis))
+            {
+                CreateGenericCrossingPoints(
+                    builder,
+                    root,
+                    analysis,
+                    frog,
+                    blades,
+                    switchHome,
+                    name);
+                return;
+            }
+
             if (!TryResolveNarrowBranchCrossingRails(
                     frog,
                     out RailCenterline standardRail,
