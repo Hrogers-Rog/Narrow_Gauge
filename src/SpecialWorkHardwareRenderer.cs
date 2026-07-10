@@ -2380,7 +2380,10 @@ namespace NarrowGaugeMod
             SpecialWorkAnalysis analysis,
             string objectName)
         {
-            return false;
+            return IsDualBothDiverge(analysis)
+                && objectName.IndexOf(
+                    "StandardThroughFrog",
+                    StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         internal static int AutoFlipFlangewayKeepSideIndex(
@@ -2397,7 +2400,6 @@ namespace NarrowGaugeMod
             string objectName)
         {
             return IsDualBothDiverge(analysis)
-                && analysis.Definition.Id.IndexOf("fc97", StringComparison.OrdinalIgnoreCase) >= 0
                 && objectName.IndexOf("StandardThroughFrog", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 

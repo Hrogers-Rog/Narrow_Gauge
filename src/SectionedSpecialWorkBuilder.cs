@@ -2981,11 +2981,7 @@ namespace NarrowGaugeMod
                 >= DistancePointToCurve(negativeMiddle, stockHandoff)
                 ? positive
                 : negative;
-            float guardShift = DistancePointToCurve(positiveMiddle, stockHandoff)
-                >= DistancePointToCurve(negativeMiddle, stockHandoff)
-                ? -RailHeadWidth
-                : RailHeadWidth;
-            guardCurve = selectedGuard.Parallel(guardShift);
+            guardCurve = selectedGuard;
             return true;
         }
 

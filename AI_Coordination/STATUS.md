@@ -1,6 +1,6 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-09 20:14 EDT
+Last updated by: Codex - 2026-07-09 20:46 EDT
 
 ## Critical testing constraints
 
@@ -9,82 +9,62 @@ Last updated by: Codex - 2026-07-09 20:14 EDT
 - The user retired the automated Railroader/TestBridge pipeline. Do not launch
   or drive Railroader. Build/deploy is allowed; live verification is manual.
 
-## Current phase: systemic double-frog renderer regression rolled back
+## Current phase: confirmed flangeway mirror and guard-6 side fix deployed
 
-After restarting with commit `826054a`, the user supplied four screenshots
-and reported:
+The generic both-diverge renderer caused long gaps and was rolled back in
+`349fb99`. A subsequent uncommitted experiment replacing full-span rails with
+planed points was live-rejected by the user and has also been completely
+removed. The deployed source is back on the stable continuous-handoff and
+original point-span renderer.
 
-- malformed double frogs at `l4a4`, `fc97`, and `N178`;
-- a large empty cut plus malformed frog work at `NCustom_7n90`;
-- overlapping/wrong V and double-frog anatomy at `NCustom_vdlt`;
-- inside-out rail pieces.
+The user's fc97 adjustment-UI isolation identifies the actual original defect:
 
-Fresh 19:45 `Player.log` evidence made four independent general causes
-concrete:
+- With `CrossingFrog-2-ContinuousStockHandoff` disabled, the point meshes
+  remain visibly clipped on the blue outside edge of the narrow through rail.
+  They must retain/cut toward the red inside flangeway instead.
+- Guard 6 is also on the wrong side. The fresh fc97 plan proves it is the local
+  K-frog guard emitted after guards 0-5 for the three accepted frogs.
 
-1. Frog kind compared route-relative `Left`/`Right` without reversing that
-   relationship when route tangents oppose. `vdlt` has two such opposed-route
-   intersections.
-2. `N178` rehomes an accepted frog from `narrow-normal:right` to
-   `standard-through:left`, but retained its pre-rehome V kind and dimensions.
-3. `SCustom_194b` has a gauge-separation cut at `20.832-23.761` outside its
-   valid measured ownership/replacement span. The valid-plan control shell
-   suppressed all procedural replacement hardware, leaving the cut empty.
-4. Every standard/narrow crossing was sent through narrow-branch continuous
-   stock-handoff geometry, including `dual.both-diverge` switches such as
-   `fc97`/`l4a4`. A generic crossing-point replacement was investigated.
+The code has direct mechanisms for both errors:
 
-Inside-out geometry had two related causes: frame normalization covered only
-the left narrow-branch truth-table hand, and procedural reversed slices used
-raw `LineCurve.Reverse()` with stale per-point rotations.
+1. `Fixed-10-StandardThroughFrog` passes ordered cutters
+   `[standardFlangeway, narrowFlangeway]` into the mesh clipper.
+   `ShouldAutoFlipFlangewayKeepSide` always returned false, although its
+   companion already selects cutter index 1 when enabled. The new rule enables
+   that inversion for `DualBothDiverge` `StandardThroughFrog`, so only the
+   narrow cutter is mirrored to the red inside edge. The existing
+   frog-centered cut window now applies across that anatomy rather than only
+   to an fc97 id.
+2. `TryBuildLocalCrossingGuard` correctly selected the candidate farther from
+   the continuous handoff, then shifted it back toward the handoff by one
+   `RailHeadWidth`. That extra 0.076 m shift is removed; guard 6 now stays on
+   its already-selected flangeway side.
 
-Implemented:
+No frog spans, handoff geometry, cuts, counts, or node ids were changed.
 
-- direction-aware physical-side frog classification in prototype and accepted
-  plan stages;
-- full reclassification/recalculation after frog physical-owner replacement;
-- measured-plan-aware gauge-separation supplementation that renders only
-  uncovered procedural frog sites and never adds a blade to a valid plan;
-- render-frame correction for all `DualNarrowBranch` plans and hand-aware
-  procedural curve reversal.
-
-The first full restart showed that the attempted generic both-diverge
-crossing renderer caused a systemic regression: every inspected double frog
-had a long empty cut span. Fresh logs showed all plans still valid with normal
-frog counts, isolating the renderer swap rather than classification or plan
-generation. The user confirmed G832 was unaffected; because G832 is a
-narrow-branch preset, that is an additional negative control isolating the
-both-diverge-only branch. That one renderer change is now rolled back. Both-diverge
-standard/narrow crossings again use the previously live-confirmed continuous
-stock handoff. `fc97`/`l4a4`'s original localized issue remains open.
-
-No switch ids are used in the fixes. Full evidence and implementation details:
+Built and deployed: 0 warnings, 0 errors. Built/deployed DLL timestamp
+2026-07-09 20:45:27, size 737,280 bytes, SHA-256
+`D36F4A1FEBB9A2D87AD6F6D8D944E082FDA990903C0124462C27A6089E2E464E` on both
+copies. No game process was launched or controlled. Full evidence:
 `reviews/frog-direction-gap-frame-investigation-2026-07-09.md`.
-
-Rollback built and deployed against the real Railroader install: 0 warnings,
-0 errors. Built/deployed DLL timestamp 2026-07-09 20:14:22, size 737,280 bytes. No game
-process was launched or controlled.
 
 ## Next turn
 
-1. Fully quit and restart Railroader, then first confirm the systemic long-gap
-   regression is gone on a both-diverge double frog. The rollback cannot load
-   through a save reload.
-2. Then inspect `l4a4`, `fc97`, `N178`, `NCustom_7n90`, and `NCustom_vdlt` in
-   both switch states where relevant.
-3. Confirm the 7n90 gap is filled without adding another blade. The fresh log
-   should report gauge-separation supplemental hardware with `frogs=1`,
-   `covered=1`, `blade=0`.
-4. Re-evaluate N178's frog: the first post-change log did not emit a
-   reclassification because the final owner tangents still classify it as V.
-5. Confirm vdlt no longer places the V and double frog on the wrong physical
-   crossings, and that no tapered rail profiles are inside-out.
-6. Spot-check `Nove`, `G832`, and one previously good both-diverge turnout for
-   regression. Then review the fresh plan summaries and frog-kind logs.
+1. Fully quit and restart Railroader; a save reload is insufficient.
+2. At fc97, hide the continuous frog again. `Fixed-10-StandardThroughFrog`
+   should now be cut/kept on the red inside edge, not the blue outside edge.
+3. Check guard 6: it should move away from the handoff by one railhead width
+   and align as the local K-frog check rail.
+4. Re-enable the continuous handoff and confirm the original point lengths and
+   boundary coverage remain intact with no generic-renderer long gap and no
+   planed-point deformation.
+5. Spot-check l4a4 and a left-side crossing such as p997/ltci. The rule is
+   anatomy-based and should mirror with their rail frames.
 
 ## Open questions / blockers
 
-- Manual live verification is required; static build cannot prove final scene
-  overlap, animation, or mesh winding.
-- `NCustom_ltci` / `SCustom_ttpp` neighboring ownership overlap remains open
-  and is outside this change.
+- Manual live verification is required; the screenshots prove the intended
+  side but static compilation cannot prove final mesh clipping.
+- Other narrow-branch issues (`N178`, `vdlt`, `7n90`) remain separate from
+  this both-diverge flangeway correction.
+- `NCustom_ltci` / `SCustom_ttpp` neighboring ownership overlap remains open.

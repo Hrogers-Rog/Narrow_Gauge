@@ -2750,3 +2750,78 @@ Updated the existing review with the live regression evidence and rollback.
 Built/deployed with 0 warnings and 0 errors. Built/deployed DLL timestamp
 2026-07-09 20:14:22, size 737,280 bytes. Did not launch or drive Railroader;
 one more full manual restart is required to load and verify the rollback.
+
+### [Codex] 2026-07-09 20:36 - Preserve the handoff and replace duplicate full-span rails with K-frog points
+
+After the rollback restart restored the prior cut coverage, traced the
+remaining malformed both-diverge frogs against the user's close-up, the fresh
+20:27 `Player.log`, the plan exports, and the complete render path. The
+generic four-point assembly had failed because it removed the one piece that
+spans the standard/narrow cut boundaries. The original renderer has the
+opposite problem: it keeps that correct continuous handoff but also extends
+both participating fixed rails all the way through the intersection. Those
+two full-span extensions duplicate one half of the handoff each, producing
+three stacked full paths through the frog.
+
+Implemented the compatible anatomy in
+`SpecialWorkHardwareRenderer.TryCreateNarrowBranchExtendedFixedPoint`, scoped
+to `DualBothDiverge`. It classifies each fixed approach by its side of the
+measured crossing. Handoff-owned approaches now render normally and terminate
+at their cut boundary. Only the complementary standard and narrow approaches
+are extended to the intersection; they render through the existing
+`CreatePlanedFrogPointRail`, with the corrected continuous handoff as their
+stock reference, so each tip is tapered and moved to a true flangeway rather
+than overlaid on the stock rail. `CreateCrossingFrogAssembly` and
+`BuildNarrowBranchStockHandoff` remain unchanged.
+
+Audited all seven fresh both-diverge exports. Every standard/narrow crossing
+has exactly one fixed approach before and after the cut on both participating
+rails, so the rule has four well-defined inputs everywhere and selects exactly
+two ordinary handoff approaches plus two complementary point approaches. G832
+is a narrow-branch preset and cannot enter the new path. Added
+`[BothDivergeCrossing]` logging; a fresh restart should emit exactly two lines
+per both-diverge switch.
+
+Built/deployed with 0 warnings and 0 errors. Built/deployed DLL timestamp
+2026-07-09 20:34:26, size 738,816 bytes; SHA-256 matches at
+`0975075306CCACA535585E4487DEB07EDFF96676506642ACC01DA86AF107F487`.
+Did not launch or drive Railroader. Next is full-restart visual confirmation
+on fc97/l4a4 plus a p997 regression check before calling the frog goal done.
+
+### [Codex] 2026-07-09 20:46 - Reject point reshaping; fix the confirmed inside/outside flangeway mirror and guard 6
+
+The user live-tested the uncommitted planed-point experiment and reported it
+changed the frog points adversely without fixing the target. Removed that
+source in full and rebuilt/redeployed the stable `349fb99` renderer before
+making another correction.
+
+The user's more precise fc97 isolation then supplied the missing ground truth:
+with `CrossingFrog-2-ContinuousStockHandoff` disabled in the adjustment UI,
+the remaining point rail is visibly clipped/kept on the blue outside of the
+narrow through rail, while the annotated red edge shows the required inside
+flangeway. The user also identified guard 6 as off. This makes the defect a
+side/mirror error, not a point-span or handoff-assembly error.
+
+Traced `Fixed-10-StandardThroughFrog`: it passes
+`[standardFlangeway, narrowFlangeway]` into
+`BuildFlangewayCutFrogRailMesh`. The mesh builder already supports flipping a
+single ordered cutter and `AutoFlipFlangewayKeepSideIndex` already returns 1
+when flipping is enabled, but `ShouldAutoFlipFlangewayKeepSide` was hardcoded
+false. Enabled that flip for `DualBothDiverge` `StandardThroughFrog` only, so
+the narrow flangeway cutter keeps the red inside edge. Generalized the existing
+frog-centered localization window from the fc97-id special case to the same
+preset anatomy so the flipped half-plane cannot affect parallel territory
+away from the frog.
+
+Fresh fc97 plans enumerate guard 6 as the local crossing guard from
+`TryBuildLocalCrossingGuard`. That function already chooses the
+`+/- GuardCenterOffset` curve farther from the stock handoff, then applied an
+extra one-railhead shift in the opposite direction. Removed only that
+`RailHeadWidth` shift, leaving the guard on its correctly selected side.
+
+Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
+2026-07-09 20:45:27, size 737,280 bytes, and matching SHA-256
+`D36F4A1FEBB9A2D87AD6F6D8D944E082FDA990903C0124462C27A6089E2E464E`.
+No game was launched or driven. Next full restart should repeat the user's
+fc97 handoff-hidden comparison, then check guard 6 and the mirror-hand
+both-diverge switches.
