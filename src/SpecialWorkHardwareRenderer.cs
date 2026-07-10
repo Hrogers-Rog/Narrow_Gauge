@@ -2134,7 +2134,6 @@ namespace NarrowGaugeMod
                             piece.EndDistance - MinimumRailPieceLength,
                             0f,
                             narrowRail.Curve.Length)).point;
-                    string frogName = name + "-NarrowReversedFrog";
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
@@ -2146,9 +2145,7 @@ namespace NarrowGaugeMod
                         keepPoint,
                         parameters.FlangewayWidth,
                         switchHome,
-                        frogName,
-                        ShouldAutoFlipFlangewayKeepSide(analysis, frogName),
-                        AutoFlipFlangewayKeepSideIndex(analysis, frogName));
+                        name + "-NarrowReversedFrog");
                     return true;
                 }
             }
@@ -2376,19 +2373,14 @@ namespace NarrowGaugeMod
             SpecialWorkAnalysis analysis,
             string objectName)
         {
-            return IsDualBothDiverge(analysis)
-                && objectName.IndexOf(
-                    "NarrowReversedFrog",
-                    StringComparison.OrdinalIgnoreCase) >= 0;
+            return false;
         }
 
         internal static int AutoFlipFlangewayKeepSideIndex(
             SpecialWorkAnalysis analysis,
             string objectName)
         {
-            return ShouldAutoFlipFlangewayKeepSide(analysis, objectName)
-                ? 1
-                : -1;
+            return -1;
         }
 
         internal static bool ShouldLocalizeFrogFlangewayCut(

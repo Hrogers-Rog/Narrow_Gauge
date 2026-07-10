@@ -580,3 +580,28 @@ Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
 both have timestamp 2026-07-09 23:25:48, size 737,280 bytes, and SHA-256
 `4B9806ED5909F7B7BEB25B477228197A333BAE303D77A21044C5DF70A7F4DFDE`.
 No game process was launched or controlled.
+
+## Cutter-1 keep-side inversion rejected - 2026-07-09 23:30
+
+Full-restart screenshot `Screenshot 2026-07-09 232828.png` rejects the index-1
+inversion. Both visible cutter results are now malformed, not merely the
+`NarrowReversedFrog` face. `BuildFlangewayCutFrogRailMesh` applies the two cuts
+as an intersection of retained half-planes; negating either keep sign changes
+the surviving wedge. It is not a mirror of one bevel boundary in isolation.
+
+Roll back only the `76bc0fd` behavior: restore `NarrowReversedFrog` to the
+measured fixed-piece keep signs and return automatic inversion to false/-1.
+Retain the `3290db4` overlay rollback, removal of curve/profile deformations,
+and all measured spans/hands. Any future inside-face correction must move or
+reconstruct the relevant cut boundary rather than invert a retained
+half-plane.
+
+Implemented the recovery rollback. `NarrowReversedFrog` again calls the
+default flangeway-cut path, and automatic inversion returns false/index `-1`.
+The source matches the cutter behavior in `3290db4`; the overlay rollback and
+measured rail geometry remain intact.
+
+Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
+both have timestamp 2026-07-09 23:31:13, size 737,280 bytes, and SHA-256
+`4AA7E65E1D2553738C83A9DFF537926BF7C9361E90FC44987C8AA314CC17A3CC`.
+No game process was launched or controlled.

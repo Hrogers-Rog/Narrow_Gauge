@@ -1,6 +1,6 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-09 23:25 EDT
+Last updated by: Codex - 2026-07-09 23:31 EDT
 
 ## Critical testing constraints
 
@@ -9,40 +9,42 @@ Last updated by: Codex - 2026-07-09 23:25 EDT
 - The user retired the automated Railroader/TestBridge pipeline. Do not launch
   or drive Railroader. Build/deploy is allowed; live verification is manual.
 
-## Current phase: NarrowReversed narrow-through bevel mirror deployed
+## Current phase: broken cutter inversion rolled back
 
-The `23:04` rollback removed the wrong-side overlaid extensions on most
-switches. Screenshots `231157` and close-up `231931` isolate the remaining
-defect: `NarrowReversedFrog` is already deep enough and is being cut, but the
-narrow-through rail removes the outside face instead of the inside face.
+Screenshot `232828` rejects the `23:25` index-1 inversion: it broke both
+visible cutter results. The two flangeway clips are intersected retained
+half-planes, so negating either keep sign changes the entire surviving wedge;
+it cannot mirror one railhead face independently.
 
-The ordered cutters are standard index 0 and narrow index 1. The rejected
-symmetric build flipped index 0 for `NarrowReversedFrog`, which controlled the
-crossing-side extension and caused the overlay. The current build instead:
+The recovery build restores the cutter behavior from `3290db4`:
 
-- mirrors only narrow-through cutter index 1;
-- applies only to both-diverge objects named `NarrowReversedFrog`;
-- leaves `StandardThroughFrog`, index 0, and `NarrowThroughFrog` unchanged;
-- does not alter spans, rail curves/hands, or the continuous frog.
+- `StandardThroughFrog` and `NarrowReversedFrog` both derive keep signs from
+  their measured fixed-piece anchor;
+- automatic inversion is false and its index is `-1`;
+- the wrong-side overlay fix remains intact;
+- the rejected curve pushes/profile-hand changes remain removed.
 
-The adjustment/rebuild path consumes the same role-based auto-mirror rule.
+The original `NarrowReversedFrog` inside-versus-outside bevel remains open.
+The next correction must move or reconstruct its narrow-through cut boundary,
+not invert either retained half-plane.
 
 Built and deployed: 0 warnings, 0 errors. Built/deployed DLL timestamp
-2026-07-09 23:25:48, size 737,280 bytes, SHA-256
-`4B9806ED5909F7B7BEB25B477228197A333BAE303D77A21044C5DF70A7F4DFDE` on both
+2026-07-09 23:31:13, size 737,280 bytes, SHA-256
+`4AA7E65E1D2553738C83A9DFF537926BF7C9361E90FC44987C8AA314CC17A3CC` on both
 copies. No game process was launched or controlled. Full evidence:
 `reviews/frog-direction-gap-frame-investigation-2026-07-09.md`.
 
 ## Next turn
 
 1. Fully quit and restart Railroader; a save reload is insufficient.
-2. Repeat the `231931` close-up: `NarrowReversedFrog` should keep the outside
-   railhead face and bevel from the inside/narrow-through side.
-3. Confirm it remains pushed to the same depth; this build must not move its
-   span or approach seam.
-4. Confirm `StandardThroughFrog` keeps the proper cut restored by the rollback
-   and that the `224732` overlay remains absent.
-5. Spot-check a switch that emits `NarrowThroughFrog`; it is unchanged.
+2. Confirm the `232828` two-cutter regression is gone and the visual returns to
+   the pre-experiment `231931` state.
+3. Preserve the proven facts: the reverse frog is deep enough, the narrow
+   through rail is the correct cutter, and only its boundary face is wrong.
+4. Implement the next attempt by reflecting/translating that cut boundary while
+   retaining both measured keep half-planes.
+5. Keep `StandardThroughFrog`, the continuous frog, spans, and rail hands
+   unchanged.
 
 ## Open questions / blockers
 

@@ -2991,3 +2991,24 @@ Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
 `4B9806ED5909F7B7BEB25B477228197A333BAE303D77A21044C5DF70A7F4DFDE`.
 No game process was launched or controlled. Next is a full-restart `231931`
 comparison plus confirmation the `224732` overlay remains absent.
+
+### [Codex] 2026-07-09 23:31 - Roll back the broken NarrowReversed cutter inversion
+
+The user full-restarted the `23:25` build and supplied screenshot `232828`:
+both visible cutter results were broken. This rejects the attempt to mirror
+the narrow-through bevel by negating cutter index 1. The mesh clipper intersects
+the two retained half-planes, so changing either keep sign changes the whole
+surviving wedge rather than one face in isolation.
+
+Rolled back only the `76bc0fd` source behavior. `NarrowReversedFrog` again uses
+the default measured `keepPoint` signs; automatic inversion returns false and
+index `-1`. The `3290db4` wrong-side overlay rollback remains, as do the
+removals of the rejected curve-push and profile-hand experiments. The original
+inside/outside bevel defect remains open and must be addressed by moving or
+reconstructing the cutter boundary, not flipping its half-plane.
+
+Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
+2026-07-09 23:31:13, size 737,280 bytes, and matching SHA-256
+`4AA7E65E1D2553738C83A9DFF537926BF7C9361E90FC44987C8AA314CC17A3CC`.
+No game process was launched or controlled. Next is confirmation that
+`232828` returns to the `231931` baseline before another bounded correction.
