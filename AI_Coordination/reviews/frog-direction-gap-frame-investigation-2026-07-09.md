@@ -829,3 +829,24 @@ both have timestamp 2026-07-10 01:36:16, size 743,424 bytes, and SHA-256
 `6E5F09D3C5177086D811C1304130C8C7648ECB887F0515815C9B18758C012D2A`.
 Claude's concurrent blade-selection changes remain in the shared build but
 outside this focused correction. No game process was launched or controlled.
+
+## Runtime role gate also excludes vdlt WingB - 2026-07-10
+
+The next full restart again shows no visual correction and no
+`[VeeWingFixedRailAlignment]` marker, while the deployed hash matches. With
+the tangent gate already removed, the remaining unstable predicate is
+`sourceRail.Role == StockRail`. The runtime `_Left` variant selection changes
+that derived role even though the physical Vee remains the same.
+
+The stable measured identity is the intersection pair itself: vdlt Vee 0 is
+`standard-through:right x narrow-reversed:right`, and the target is its Rail-B
+wing. g832's corresponding Vee uses `standard-through:left x
+narrow-reversed:right`; N178 is left/left; the other narrow-branch layouts use
+different pairs or frog kinds. Replace only the derived-role check with these
+two semantic rail ids. Keep the narrow-branch, Vee, and Rail-B gates.
+
+Implemented the stable pair gate and removed the derived role dependency.
+Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
+both have timestamp 2026-07-10 01:42:01, size 743,424 bytes, and SHA-256
+`9A52EE2310749008DDF2CBEA5ECFD37EE57AA60136B179965E8F088C91E12476`.
+No game process was launched or controlled.

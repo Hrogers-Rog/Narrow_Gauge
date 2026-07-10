@@ -1557,7 +1557,15 @@ namespace NarrowGaugeMod
                     SpecialWorkPresetIds.DualNarrowBranch,
                     StringComparison.OrdinalIgnoreCase)
                 || sourceRail != frog.Intersection.RailB
-                || sourceRail.Role != RailRole.StockRail)
+                || frog.Intersection.Kind != RailIntersectionKind.VeeFrogCandidate
+                || !string.Equals(
+                    frog.Intersection.RailA.Id,
+                    "standard-through:right",
+                    StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(
+                    sourceRail.Id,
+                    "narrow-reversed:right",
+                    StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
