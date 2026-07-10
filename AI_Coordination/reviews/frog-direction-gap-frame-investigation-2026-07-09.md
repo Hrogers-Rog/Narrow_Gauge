@@ -698,3 +698,69 @@ both have timestamp 2026-07-10 00:58:15, size 742,912 bytes, and SHA-256
 The shared build includes Claude's concurrent vdlt blade-selection changes;
 those files remain separate and were not staged as part of this correction.
 No game process was launched or controlled.
+
+## vdlt extends the standard crossing point from the wrong arm - 2026-07-10
+
+The live result after the profile-frame correction shows a separate defect:
+one generated crossing point is extended from the wrong fixed rail arm. The
+user identified commit `3290db4` as the prior wrong-side-extension reference.
+That commit established the relevant ownership invariant: a frog-point clip
+must retain and extend the side containing its measured fixed-piece anchor,
+not the opposite arm across the frog.
+
+`TryCreateNarrowBranchExtendedFixedPoint` already chooses the narrow point arm
+from `narrowBladeSide`, but it unconditionally chooses the standard piece whose
+`StartDistance` is after the crossing. That happens to match g832's orientation
+and fails on vdlt's mirror. `BuildNarrowBranchStockHandoff` supplies the missing
+physical rule: its standard boundary is on `standardBladeSide` (toward the
+blades), so the complementary standard frog point must come from the opposite
+side. Therefore the standard point is the after-crossing fixed piece only when
+`standardBladeSide < 0`; when `standardBladeSide > 0`, it is the before-crossing
+fixed piece.
+
+The correction must choose and extend the standard fixed piece using this
+blade-relative side, with the keep point anchored inside that same piece. It
+must not change rail ids, crossing geometry, cutter paths, handoff geometry,
+profile hands, or extension lengths.
+
+Implemented the mirror-aware standard-arm selection only for
+`DualNarrowBranch`. The renderer now derives `standardBladeSide` alongside the
+existing narrow side, keeps g832's after-crossing behavior when the standard
+blade side is negative, and selects vdlt's before-crossing fixed piece when it
+is positive. The generated curve extends through the same `CutHalfLength`, and
+its keep point is taken from whichever measured fixed piece was selected.
+Other presets preserve the prior after-crossing standard selection.
+
+Build/deploy completed with 0 warnings and 0 errors. Built and deployed DLLs
+both have timestamp 2026-07-10 01:13:16, size 742,912 bytes, and SHA-256
+`61B7BEF755987A90BA825B5DBD8F1B2DABA412299304A4650AD0E4946005B4ED`.
+The shared build continues to include Claude's concurrent vdlt blade-selection
+changes; those files remain separate and were not staged for this fix. No game
+process was launched or controlled.
+
+## vdlt VeeFrog-0-WingB aims at the opposite rail heel - 2026-07-10
+
+The user identified `VeeFrog-0-WingB` as having an improper angle instead of
+following its outside stock rail. `CreateVeeFrogAssembly` passes Wing B's own
+source as Rail B, but `CreateVeeWingRail` appends `oppositeHeel`, which is Rail
+A's heel. Wing A is symmetrically aimed at Rail B's heel. This makes each wing
+leave its measured source rail and bend toward the other route.
+
+The argument previously named `otherHeel` is actually the heel belonging to
+the source rail: heel A for Wing A and heel B for Wing B. Rename it
+`sourceHeel`; each wing must append that own heel and its rotation. The
+opposite heel remains useful only to derive the outward flare direction. This
+changes the generated bend endpoint, not the source slice, frog nose, profile
+hand, or fixed-point/cutter selection.
+
+Implemented by renaming the own-rail heel parameter to `sourceHeel`, appending
+that point and rotation to the wing, and deriving the short flare vector away
+from `oppositeHeel`. Both Wing A and Wing B now follow their own source rail.
+
+The combined build containing both vdlt ownership corrections deployed with 0
+warnings and 0 errors. Built and deployed DLLs both have timestamp
+2026-07-10 01:17:35, size 742,912 bytes, and SHA-256
+`DE78F7574CC14F15579EBB2FFEFB9E9269A017B70C518A218D2ADA3268928A02`.
+Claude's concurrent blade-selection files remain present in the shared build
+but separate from the focused changes for this turn. No game process was
+launched or controlled.

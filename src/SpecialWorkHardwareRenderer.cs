@@ -1483,7 +1483,7 @@ namespace NarrowGaugeMod
             RailCenterline sourceRail,
             float intersectionDistance,
             LinePoint oppositeHeel,
-            LinePoint otherHeel,
+            LinePoint sourceHeel,
             FrogCandidate frog,
             IReadOnlyList<SwitchBladePlan> blades,
             Vector3 switchHome,
@@ -1513,17 +1513,17 @@ namespace NarrowGaugeMod
                 return;
             }
 
-            Vector3 outward = oppositeHeel.point - otherHeel.point;
+            Vector3 outward = sourceHeel.point - oppositeHeel.point;
             outward.y = 0f;
             if (outward.sqrMagnitude <= 0.0001f)
             {
-                outward = oppositeHeel.Rotation
+                outward = sourceHeel.Rotation
                     * (sourceRail.Side == RailSide.Left ? Vector3.left : Vector3.right);
             }
 
             wing.Add(new LinePoint(
-                oppositeHeel.point + outward.normalized * 0.1f,
-                oppositeHeel.Rotation));
+                sourceHeel.point + outward.normalized * 0.1f,
+                sourceHeel.Rotation));
             CreateRail(
                 builder,
                 root,
@@ -2002,11 +2002,23 @@ namespace NarrowGaugeMod
                     continue;
                 }
 
+                Vector3 bladeDirection = DirectionTowardBlades(frog, blades);
+                float standardBladeSide = SideTowardDirection(
+                    standardRail,
+                    standardDistance,
+                    frog.Intersection.Position,
+                    bladeDirection);
                 float narrowBladeSide = SideTowardDirection(
                     narrowRail,
                     narrowDistance,
                     frog.Intersection.Position,
-                    DirectionTowardBlades(frog, blades));
+                    bladeDirection);
+                bool isNarrowBranch = string.Equals(
+                    analysis.Definition.Preset.Id,
+                    SpecialWorkPresetIds.DualNarrowBranch,
+                    StringComparison.OrdinalIgnoreCase);
+                bool renderStandardAfterFrog = !isNarrowBranch
+                    || standardBladeSide < 0f;
                 bool renderNarrowAfterFrog = narrowBladeSide > 0f;
                 bool isGaugeSeparation = string.Equals(
                     analysis.Definition.Preset.Id,
@@ -2049,29 +2061,46 @@ namespace NarrowGaugeMod
                     return true;
                 }
 
-                if (piece.SourceRailId == standardRail.Id
-                    && piece.StartDistance > standardDistance
-                    && piece.StartDistance <= standardDistance + frog.CutHalfLength + 0.05f)
+                bool isStandardPointPiece = piece.SourceRailId == standardRail.Id
+                    && (renderStandardAfterFrog
+                        ? piece.StartDistance > standardDistance
+                            && piece.StartDistance
+                                <= standardDistance + frog.CutHalfLength + 0.05f
+                        : piece.EndDistance < standardDistance
+                            && piece.EndDistance
+                                >= standardDistance - frog.CutHalfLength - 0.05f);
+                if (isStandardPointPiece)
                 {
-                    float pocketStart = Mathf.Clamp(
-                        standardDistance - frog.CutHalfLength,
-                        0f,
-                        standardRail.Curve.Length);
-                    if (piece.EndDistance - pocketStart < MinimumRailPieceLength)
+                    float pointStart = renderStandardAfterFrog
+                        ? Mathf.Clamp(
+                            standardDistance - frog.CutHalfLength,
+                            0f,
+                            standardRail.Curve.Length)
+                        : piece.StartDistance;
+                    float pointEnd = renderStandardAfterFrog
+                        ? piece.EndDistance
+                        : Mathf.Clamp(
+                            standardDistance + frog.CutHalfLength,
+                            0f,
+                            standardRail.Curve.Length);
+                    if (pointEnd - pointStart < MinimumRailPieceLength)
                     {
                         return false;
                     }
 
+                    float keepDistance = renderStandardAfterFrog
+                        ? piece.StartDistance + MinimumRailPieceLength
+                        : piece.EndDistance - MinimumRailPieceLength;
                     Vector3 keepPoint = standardRail.Curve.LinePointAtDistance(
                         Mathf.Clamp(
-                            piece.StartDistance + MinimumRailPieceLength,
+                            keepDistance,
                             0f,
                             standardRail.Curve.Length)).point;
                     string frogName = name + "-StandardThroughFrog";
                     LineCurve pointCurve = Slice(
                         standardRail.Curve,
-                        pocketStart,
-                        piece.EndDistance);
+                        pointStart,
+                        pointEnd);
                     bool usePhysicalNarrowCutter = ShouldUsePhysicalNarrowThroughCutter(
                         analysis,
                         frogName,
