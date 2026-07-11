@@ -118,7 +118,7 @@ namespace NarrowGaugeMod
                     SpecialWorkCategory.DualGauge,
                     NativeTopologyRecipe.BinarySwitch,
                     1,
-                    3,
+                    2,
                     GaugeAvailability.Dual,
                     true,
                     Expect(0, null, 0, null, SharedRailRequirement.GaugeShared, 1)),

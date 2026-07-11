@@ -41,9 +41,13 @@ namespace NarrowGaugeMod
         internal const string GeneratedSegmentPrefix = "fuse-ng:s:";
         internal const string GeneratedTag = "fuse-ng:generated";
         internal const string GhostGauge = "Narrow";
+        internal const string RouteJoinTag = "fuse-ng:ghost-route-join";
 
         private const float PositionTolerance = 0.001f;
         private const float RotationToleranceDegrees = 0.05f;
+
+        private static readonly Dictionary<string, float> GhostAtoBOffsets =
+            new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
 
         public static bool IsGeneratedGhostSegmentId(string? id)
         {
@@ -103,6 +107,7 @@ namespace NarrowGaugeMod
 
             result.DualGaugeSources = sourceSegments.Length;
             DualGaugeSharedRailRegistry.Rebuild(graph, sourceSegments);
+            RebuildGhostOffsets(graph, sourceSegments);
 
             var nodeCandidates = new Dictionary<string, List<GhostNodeCandidate>>(StringComparer.OrdinalIgnoreCase);
             var expectedSegments = new Dictionary<string, FuseSegment>(StringComparer.OrdinalIgnoreCase);
@@ -186,16 +191,19 @@ namespace NarrowGaugeMod
                 }
 
                 Vector3 localUp = sourceNode.transform.localRotation * Vector3.up;
-                Vector3 right = Vector3.Cross(localUp, directionAtoB).normalized;
-                if (right.sqrMagnitude <= 0.000001f)
+                Vector3 rightOfAtoB = Vector3.Cross(localUp, directionAtoB).normalized;
+                if (rightOfAtoB.sqrMagnitude <= 0.000001f)
                 {
-                    right = Vector3.Cross(Vector3.up, directionAtoB).normalized;
+                    rightOfAtoB = Vector3.Cross(Vector3.up, directionAtoB).normalized;
                 }
 
+                float offset = GhostAtoBOffsets.TryGetValue(source.id, out float propagated)
+                    ? propagated
+                    : GetAuthoredGhostOffset(source);
+
                 candidate = new GhostNodeCandidate(
-                    anchor + right * DualGaugeSharedRailRegistry.GetAtoBNarrowCenterOffsetAtNode(
-                        source,
-                        sourceNode),
+                    source.id,
+                    anchor + rightOfAtoB * offset,
                     sourceNode.transform.localEulerAngles,
                     sourceNode.flipSwitchStand);
                 return true;
@@ -207,29 +215,293 @@ namespace NarrowGaugeMod
             }
         }
 
+        /// <summary>
+        /// Compiles one physical shared-rail choice for the functional graph.
+        /// The visible renderer retains its own registry. Here, a three-leg
+        /// switch's coincident majority is the physical anchor; that point is
+        /// propagated through every ordinary connected node and converted back
+        /// into each segment's local A-to-B sign. Explicit DualGauge_T pieces
+        /// remain component boundaries because they intentionally change sides.
+        /// </summary>
+        private static void RebuildGhostOffsets(
+            Graph graph,
+            IReadOnlyCollection<TrackSegment> sourceSegments)
+        {
+            GhostAtoBOffsets.Clear();
+            TrackSegment[] ordinary = sourceSegments
+                .Where(segment => !DualGaugeSharedRailRegistry.IsSharedRailTransition(segment))
+                .ToArray();
+            var byNode = ordinary
+                .SelectMany(segment => new[]
+                {
+                    new { Node = segment.a, Segment = segment },
+                    new { Node = segment.b, Segment = segment }
+                })
+                .Where(item => item.Node != null)
+                .GroupBy(item => item.Node.id, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Select(item => item.Segment).Distinct().ToArray(),
+                    StringComparer.OrdinalIgnoreCase);
+
+            var queue = new Queue<TrackSegment>();
+            foreach (KeyValuePair<string, TrackSegment[]> pair in byNode
+                .Where(item => item.Value.Length == 3)
+                .OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                if (pair.Value.All(segment => GhostAtoBOffsets.ContainsKey(segment.id)))
+                {
+                    continue;
+                }
+
+                TrackNode node = graph.GetNode(pair.Key);
+                if (node == null || !TryResolveSwitchAnchor(node, pair.Value, out Vector3 target))
+                {
+                    continue;
+                }
+
+                AssignConnectedAtNode(pair.Value, node, target, queue);
+                PropagateGhostOffsets(byNode, queue);
+            }
+
+            foreach (TrackSegment segment in ordinary
+                .OrderBy(item => item.id, StringComparer.OrdinalIgnoreCase))
+            {
+                if (GhostAtoBOffsets.ContainsKey(segment.id))
+                {
+                    continue;
+                }
+
+                GhostAtoBOffsets[segment.id] = GetAuthoredGhostOffset(segment);
+                queue.Enqueue(segment);
+                PropagateGhostOffsets(byNode, queue);
+            }
+
+            foreach (TrackSegment transition in sourceSegments
+                .Where(DualGaugeSharedRailRegistry.IsSharedRailTransition))
+            {
+                GhostAtoBOffsets[transition.id] =
+                    DualGaugeSharedRailRegistry.GetAtoBNarrowCenterOffset(transition);
+            }
+        }
+
+        private static bool TryResolveSwitchAnchor(
+            TrackNode node,
+            IReadOnlyCollection<TrackSegment> connected,
+            out Vector3 target)
+        {
+            target = Vector3.zero;
+            var candidates = new List<Vector3>();
+            foreach (TrackSegment segment in connected)
+            {
+                if (TryGetGhostOffsetPosition(
+                    segment,
+                    node,
+                    GetAuthoredGhostOffset(segment),
+                    out Vector3 position))
+                {
+                    candidates.Add(position);
+                }
+            }
+
+            if (candidates.Count == 0)
+            {
+                return false;
+            }
+
+            const float clusterTolerance = 0.05f;
+            var clusters = new List<List<Vector3>>();
+            foreach (Vector3 candidate in candidates)
+            {
+                List<Vector3> cluster = clusters.FirstOrDefault(existing =>
+                    existing.Any(position =>
+                        Vector3.Distance(position, candidate) <= clusterTolerance));
+                if (cluster == null)
+                {
+                    cluster = new List<Vector3>();
+                    clusters.Add(cluster);
+                }
+
+                cluster.Add(candidate);
+            }
+
+            List<Vector3> selected = clusters
+                .OrderByDescending(cluster => cluster.Count)
+                .ThenBy(cluster => cluster[0].x)
+                .ThenBy(cluster => cluster[0].z)
+                .First();
+            target = selected.Aggregate(Vector3.zero, (sum, position) => sum + position)
+                / selected.Count;
+            return true;
+        }
+
+        private static void AssignConnectedAtNode(
+            IEnumerable<TrackSegment> connected,
+            TrackNode node,
+            Vector3 target,
+            Queue<TrackSegment> queue)
+        {
+            foreach (TrackSegment segment in connected)
+            {
+                float chosen = ChooseGhostOffsetClosestTo(segment, node, target);
+                if (!GhostAtoBOffsets.TryGetValue(segment.id, out float existing))
+                {
+                    GhostAtoBOffsets[segment.id] = chosen;
+                    queue.Enqueue(segment);
+                }
+                else if (Mathf.Sign(existing) != Mathf.Sign(chosen))
+                {
+                    Main.Warn(
+                        $"[GhostSharedSideConflict] Switch/node '{node.id}' wants '{segment.id}' " +
+                        "on the opposite physical side from the already-propagated component; " +
+                        "keeping the established shared rail.");
+                }
+            }
+        }
+
+        private static void PropagateGhostOffsets(
+            IReadOnlyDictionary<string, TrackSegment[]> byNode,
+            Queue<TrackSegment> queue)
+        {
+            while (queue.Count > 0)
+            {
+                TrackSegment current = queue.Dequeue();
+                float offset = GhostAtoBOffsets[current.id];
+                foreach (TrackNode node in new[] { current.a, current.b }.Where(item => item != null))
+                {
+                    if (!byNode.TryGetValue(node.id, out TrackSegment[] connected)
+                        || !TryGetGhostOffsetPosition(current, node, offset, out Vector3 target))
+                    {
+                        continue;
+                    }
+
+                    AssignConnectedAtNode(connected, node, target, queue);
+                }
+            }
+        }
+
+        private static float ChooseGhostOffsetClosestTo(
+            TrackSegment segment,
+            TrackNode node,
+            Vector3 target)
+        {
+            bool hasPositive = TryGetGhostOffsetPosition(
+                segment,
+                node,
+                DualGaugeSharedRailRegistry.OffsetMagnitude,
+                out Vector3 positive);
+            bool hasNegative = TryGetGhostOffsetPosition(
+                segment,
+                node,
+                -DualGaugeSharedRailRegistry.OffsetMagnitude,
+                out Vector3 negative);
+            if (!hasPositive)
+            {
+                return -DualGaugeSharedRailRegistry.OffsetMagnitude;
+            }
+
+            if (!hasNegative)
+            {
+                return DualGaugeSharedRailRegistry.OffsetMagnitude;
+            }
+
+            return Vector3.Distance(positive, target) <= Vector3.Distance(negative, target)
+                ? DualGaugeSharedRailRegistry.OffsetMagnitude
+                : -DualGaugeSharedRailRegistry.OffsetMagnitude;
+        }
+
+        private static bool TryGetGhostOffsetPosition(
+            TrackSegment segment,
+            TrackNode node,
+            float offset,
+            out Vector3 position)
+        {
+            position = Vector3.zero;
+            if (!DualGaugeSharedRailRegistry.TryGetAtoBFrameAtNode(
+                segment,
+                node,
+                out Vector3 anchor,
+                out Vector3 directionAtoB))
+            {
+                return false;
+            }
+
+            Vector3 up = node.transform.localRotation * Vector3.up;
+            Vector3 right = Vector3.Cross(up, directionAtoB).normalized;
+            if (right.sqrMagnitude <= 0.000001f)
+            {
+                right = Vector3.Cross(Vector3.up, directionAtoB).normalized;
+            }
+
+            position = anchor + right * offset;
+            return true;
+        }
+
+        private static float GetAuthoredGhostOffset(TrackSegment segment)
+        {
+            FuseSegment definition = TrackAPI.GetSegmentDefinition(segment.id);
+            if (string.Equals(definition?.Gauge, "DualGauge_R", StringComparison.OrdinalIgnoreCase))
+            {
+                return DualGaugeSharedRailRegistry.OffsetMagnitude;
+            }
+
+            if (string.Equals(definition?.Gauge, "DualGauge_L", StringComparison.OrdinalIgnoreCase))
+            {
+                return -DualGaugeSharedRailRegistry.OffsetMagnitude;
+            }
+
+            return DualGaugeSharedRailRegistry.GetAtoBNarrowCenterOffset(segment);
+        }
+
         private static FuseNode ResolveNodeDefinition(
             Graph graph,
             string sourceNodeId,
             IReadOnlyCollection<GhostNodeCandidate> candidates)
         {
-            Vector3 position = candidates.Aggregate(Vector3.zero, (sum, next) => sum + next.Position)
-                / Mathf.Max(candidates.Count, 1);
-            GhostNodeCandidate first = candidates.First();
+            const float coincidentTolerance = 0.05f;
+            GhostNodeCandidate[] orderedCandidates = candidates
+                .OrderBy(candidate => candidate.SourceSegmentId, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var clusters = new List<List<GhostNodeCandidate>>();
+            foreach (GhostNodeCandidate candidate in orderedCandidates)
+            {
+                List<GhostNodeCandidate> cluster = clusters.FirstOrDefault(existing =>
+                    existing.Any(member =>
+                        Vector3.Distance(member.Position, candidate.Position) <= coincidentTolerance));
+                if (cluster == null)
+                {
+                    cluster = new List<GhostNodeCandidate>();
+                    clusters.Add(cluster);
+                }
+
+                cluster.Add(candidate);
+            }
+
+            List<GhostNodeCandidate> selectedCluster = clusters
+                .OrderByDescending(cluster => cluster.Count)
+                .ThenBy(
+                    cluster => cluster.Min(candidate => candidate.SourceSegmentId),
+                    StringComparer.OrdinalIgnoreCase)
+                .First();
+            Vector3 position = selectedCluster
+                .Aggregate(Vector3.zero, (sum, next) => sum + next.Position)
+                / Mathf.Max(selectedCluster.Count, 1);
+            GhostNodeCandidate first = selectedCluster[0];
 
             float maxDeviation = candidates.Max(candidate => Vector3.Distance(candidate.Position, position));
             if (maxDeviation > 0.05f)
             {
-                TrackNode existing = graph.GetNode(GetGhostNodeId(sourceNodeId));
-                if (existing != null)
-                {
-                    position = existing.transform.localPosition;
-                }
-
                 Main.Warn(
                     $"Dual-gauge node '{sourceNodeId}' generated narrow endpoints disagree by up to {maxDeviation:F3}m; " +
-                    (existing == null
-                        ? "V1 averaged them. This junction will need an explicit special-trackwork definition."
-                        : "preserving its established generated control point."));
+                    $"selected full-offset cluster {selectedCluster.Count}/{candidates.Count} from " +
+                    $"[{string.Join(",", selectedCluster.Select(candidate => candidate.SourceSegmentId))}] " +
+                    "instead of averaging toward the standard center. " +
+                    " Rendered-center candidates: " +
+                    string.Join(
+                        ", ",
+                        candidates.Select(candidate =>
+                            $"{candidate.SourceSegmentId}@" +
+                            $"({candidate.Position.x:F3},{candidate.Position.y:F3},{candidate.Position.z:F3})")));
             }
 
             return new FuseNode
@@ -263,7 +535,9 @@ namespace NarrowGaugeMod
         {
             foreach (TrackSegment segment in TrackAPI.GetAllSegments()
                 .Where(segment => segment != null && IsGeneratedGhostSegmentId(segment.id))
-                .Where(segment => !SpecialWorkTopologySynchronizer.IsHiddenControlSegment(segment))
+                .Where(segment =>
+                    !SpecialWorkTopologySynchronizer.IsHiddenControlSegment(segment)
+                    || IsRouteJoinSegment(segment))
                 .Where(segment => !expected.ContainsKey(segment.id))
                 .ToArray())
             {
@@ -395,15 +669,28 @@ namespace NarrowGaugeMod
             return GeneratedSegmentPrefix + sourceSegmentId;
         }
 
+        private static bool IsRouteJoinSegment(TrackSegment? segment)
+        {
+            FuseSegment? definition = segment == null ? null : TrackAPI.GetSegmentDefinition(segment.id);
+            return definition?.Tags?.Any(tag =>
+                string.Equals(tag, RouteJoinTag, StringComparison.OrdinalIgnoreCase)) == true;
+        }
+
         private readonly struct GhostNodeCandidate
         {
-            public GhostNodeCandidate(Vector3 position, Vector3 rotation, bool flipSwitchStand)
+            public GhostNodeCandidate(
+                string sourceSegmentId,
+                Vector3 position,
+                Vector3 rotation,
+                bool flipSwitchStand)
             {
+                SourceSegmentId = sourceSegmentId;
                 Position = position;
                 Rotation = rotation;
                 FlipSwitchStand = flipSwitchStand;
             }
 
+            public string SourceSegmentId { get; }
             public Vector3 Position { get; }
             public Vector3 Rotation { get; }
             public bool FlipSwitchStand { get; }

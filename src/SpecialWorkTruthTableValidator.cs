@@ -780,6 +780,13 @@ namespace NarrowGaugeMod
             return table != null;
         }
 
+        public static bool TryGetByTableId(string tableId, out TurnoutTruthTable table)
+        {
+            table = Tables.Value.FirstOrDefault(item =>
+                string.Equals(item.Id, tableId, StringComparison.OrdinalIgnoreCase))!;
+            return table != null;
+        }
+
         public static bool TryGet(
             string presetId,
             IReadOnlyList<RailCenterline> rails,
@@ -792,6 +799,11 @@ namespace NarrowGaugeMod
                 .ToArray();
             table = candidates.FirstOrDefault(item => MatchesSelector(item, rails, frogs))
                 ?? candidates.FirstOrDefault(item => item.SelectorFrogPair == null)!;
+            ApplyNarrowBranchHandOverride(
+                presetId,
+                rails,
+                FindCrossFamilyCrossing(frogs),
+                ref table);
             return table != null;
         }
 
@@ -807,7 +819,150 @@ namespace NarrowGaugeMod
                 .ToArray();
             table = candidates.FirstOrDefault(item => MatchesSelector(item, rails, intersections))
                 ?? candidates.FirstOrDefault(item => item.SelectorFrogPair == null)!;
+            ApplyNarrowBranchHandOverride(
+                presetId,
+                rails,
+                FindCrossFamilyCrossing(intersections),
+                ref table);
             return table != null;
+        }
+
+        private static RailIntersection? FindCrossFamilyCrossing(
+            IEnumerable<FrogCandidate> frogs)
+        {
+            return FindCrossFamilyCrossing(frogs.Select(frog => frog.Intersection));
+        }
+
+        private static RailIntersection? FindCrossFamilyCrossing(
+            IEnumerable<RailIntersection> intersections)
+        {
+            return intersections.FirstOrDefault(intersection =>
+                intersection.Kind == RailIntersectionKind.CrossingFrogCandidate
+                && ((intersection.RailA.Family == GaugeGraphFamily.Narrow
+                        && intersection.RailB.Family == GaugeGraphFamily.Standard)
+                    || (intersection.RailB.Family == GaugeGraphFamily.Narrow
+                        && intersection.RailA.Family == GaugeGraphFamily.Standard)));
+        }
+
+        // The two dual.narrow-branch-joins-main truth tables are mirror images and
+        // MatchesSelector cannot reliably distinguish them: its rail-side-labeled
+        // selector pairs both usually have SOME intersection near a frog, and the
+        // side labels themselves come from the ghost node's order-dependent
+        // DecodeSwitchAt. NCustom_vdlt matched _Right (file-order tie-break) while
+        // its geometry diverges left. This override reselects the variant by the
+        // switch's true physical divergence hand, computed from the cross-family
+        // crossing frog - and lives HERE so every consumer (builder blade specs,
+        // renderer frame corrections via IsLeftNarrowBranchTruth, validator,
+        // exporter) agrees on one table; a builder-only override left the renderer
+        // classifying vdlt as _Right and skipping the _Left-gated railhead-width
+        // frame corrections on its handoff/wing pieces. Switches with no
+        // cross-family crossing (N178/Nove) and no-table switches (7n90 fallback)
+        // are untouched. See
+        // reviews/vdlt-narrow-branch-variant-selection-2026-07-09.md.
+        private static void ApplyNarrowBranchHandOverride(
+            string presetId,
+            IReadOnlyList<RailCenterline> rails,
+            RailIntersection? crossing,
+            ref TurnoutTruthTable table)
+        {
+            if (table == null
+                || crossing == null
+                || !string.Equals(
+                    presetId,
+                    "dual.narrow-branch-joins-main",
+                    StringComparison.OrdinalIgnoreCase)
+                || !TryComputeNarrowDivergesLeft(rails, crossing, out bool divergesLeft))
+            {
+                return;
+            }
+
+            string desiredId = divergesLeft
+                ? "DualGauge_NarrowBranch_Left"
+                : "DualGauge_NarrowBranch_Right";
+            if (!string.Equals(table.Id, desiredId, StringComparison.OrdinalIgnoreCase)
+                && TryGetByTableId(desiredId, out TurnoutTruthTable handTable))
+            {
+                table = handTable;
+            }
+        }
+
+        // Computes whether the diverging narrow route peels LEFT of the through
+        // narrow route, using only rails + the crossing intersection (no graph
+        // access here). "Forward" is oriented by increasing separation between the
+        // through and diverging rails (separation grows away from the throat), so
+        // the result does not depend on curve traversal direction.
+        private static bool TryComputeNarrowDivergesLeft(
+            IReadOnlyList<RailCenterline> rails,
+            RailIntersection crossing,
+            out bool divergesLeft)
+        {
+            divergesLeft = false;
+            RailCenterline divergingRail = crossing.RailA.Family == GaugeGraphFamily.Narrow
+                ? crossing.RailA
+                : crossing.RailB;
+            RailCenterline? throughRail = rails.FirstOrDefault(rail =>
+                    rail.Family == GaugeGraphFamily.Narrow
+                    && rail.Side == divergingRail.Side
+                    && !rail.SourceRouteIds.Intersect(
+                        divergingRail.SourceRouteIds,
+                        StringComparer.OrdinalIgnoreCase).Any())
+                ?? rails.FirstOrDefault(rail =>
+                    rail.Family == GaugeGraphFamily.Narrow
+                    && !rail.SourceRouteIds.Intersect(
+                        divergingRail.SourceRouteIds,
+                        StringComparer.OrdinalIgnoreCase).Any());
+            if (throughRail == null)
+            {
+                return false;
+            }
+
+            Vector3 frogPos = crossing.Position;
+            float atFrog = throughRail.Curve.DistanceTo(frogPos);
+            Vector3 throughAtFrog = throughRail.Curve.LinePointAtDistance(atFrog).point;
+            Vector3 offset = frogPos - throughAtFrog;
+            offset.y = 0f;
+            if (offset.sqrMagnitude < 0.0001f)
+            {
+                return false;
+            }
+
+            float probe = Mathf.Clamp(throughRail.Curve.Length * 0.25f, 0.5f, 2f);
+            float before = Mathf.Max(0f, atFrog - probe);
+            float after = Mathf.Min(throughRail.Curve.Length, atFrog + probe);
+            if (after - before < 0.05f)
+            {
+                return false;
+            }
+
+            Vector3 beforePoint = throughRail.Curve.LinePointAtDistance(before).point;
+            Vector3 afterPoint = throughRail.Curve.LinePointAtDistance(after).point;
+            float beforeSep = SeparationTo(divergingRail, beforePoint);
+            float afterSep = SeparationTo(divergingRail, afterPoint);
+            Vector3 forward = afterPoint - beforePoint;
+            if (afterSep < beforeSep)
+            {
+                forward = -forward;
+            }
+
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 0.0001f)
+            {
+                return false;
+            }
+
+            // Unity left-handed Y-up: Cross(forward, offset).y > 0 means offset is
+            // to the RIGHT of forward, so < 0 means the diverging rail sits LEFT.
+            divergesLeft = Vector3.Cross(forward, offset).y < 0f;
+            return true;
+
+            static float SeparationTo(RailCenterline rail, Vector3 point)
+            {
+                Vector3 nearest = rail.Curve.LinePointAtDistance(
+                    rail.Curve.DistanceTo(point)).point;
+                Vector3 delta = nearest - point;
+                delta.y = 0f;
+                return delta.magnitude;
+            }
         }
 
         private static bool MatchesSelector(

@@ -59,21 +59,25 @@ namespace NarrowGaugeMod
             {
                 if (NarrowGaugeManager.IsGeneratedGhostNode(node))
                 {
-                    if (TryBuildNarrowBranchTransition(
-                        graph,
-                        node,
-                        allSegments,
-                        out SpecialWorkDefinition transition))
-                    {
-                        definitions.Add(transition);
-                    }
-                    else if (TryBuildGaugeSeparation(
+                    // A gauge-separation control also satisfies the generic
+                    // narrow-branch shape (ghost + narrow + hidden). Recognize the
+                    // exact topology first so the hidden blocked leg cannot become
+                    // a second measured route and blade.
+                    if (TryBuildGaugeSeparation(
                         graph,
                         node,
                         allSegments,
                         out SpecialWorkDefinition separation))
                     {
                         definitions.Add(separation);
+                    }
+                    else if (TryBuildNarrowBranchTransition(
+                        graph,
+                        node,
+                        allSegments,
+                        out SpecialWorkDefinition transition))
+                    {
+                        definitions.Add(transition);
                     }
 
                     continue;
@@ -95,7 +99,19 @@ namespace NarrowGaugeMod
                 int narrowOnlyCount = connectedSources.Count(IsRealNarrowOnly);
                 int standardOnlyCount = connectedSources.Length - dualCount - narrowOnlyCount;
 
-                if (dualCount == 3
+                if (dualCount == 1
+                    && narrowOnlyCount == 1
+                    && standardOnlyCount == 1
+                    && TryBuildAuthoredDualStandardNarrowJoin(
+                        graph,
+                        node,
+                        connectedSources,
+                        allSegments,
+                        out SpecialWorkDefinition split))
+                {
+                    definitions.Add(split);
+                }
+                else if (dualCount == 3
                     && TryBuildDualBothDiverge(graph, node, allSegments, out SpecialWorkDefinition dual))
                 {
                     definitions.Add(dual);
@@ -119,6 +135,82 @@ namespace NarrowGaugeMod
             }
 
             return definitions;
+        }
+
+        private static bool TryBuildAuthoredDualStandardNarrowJoin(
+            Graph graph,
+            TrackNode sourceNode,
+            IReadOnlyCollection<TrackSegment> connectedSources,
+            IReadOnlyCollection<TrackSegment> allSegments,
+            out SpecialWorkDefinition definition)
+        {
+            definition = null!;
+            TrackSegment? dual = connectedSources.SingleOrDefault(
+                NarrowGaugeManager.IsDualGauge);
+            TrackSegment? standard = connectedSources.SingleOrDefault(segment =>
+                !NarrowGaugeManager.IsDualGauge(segment)
+                && !NarrowGaugeManager.IsNarrowGauge(segment));
+            TrackSegment? narrowBranch = connectedSources.SingleOrDefault(IsRealNarrowOnly);
+            TrackNode? ghostNode = graph.GetNode(
+                GhostGraphSynchronizer.GetGhostNodeId(sourceNode.id));
+            TrackSegment? ghostDual = dual == null
+                ? null
+                : allSegments.SingleOrDefault(segment =>
+                    string.Equals(
+                        segment.id,
+                        GhostGraphSynchronizer.GetGhostSegmentId(dual.id),
+                        StringComparison.OrdinalIgnoreCase));
+            if (dual == null
+                || standard == null
+                || narrowBranch == null
+                || ghostNode == null
+                || ghostDual == null
+                || !TryBuildFixedRoute(
+                    dual,
+                    standard,
+                    sourceNode,
+                    GaugeGraphFamily.Standard,
+                    "standard-through",
+                    out LogicalRoute standardRoute))
+            {
+                return false;
+            }
+
+            string narrowState = ResolveRouteStateId(
+                graph,
+                sourceNode,
+                dual,
+                narrowBranch) ?? "reversed";
+            if (!TryBuildNarrowJoinRouteFromShadowTransition(
+                    sourceNode,
+                    ghostDual,
+                    narrowBranch,
+                    narrowState,
+                    out LogicalRoute narrowRoute))
+            {
+                return false;
+            }
+
+            definition = new SpecialWorkDefinition(
+                "special-work:" + sourceNode.id,
+                SpecialWorkPresetCatalog.Get(SpecialWorkPresetIds.DualSplit),
+                BuildDualBranchPorts(
+                    sourceNode,
+                    new[] { dual, standard },
+                    narrowBranch),
+                new[] { standardRoute, narrowRoute },
+                new[]
+                {
+                    new SpecialWorkSwitchGroup(
+                        "narrow-separation",
+                        new[] { sourceNode.id },
+                        new[] { "normal", "reversed" })
+                },
+                new[] { sourceNode.id });
+            Main.Log(
+                $"[SpecialWorkDiscovery] Authored dual/standard/narrow join '{sourceNode.id}' " +
+                $"uses two real routes and one shared-rail blade; narrowState={narrowState}.");
+            return true;
         }
 
         private static bool TryBuildGaugeSeparation(
@@ -148,11 +240,17 @@ namespace NarrowGaugeMod
                 .Where(segment => !NarrowGaugeManager.IsGeneratedGhost(segment))
                 .Where(segment => !IsRealNarrowOnly(segment))
                 .ToArray();
+            TrackSegment? dualMain = standardMain.SingleOrDefault(
+                NarrowGaugeManager.IsDualGauge);
+            TrackSegment? standardOnly = standardMain.SingleOrDefault(segment =>
+                !NarrowGaugeManager.IsDualGauge(segment)
+                && !NarrowGaugeManager.IsNarrowGauge(segment));
             if (standardMain.Length != 2
-                || standardMain.Count(NarrowGaugeManager.IsDualGauge) != 1
+                || dualMain == null
+                || standardOnly == null
                 || !TryBuildFixedRoute(
-                    standardMain[0],
-                    standardMain[1],
+                    dualMain,
+                    standardOnly,
                     sourceNode,
                     GaugeGraphFamily.Standard,
                     "standard-through",
@@ -163,36 +261,29 @@ namespace NarrowGaugeMod
                     ghostControlNode,
                     GaugeGraphFamily.Narrow,
                     "narrow-diverge",
-                    out LogicalRoute narrowDivergeRoute)
-                || !TryBuildRoute(
-                    ghostDual,
-                    hiddenControl,
-                    ghostControlNode,
-                    GaugeGraphFamily.Narrow,
-                    "narrow-through",
-                    "narrow-separation",
-                    "normal",
-                    out LogicalRoute narrowThroughRoute))
+                    out LogicalRoute narrowDivergeRoute))
             {
                 return false;
             }
+
+            string narrowState = ResolveRouteStateId(
+                graph,
+                ghostControlNode,
+                ghostDual,
+                narrowBranch) ?? "reversed";
+            var narrowRoute = new LogicalRoute(
+                narrowDivergeRoute.Id,
+                narrowDivergeRoute.Family,
+                narrowDivergeRoute.Centerline,
+                narrowDivergeRoute.SourceSegmentIds,
+                "narrow-separation",
+                narrowState);
 
             definition = new SpecialWorkDefinition(
                 "special-work:" + sourceNode.id,
                 SpecialWorkPresetCatalog.Get(SpecialWorkPresetIds.DualSplit),
                 BuildDualBranchPorts(sourceNode, standardMain, narrowBranch),
-                new[]
-                {
-                    standardRoute,
-                    narrowThroughRoute,
-                    new LogicalRoute(
-                        narrowDivergeRoute.Id,
-                        narrowDivergeRoute.Family,
-                        narrowDivergeRoute.Centerline,
-                        narrowDivergeRoute.SourceSegmentIds,
-                        "narrow-separation",
-                        "reversed")
-                },
+                new[] { standardRoute, narrowRoute },
                 new[]
                 {
                     new SpecialWorkSwitchGroup(
@@ -201,6 +292,11 @@ namespace NarrowGaugeMod
                         new[] { "normal", "reversed" })
                 },
                 new[] { ghostControlNode.id });
+            Main.Log(
+                $"[SpecialWorkDiscovery] Graph-connected dual/standard/narrow join " +
+                $"'{sourceNode.id}' uses ghost switch '{ghostControlNode.id}', two real " +
+                $"routes, and one blade; narrowState={narrowState}. Hidden control " +
+                "is topology-only.");
             return true;
         }
 
@@ -552,6 +648,253 @@ namespace NarrowGaugeMod
                 Main.Warn($"Failed to build logical route '{id}' at '{sharedNode?.id}': {ex.Message}");
                 return false;
             }
+        }
+
+        private static bool TryBuildNarrowJoinRouteFromShadowTransition(
+            TrackNode sourceNode,
+            TrackSegment ghostDual,
+            TrackSegment narrowBranch,
+            string requiredStateId,
+            out LogicalRoute route)
+        {
+            route = null!;
+            try
+            {
+                ShadowNarrowGaugeTransition? transition =
+                    NarrowGaugeManager.GetShadowTransition(sourceNode);
+                if (transition == null)
+                {
+                    Main.Warn(
+                        $"Failed to build narrow join route at '{sourceNode?.id}': " +
+                        "no dual-to-narrow shadow transition was available.");
+                    return false;
+                }
+
+                // The generated narrow node is deliberately offset from the authored
+                // standard centerline by the dual-gauge third-rail centerline offset
+                // (0.260m at NCustom_7n90). The shared point rail must stay on that
+                // offset all the way to the switch toe, then peel gradually onto the
+                // authored narrow branch - the same physical throat pattern used by
+                // N178/vdlt. The generic shadow preview is symmetric around the source
+                // node (2m on each side); using it here puts the route halfway between
+                // the two centerlines at the toe, creates the visible kink, and reaches
+                // blade-root separation in only 0.5m. Build the join asymmetrically:
+                // full offset dual approach to the toe, then a long transition solely
+                // on the narrow-branch side.
+                // Use the generated ghost segment as the authoritative narrow
+                // centerline of the dual leg. The shadow transition's dual anchor
+                // is derived from the authored source segment and Nove reaches the
+                // node from its opposite authored end; its plain Reverse() retained
+                // the wrong frame and live geometry arrived on the standard
+                // centerline (0.271m from its stock rail). The generated segment
+                // already contains the correct physical third-rail offset for both
+                // authored traversal directions.
+                string ghostNodeId = GhostGraphSynchronizer.GetGhostNodeId(sourceNode.id);
+                TrackNode? ghostNode = new[] { ghostDual.a, ghostDual.b }
+                    .FirstOrDefault(node => node != null
+                        && string.Equals(
+                            node.id,
+                            ghostNodeId,
+                            StringComparison.OrdinalIgnoreCase));
+                if (ghostNode == null)
+                {
+                    Main.Warn(
+                        $"Failed to build narrow join route at '{sourceNode?.id}': " +
+                        $"generated dual segment '{ghostDual?.id}' does not touch " +
+                        $"its expected ghost node '{ghostNodeId}'.");
+                    return false;
+                }
+
+                LineCurve dualApproach = OrientedSegmentCurve(
+                    ghostDual,
+                    ghostNode,
+                    towardNode: true);
+                LineCurve fullNarrowDeparture = transition.NarrowAnchor.OrientedCurve;
+                // Use one continuous development curve from the authored toe to
+                // the narrow branch. The previous 2m straight lead followed by a
+                // 7m cubic only moved the same nine-metre handoff into two pieces:
+                // it did not close the post-frog render gap, and the curvature
+                // break between those pieces produced the visible S-kink.
+                const float narrowTransitionSpan = 9f;
+                float narrowTransitionLength = Mathf.Min(
+                    narrowTransitionSpan,
+                    Mathf.Max(fullNarrowDeparture.Length - 0.05f, 0.05f));
+                LinePoint narrowTransitionEnd =
+                    fullNarrowDeparture.LinePointAtDistance(narrowTransitionLength);
+
+                Vector3 startPoint = dualApproach.Tail.point;
+                float toeCenterOffset = Vector3.Distance(
+                    startPoint,
+                    sourceNode.transform.localPosition);
+                // Do NOT trust LinePoint.direction here: the shadow anchors are
+                // oriented with a plain base-game Reverse() (ShadowNarrowGaugeGraph
+                // TryGetOrientedCurve), which flips point order but leaves each
+                // point's stored direction facing the ORIGINAL way. A backwards
+                // tangent puts the Bezier handle on the wrong side of the joint -
+                // live-confirmed at NCustom_7n90 as a kink through the blade/toe and
+                // a ballooned transition that compressed the whole development.
+                // Chords of the curve itself are orientation-proof.
+                Vector3 startDirection = (dualApproach.Tail.point
+                    - dualApproach.LinePointAtDistance(
+                        Mathf.Max(0f, dualApproach.Length - 0.5f)).point).normalized;
+                float startDot = Vector3.Dot(
+                    startDirection,
+                    dualApproach.Tail.direction.normalized);
+                if (startDirection.sqrMagnitude <= 0.0001f)
+                {
+                    startDirection = (narrowTransitionEnd.point - startPoint).normalized;
+                }
+
+                Vector3 endPoint = narrowTransitionEnd.point;
+                // Chord across the departure at the transition end, for the same
+                // orientation-safety reason as startDirection above.
+                Vector3 endDirection = (fullNarrowDeparture.LinePointAtDistance(
+                        Mathf.Min(fullNarrowDeparture.Length, narrowTransitionLength + 0.5f)).point
+                    - fullNarrowDeparture.LinePointAtDistance(
+                        Mathf.Max(0f, narrowTransitionLength - 0.5f)).point).normalized;
+                float endDot = Vector3.Dot(
+                    endDirection,
+                    narrowTransitionEnd.direction.normalized);
+                if (endDirection.sqrMagnitude <= 0.0001f)
+                {
+                    endDirection = (endPoint - startPoint).normalized;
+                }
+
+                Vector3 joinChord = endPoint - startPoint;
+                float joinChordLength = joinChord.magnitude;
+                Vector3 joinChordDirection = joinChordLength > 0.0001f
+                    ? joinChord / joinChordLength
+                    : startDirection;
+                // A reversed tangent would place its control handle behind the
+                // endpoint and create a loop. Keep the curve monotone along the
+                // actual toe-to-branch chord while retaining each authored tangent.
+                if (Vector3.Dot(startDirection, joinChordDirection) < 0f)
+                {
+                    startDirection = -startDirection;
+                }
+                if (Vector3.Dot(endDirection, joinChordDirection) < 0f)
+                {
+                    endDirection = -endDirection;
+                }
+                float startChordDot = Vector3.Dot(startDirection, joinChordDirection);
+                float endChordDot = Vector3.Dot(endDirection, joinChordDirection);
+                Main.Log(
+                    $"[NarrowJoinTangents] node={sourceNode.id} " +
+                    $"toeCenterOffset={toeCenterOffset:0.000} " +
+                    $"storedStartDot={startDot:0.000} storedEndDot={endDot:0.000} " +
+                    $"chordStartDot={startChordDot:0.000} chordEndDot={endChordDot:0.000} " +
+                    "(negative = stored LinePoint.direction faced backwards vs traversal chord)");
+
+                // One-third chord handles are the cubic-Hermite baseline. The old
+                // half-chord handles over-drove the lateral movement and visibly
+                // bowed back before reaching the authored narrow route.
+                float handleLength = Mathf.Max(
+                    joinChordLength / 3f,
+                    0.75f);
+                var joinCurve = new BezierCurve(
+                    startPoint,
+                    startPoint + startDirection * handleLength,
+                    endPoint - endDirection * handleLength,
+                    endPoint,
+                    Vector3.up,
+                    Vector3.up);
+                var transitionCurve = new LineCurve(
+                    joinCurve.Approximate(1.000005f, 0.25f, 16, 20f),
+                    Hand.Left);
+                LineCurve narrowDeparture =
+                    fullNarrowDeparture.Skip(narrowTransitionLength, true);
+                float approachGap = Vector3.Distance(
+                    dualApproach.Tail.point,
+                    transitionCurve.Head.point);
+                float departureGap = Vector3.Distance(
+                    transitionCurve.Tail.point,
+                    narrowDeparture.Head.point);
+                if (approachGap > 0.05f || departureGap > 0.05f)
+                {
+                    Main.Warn(
+                        $"Failed to build narrow join route at '{sourceNode?.id}': " +
+                        $"splice gaps are {approachGap:0.000}m/" +
+                        $"{departureGap:0.000}m.");
+                    return false;
+                }
+
+                var points = dualApproach.Points.ToList();
+                points.AddRange(transitionCurve.Points.Skip(1));
+                points.AddRange(narrowDeparture.Points.Skip(1));
+                route = new LogicalRoute(
+                    // Keep the established internal route id for compatibility with
+                    // the split-frog and one-blade catalogs. Physically this is the
+                    // narrow JOIN into dual gauge, not a second narrow turnout route.
+                    "narrow-diverge",
+                    GaugeGraphFamily.Narrow,
+                    new LineCurve(points, Hand.Left),
+                    new[] { ghostDual.id, narrowBranch.id },
+                    "narrow-separation",
+                    requiredStateId);
+                Main.Log(
+                    $"[SpecialWorkDiscovery] Narrow join '{sourceNode.id}' assembled from " +
+                    $"dual={dualApproach.Length:0.000}m " +
+                    $"transition={transitionCurve.Length:0.000}m " +
+                    $"narrow={narrowDeparture.Length:0.000}m.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Main.Warn(
+                    $"Failed to build narrow join route at '{sourceNode?.id}': {ex.Message}");
+                return false;
+            }
+        }
+
+        private static string? ResolveRouteStateId(
+            Graph graph,
+            TrackNode node,
+            TrackSegment first,
+            TrackSegment second)
+        {
+            try
+            {
+                if (!graph.DecodeSwitchAt(
+                        node,
+                        out TrackSegment enter,
+                        out TrackSegment normal,
+                        out TrackSegment reversed))
+                {
+                    return null;
+                }
+
+                if (RoutePairMatches(enter, normal, first, second))
+                {
+                    return "normal";
+                }
+
+                return RoutePairMatches(enter, reversed, first, second)
+                    ? "reversed"
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                Main.Warn(
+                    $"Failed to resolve native route state at '{node?.id}': {ex.Message}");
+                return null;
+            }
+        }
+
+        private static bool RoutePairMatches(
+            TrackSegment firstPair,
+            TrackSegment secondPair,
+            TrackSegment firstRoute,
+            TrackSegment secondRoute)
+        {
+            return (SameSegment(firstPair, firstRoute) && SameSegment(secondPair, secondRoute))
+                || (SameSegment(firstPair, secondRoute) && SameSegment(secondPair, firstRoute));
+        }
+
+        private static bool SameSegment(TrackSegment first, TrackSegment second)
+        {
+            return first != null
+                && second != null
+                && string.Equals(first.id, second.id, StringComparison.OrdinalIgnoreCase);
         }
 
         internal static LineCurve OrientedSegmentCurve(

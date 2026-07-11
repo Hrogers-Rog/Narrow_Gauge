@@ -304,9 +304,15 @@ namespace NarrowGaugeMod
                         if ((aDual && bDual)
                             || (aDual && bNarrow)
                             || (aNarrow && bDual)
-                            || hasMeasuredSpecialWork
-                            && ((aDual && bStandardOnly)
-                                || (aStandardOnly && bDual)))
+                            // A native SwitchDescriptor exposes only its two
+                            // selectable legs, not necessarily the entering leg.
+                            // At authored dual+standard+narrow joins (7n90/Nove)
+                            // those proxies are standard+narrow while the dual leg
+                            // is the omitted enter segment. The validated measured
+                            // plan still owns the complete switch, exactly as it
+                            // does for N178; route it through the dual/special-work
+                            // builder regardless of this proxy-pair gauge mix.
+                            || hasMeasuredSpecialWork)
                         {
                             result = BuildDualGaugeSwitch(
                                 builder,
@@ -384,26 +390,14 @@ namespace NarrowGaugeMod
             {
                 case "SegmentDescriptor":
                 {
-                    // Hidden-control segments exist purely so the base game's switch
-                    // detection sees a valid 3-way junction at a ghost node where only
-                    // one gauge actually diverges - they're a topology trick, not a
-                    // real route the measured special-work system knows about. When a
-                    // switch has a valid measured plan, CreateGaugeSeparationControlShell
-                    // deliberately builds no rails for this stub (it assumes special
-                    // work "owns all turnout rails"), but special work has no route for
-                    // this fake segment either - nothing ever draws it, leaving a real,
-                    // visible gap the length of GhostControlLength (5m) at every such
-                    // switch. Don't suppress this segment's own rail rendering here -
-                    // let the base game draw its ordinary default rail for it. (Keep
-                    // suppressing it for SwitchDescriptor/BumperDescriptor below - those
-                    // still need special handling for switch/topology detection.)
-                    // NarrowGaugeManager.IsGeneratedGhost also matches this segment
-                    // independently (both real ghost segments and this control stub
-                    // share the same "fuse-ng:s:" id prefix) - exclude the control
-                    // segment explicitly, or this suppression still fires either way.
+                    // Generated ghost rails are represented by the real dual-gauge
+                    // segment. The hidden control is only a native graph state that
+                    // makes the one-blade ghost junction switchable; it is not a
+                    // physical route and must never render as the old extra five-metre
+                    // rail through the blade/frog area.
                     TrackSegment segment = GetFieldValue<SegmentProxy>(descriptor, "segment").Segment;
                     return NarrowGaugeManager.IsGeneratedGhost(segment)
-                        && !SpecialWorkTopologySynchronizer.IsHiddenControlSegment(segment);
+                        || SpecialWorkTopologySynchronizer.IsHiddenControlSegment(segment);
                 }
 
                 case "SwitchDescriptor":
@@ -4771,20 +4765,75 @@ namespace NarrowGaugeMod
             Vector3 switchHome)
         {
             SpecialWorkMeshPlan? plan = analysis?.MeshPlan;
-            WheelPath? guide = analysis?.WheelPaths.FirstOrDefault(path =>
+            WheelPath? standardGuide = analysis?.WheelPaths.FirstOrDefault(path =>
                 string.Equals(path.RouteId, "standard-through", StringComparison.OrdinalIgnoreCase))
                 ?? analysis?.WheelPaths.FirstOrDefault();
-            if (plan?.IsValid != true || guide == null || plan.WorkIntervals.Count == 0)
+            if (plan?.IsValid != true || standardGuide == null || plan.WorkIntervals.Count == 0)
             {
                 Main.Log(
-                    $"[SpecialWorkTies] Skipped: valid={plan?.IsValid} guide={guide?.RouteId ?? "<null>"} " +
+                    $"[SpecialWorkTies] Skipped: valid={plan?.IsValid} guide={standardGuide?.RouteId ?? "<null>"} " +
                     $"intervals={plan?.WorkIntervals.Count ?? 0}");
+                return;
+            }
+
+            SpecialWorkAnalysis safeAnalysis = analysis!;
+            bool separateRoutes = string.Equals(
+                safeAnalysis.Definition.Preset.Id,
+                SpecialWorkPresetIds.DualSplit,
+                StringComparison.OrdinalIgnoreCase);
+            WheelPath[] guides = separateRoutes
+                ? safeAnalysis.WheelPaths
+                    .GroupBy(path => path.RouteId, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First())
+                    .OrderBy(path => path.Family == GaugeGraphFamily.Standard ? 0 : 1)
+                    .ToArray()
+                : new[] { standardGuide };
+            var ties = new List<Matrix4x4>();
+            foreach (WheelPath guide in guides)
+            {
+                RailWorkInterval[] routeIntervals = separateRoutes
+                    ? plan.WorkIntervals.Where(work =>
+                        work.Rail.SourceRouteIds.Contains(guide.RouteId)).ToArray()
+                    : plan.WorkIntervals.ToArray();
+                WheelPath? sharedApproachGuide = separateRoutes
+                    && guide.Family == GaugeGraphFamily.Narrow
+                        ? standardGuide
+                        : null;
+                AddSpecialWorkRouteTies(
+                    ties,
+                    guide,
+                    routeIntervals,
+                    switchHome,
+                    sharedApproachGuide);
+            }
+
+            Main.Log(
+                $"[SpecialWorkTies] Created {ties.Count} ties across {guides.Length} " +
+                $"route bed{(guides.Length == 1 ? string.Empty : "s")}.");
+            CreateInstancedMeshDrawer(
+                builder,
+                ties.ToArray(),
+                switchHome,
+                PrefabInstancer.Prefab.Tie,
+                parent.gameObject);
+        }
+
+        private static void AddSpecialWorkRouteTies(
+            ICollection<Matrix4x4> ties,
+            WheelPath guide,
+            IReadOnlyCollection<RailWorkInterval> workIntervals,
+            Vector3 switchHome,
+            WheelPath? sharedApproachGuide)
+        {
+            if (workIntervals.Count == 0)
+            {
+                Main.Log($"[SpecialWorkTies] Route '{guide.RouteId}' has no work intervals.");
                 return;
             }
 
             float start = guide.Centerline.Length;
             float end = 0f;
-            foreach (RailWorkInterval work in plan.WorkIntervals)
+            foreach (RailWorkInterval work in workIntervals)
             {
                 start = Mathf.Min(
                     start,
@@ -4801,21 +4850,42 @@ namespace NarrowGaugeMod
             end = Mathf.Clamp(end + spacing, start, guide.Centerline.Length);
             Main.Log(
                 $"[SpecialWorkTies] guide={guide.RouteId} start={start:0.000} end={end:0.000} " +
-                $"span={end - start:0.000} intervals={plan.WorkIntervals.Count} switchHome={switchHome}");
+                $"span={end - start:0.000} intervals={workIntervals.Count} switchHome={switchHome}");
             if (end - start < 0.55f)
             {
-                Main.Log("[SpecialWorkTies] Span too short, skipping ties.");
+                Main.Log($"[SpecialWorkTies] Route '{guide.RouteId}' span too short, skipping ties.");
                 return;
             }
 
             float tieCount = Mathf.Max(1f, Mathf.Round((end - start) / spacing));
             float measuredSpacing = (end - start) / tieCount;
-            float normalizedWidth = Gauge.Standard.Inside + 1f;
-            var ties = new List<Matrix4x4>();
+            Gauge tieGauge = guide.Family == GaugeGraphFamily.Narrow
+                ? ThreeFootGauge
+                : Gauge.Standard;
+            bool narrowRoute = guide.Family == GaugeGraphFamily.Narrow;
+            float prefabTieLength = Gauge.Standard.Inside + 1f;
+            float minimumTieWidth = narrowRoute
+                ? NarrowOnlyTieLength
+                : prefabTieLength;
             for (int index = 0; index < tieCount; index++)
             {
                 float distance = start + measuredSpacing * (index + 0.5f);
                 LinePoint centerPoint = guide.Centerline.LinePointAtDistance(distance);
+                if (sharedApproachGuide != null)
+                {
+                    float sharedDistance = sharedApproachGuide.Centerline.DistanceTo(centerPoint.point);
+                    Vector3 sharedPoint = sharedApproachGuide.Centerline
+                        .LinePointAtDistance(sharedDistance).point;
+                    if (Vector3.Distance(sharedPoint, centerPoint.point)
+                        <= DualGaugeSharedRailRegistry.OffsetMagnitude + 0.12f)
+                    {
+                        // Both wheel paths still occupy the same three-rail bed.
+                        // The standard-route tie already supports the shared rail;
+                        // adding a second narrow tie here would double the timber.
+                        continue;
+                    }
+                }
+
                 Vector3 right = centerPoint.Rotation * Vector3.right;
                 right.y = 0f;
                 if (right.sqrMagnitude <= 0.0001f)
@@ -4826,7 +4896,7 @@ namespace NarrowGaugeMod
                 right.Normalize();
                 float minimumOffset = 0f;
                 float maximumOffset = 0f;
-                foreach (RailWorkInterval work in plan.WorkIntervals)
+                foreach (RailWorkInterval work in workIntervals)
                 {
                     float railDistance = work.Rail.Curve.DistanceTo(centerPoint.point);
                     if (railDistance < work.StartDistance - 0.4f
@@ -4843,26 +4913,27 @@ namespace NarrowGaugeMod
 
                 float middleOffset = (minimumOffset + maximumOffset) * 0.5f;
                 float tieWidth = maximumOffset - minimumOffset + 1f;
-                if (tieWidth < normalizedWidth)
+                if (narrowRoute)
+                {
+                    // Route-separated narrow joins use the same 6'9" timber as
+                    // ordinary three-foot track. CreateTieMatrix scales the
+                    // standard tie prefab, so its divisor must remain the
+                    // standard prefab length rather than ThreeFootGauge + 1m.
+                    middleOffset = 0f;
+                    tieWidth = NarrowOnlyTieLength;
+                }
+                else if (tieWidth < minimumTieWidth)
                 {
                     middleOffset = 0f;
-                    tieWidth = normalizedWidth;
+                    tieWidth = minimumTieWidth;
                 }
 
                 ties.Add(CreateTieMatrix(
                     centerPoint.point + right * middleOffset - switchHome,
                     centerPoint.direction,
-                    tieWidth / normalizedWidth,
-                    Gauge.Standard));
+                    tieWidth / prefabTieLength,
+                    tieGauge));
             }
-
-            Main.Log($"[SpecialWorkTies] Created {ties.Count} ties.");
-            CreateInstancedMeshDrawer(
-                builder,
-                ties.ToArray(),
-                switchHome,
-                PrefabInstancer.Prefab.Tie,
-                parent.gameObject);
         }
 
         internal static Matrix4x4 CreateTieMatrix(Vector3 point, Vector3 direction, float zScale, Gauge gauge)
@@ -5026,7 +5097,47 @@ namespace NarrowGaugeMod
 
         internal static GameObject CreateMeshObject(TrackObjectBuilder builder, Mesh mesh, string objectName, GameObject parent)
         {
-            return (GameObject)CreateMeshObjectMethod.Invoke(builder, new object[] { mesh, objectName, parent });
+            // Diagnostic only (2026-07-10): Nove's special-work rails frustum-cull as
+            // one cluster at certain camera angles (geometry renders correctly when
+            // visible, so this is a bounds problem, not a placement problem). Every
+            // special-work rail mesh passes through here; a healthy mesh has
+            // local-space vertices near the switch (bounds center well under ~150m,
+            // extents comfortably non-zero). Log only anomalies so the next live run
+            // names exactly which pieces carry degenerate or far-away bounds.
+            if (mesh != null)
+            {
+                Bounds bounds = mesh.bounds;
+                if (bounds.extents.magnitude < 0.01f || bounds.center.magnitude > 150f)
+                {
+                    Main.Log(
+                        $"[MeshBoundsAnomaly] name={objectName} parent={parent?.name} " +
+                        $"center={bounds.center} extents={bounds.extents} verts={mesh.vertexCount}");
+                }
+            }
+
+            var created = (GameObject)CreateMeshObjectMethod.Invoke(
+                builder,
+                new object[] { mesh!, objectName, parent! });
+
+            // Mod-generated special work runs through volumes the map's baked
+            // occlusion data never considered track (it was baked without this
+            // geometry), so Unity's dynamic-occlusion culling can hide these
+            // renderers at camera angles where the bake thinks the volume is
+            // behind terrain - live-observed at Nove as the whole rail cluster
+            // vanishing/reappearing with camera movement while the instanced-drawn
+            // ties (immune to occlusion culling) stayed visible. Mesh bounds were
+            // verified healthy via [MeshBoundsAnomaly] first. The base game never
+            // sets this flag (its rails follow baked corridors); our replacement
+            // rails must opt out.
+            MeshRenderer? renderer = created != null
+                ? created.GetComponent<MeshRenderer>()
+                : null;
+            if (renderer != null)
+            {
+                renderer.allowOcclusionWhenDynamic = false;
+            }
+
+            return created!;
         }
 
         internal static void CreateMeshColliderObject(TrackObjectBuilder builder, Mesh mesh, string objectName, Transform parent)

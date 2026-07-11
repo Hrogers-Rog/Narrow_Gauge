@@ -3012,3 +3012,618 @@ Built/deployed with 0 warnings and 0 errors. Both DLLs have timestamp
 `4AA7E65E1D2553738C83A9DFF537926BF7C9361E90FC44987C8AA314CC17A3CC`.
 No game process was launched or controlled. Next is confirmation that
 `232828` returns to the `231931` baseline before another bounded correction.
+
+### [Claude] 2026-07-10 - NCustom_vdlt selects mirror narrow-branch truth table; fixed variant selection by physical divergence direction
+
+Coordination note: reverted an earlier bad change of mine first. I had
+extended `PushBothDivergeNarrowReversedPointIntoFrog` to narrow-branch; the
+user reported it moved the wrong rail (the narrow *through* frog) on g832,
+because the code label "NarrowReversedFrog" does not map to g832's physical
+reversed rail under the mislabeled hand. Reverted that guard back to
+both-diverge only (Codex's intended state; verified Codex's both-diverge
+push body was left intact) and removed the unused `IsDualNarrowBranch`
+helper I had added to the renderer. Also flagged the two-agents-one-DLL
+deploy collision to the user; they confirmed Codex is done for now, giving a
+clean window.
+
+Read Codex's `reviews/g832-blade-and-through-rail-2026-07-09.md` and the
+current source before touching anything: Codex's mechanism keeps BOTH
+complementary truth-table blade entries for crossing-frog narrow-branch
+switches (so g832 gets its 2 blades), and deliberately does NOT apply my
+earlier crossing-frog single-blade rewrite there (it would collapse the
+pair). My narrow-branch crossing-frog blade rewrite is correctly off for
+this path now.
+
+New issue (user): `NCustom_vdlt` renders through-blade on the right and
+diverge-blade on the left; it should be through-left/diverge-right like the
+working `NCustom_g832`. Diagnosis: the two narrow-branch truth tables
+(`DualGauge_NarrowBranch_Left/_Right`) are mirror images, and
+`MatchesSelector` picks one by whether ANY intersection exists between
+rail-side-labeled selector pairs. Near a frog both tables' pairs usually
+match, and `_Right` is first in file order so it wins ties - vdlt lands on
+`_Right`. The selector's rail-side labels come from the same unreliable
+ghost-node `DecodeSwitchAt`, so they can't determine the hand. EF&A geometry
+confirms vdlt's narrow branch (`-> NCustom_12uq`, 338.5deg) diverges ~6deg
+LEFT of its straight-through line (344.5deg), which should select `_Left`.
+
+Fix (writeup: `reviews/vdlt-narrow-branch-variant-selection-2026-07-09.md`):
+added `TryComputeNarrowDivergesLeft` (computes the divergence hand from the
+crossing frog as a downstream reference: `forward` = frogPos - throat,
+`offset` = frogPos - nearest point on the narrow-normal centerline,
+`divergesLeft = Cross(forward, offset).y < 0`). In `BuildBladeSpecs`, for
+narrow-branch switches WITH a cross-family crossing frog only, reselect the
+`_Left`/`_Right` table by this hand (added catalog
+`TryGetByTableId`). Logs `[BladeSpecs] NarrowBranchHand ...`. Scoped so
+g832 (already `_Left`) keeps `_Left`, and N178/Nove (no crossing frog) and
+7n90 (fallback path) are untouched - the only intended change is vdlt
+`_Right` -> `_Left`.
+
+Built and deployed (`-p:EnableModDeploy=true`): 0 warnings, 0 errors. Not
+live-verified (requires full game restart). Open calibration risk: the
+`Cross(...).y < 0` sign is reasoned from Unity's left-handed Y-up
+convention and calibrated to vdlt-diverges-left; if g832 regresses on the
+next restart the sign is inverted (one-char flip). Nothing else can
+regress given the crossing-frog scoping.
+
+### [Codex] 2026-07-10 07:20 - Remove 7n90/Nove fake control topology; compile one-blade authored joins
+
+The user clarified `NCustom_7n90`'s physical topology: dual gauge enters,
+standard continues through, narrow joins/diverges, and only the shared rail
+has one movable blade. Verified this directly in EF&A `game-graph.json`:
+`SCustom_rhb0` is dual, `SCustom_194b` is standard, and `SCustom_b4hq` is
+narrow, all authored at `NCustom_7n90`. `Nove` has the same exact signature;
+N178/g832/vdlt instead have two dual legs plus narrow and are out of scope.
+
+Root cause: implicit narrow-branch synchronization treated both signatures
+alike, moved the real narrow leg to the generated ghost node, then added a
+five-metre `:control` leg to fabricate a three-way ghost switch. Runtime
+discovery decoded that artificial leg as a second narrow route, producing the
+fake second blade/closure and the extra cuts/gaps visible in the screenshot.
+
+Implemented the reviewed anatomy-scoped fix documented in
+`reviews/dual-standard-narrow-authored-join-2026-07-10.md`: fresh 1-dual +
+1-standard + 1-narrow junctions are no longer rewired; stale rewrites are
+restored and their control objects removed. Runtime discovery now compiles the
+authored node into only `standard-through` and `narrow-diverge`, with the
+narrow centerline joined across the co-located authored/ghost endpoints and
+one `narrow-separation` blade bound to the real switch node/state. Dual split
+now expects two logical routes.
+
+Build/deploy succeeded with 0 warnings and 0 errors. Deployed DLL timestamp
+`2026-07-10 07:18:34`, size 752,640 bytes, SHA-256
+`A630466AEDFC9D795D2F3C6FBD8759F6BC3ED9158EEEFC17C135E3095F453F01`.
+No game process was launched or controlled. Full-restart verification target:
+7n90/Nove log no `:control`, preset `dual.split-standard-narrow`, two wheel
+paths, one blade, and no 0.400 m fake closure.
+
+### [Codex] 2026-07-10 07:32 - Correct 7n90 narrow join to use the offset shadow transition
+
+User's first full-restart screenshot (`072150`) showed a plain standard switch,
+not the intended dual/standard/narrow join. Fresh `Player.log` proved the
+07:18 analysis was rejected before rendering: `NCustom_7n90`'s authored source
+and generated narrow endpoint are 0.260 m apart, just beyond my 0.250 m
+"co-located" safety gate. Both 7n90 and Nove consequently disappeared from
+special-work analysis (`objects=12`), and the older builder refused the source
+narrow segment and fell back to standard visuals.
+
+The user also corrected the semantics: this is a narrow join into the dual
+leg, not a second narrow diverging turnout route. The 0.260 m separation is the
+intentional offset between the standard centerline and the dual gauge's narrow
+centerline. Replaced the straight endpoint splice with the shadow graph's real
+gauge-transition geometry: full offset dual approach, then
+`ShadowNarrowGaugeTransition.SampledCurve`, then the full narrow-only departure.
+The established internal `narrow-diverge` route id remains temporarily only so
+the existing one-blade and split-frog catalogs recognize the route; it no
+longer implies or constructs a second narrow path.
+
+Build/deploy succeeded with 0 warnings and 0 errors. DLL timestamp
+`2026-07-10 07:30:48`, size 753,152 bytes, SHA-256
+`9989517E82FB2FA5C8906257E44FCF63FA82D609BEA5C7177778B38B86391400`.
+No game process was launched or controlled. Next full restart should restore
+analysis count 14, emit `[SpecialWorkDiscovery] Narrow join ... assembled`,
+and render two real paths with one shared-rail blade instead of the standard
+fallback.
+
+### [Codex] 2026-07-10 07:40 - Route valid 7n90/Nove plans through N178-style measured ownership
+
+The 07:30 full-restart test restored `objects=14`; 7n90's plan is now valid
+with `rails=4`, `frogs=2`, and `blades=1`. Screenshot `073443` nevertheless
+remained the plain standard switch with the incoming dual segment clipped
+away. The fresh log gave the exact renderer failure: `[Build] Switch
+'NCustom_7n90' connects mixed gauge segments; leaving its visuals standard.`
+
+The base `SwitchDescriptor` exposes only its two selectable proxies. At
+7n90/Nove they are standard+narrow, while the dual-gauge enter leg is omitted.
+`NarrowGaugeTrackBuilder` previously routed a valid measured plan through the
+special-work builder only when an exposed proxy itself was dual, so these two
+valid plans were never drawn. User clarified 7n90/Nove should behave like the
+proven N178/vdlt measured switches, with the standard-only continuation as the
+topology difference.
+
+Changed dispatch so `hasMeasuredSpecialWork` is sufficient on its own. The
+legacy rail builder then suppresses its fixed rails/points, keeps the switch
+stand/container, and `SpecialWorkHardwareRenderer` fills the ownership cuts
+with the validated plan. Existing N178/vdlt and every other already-valid
+measured switch still take the same path they did before.
+
+Build/deploy succeeded with 0 warnings and 0 errors. DLL timestamp
+`2026-07-10 07:39:08`, size 753,152 bytes, SHA-256
+`A32D8D019F4308F87F687C346CFD39316F891B36BFA9A6B51435A5890569BBC0`.
+No game process was launched or controlled. Next restart should show
+`[SpecialWorkSuppress]` and `[Build] Rendering measured special-work` for
+7n90/Nove instead of the mixed-gauge fallback warning.
+
+### [Codex] 2026-07-10 07:55 - Align 7n90/Nove narrow join at the toe; replace 0.5m stub
+
+The 07:39 renderer fix worked, exposing the measured plan. User screenshots
+`074646`/`074847` then showed no usable blade by the stand, a kinked running
+rail, a tiny detached stub, and a large upper gap. Fresh log evidence identified
+the stub exactly: the generated blade was only 0.500 m (`40.340-40.840`) and
+was the inverse standard rail, not the intended narrow shared rail.
+
+Root cause: the generic shadow preview transitions for two metres on both
+sides of the source node. For this authored join that leaves the narrow route
+halfway between the standard source centerline and the dual third-rail offset
+at the toe. The intended narrow blade was 0.131 m from stock (over the 0.121 m
+tolerance), while the inverse standard candidate barely passed and reached
+root separation in 0.5 m. The same wrong route drove the upstream frog cuts.
+
+Changed the route to the N178/vdlt physical throat pattern: retain the full
+offset dual approach through the toe, then shift gradually onto the authored
+narrow branch with an asymmetric seven-metre Bézier. This should make the
+narrow shared rail coincide at the toe, derive a real point length, remove the
+kink, and recompute the upper frog/work seams from the corrected route.
+
+Build/deploy succeeded with 0 warnings and 0 errors. DLL timestamp
+`2026-07-10 07:54:50`, size 752,128 bytes, SHA-256
+`6CDDA8B6B987334A7720B968B3230B084974B4CB71CA195E3726C13672137494`.
+No game process was launched or controlled. Full restart required.
+
+### [Codex] 2026-07-10 08:08 - Move 7n90/Nove throat two metres up the outgoing side
+
+User screenshots `075934`/`075938` showed the real blade but a kinked throat
+and full-width upper gap; the switch development needed to move up. Verified
+the incoming dual segment's ordinary/measured ownership already overlaps by
+~0.04 m, so translating the entire rendered root would open a new incoming
+gap. Implemented the equivalent physical correction without breaking that
+seam: keep a 2 m straight shared-rail lead through the toe/stand, then begin
+the 7 m narrow-join transition. This translates the blade/frog development
+two metres farther along the outgoing side and recomputes all affected cuts.
+
+Build/deploy succeeded with 0 warnings/errors. DLL timestamp
+`2026-07-10 08:07:01`, size 752,640 bytes, SHA-256
+`E0007807E55CFAD0B916C50065CC3C3735ED427F9E60D7001068797FE035C74B`.
+No game process was launched or controlled; full restart required.
+
+### [Claude] 2026-07-10 — vee wing pairs don't mirror (vdlt, then N178): synthetic kink point frame was the root cause; vdlt's rotation band-aid removed
+
+User asked why `VeeFrog-0-WingB` isn't a perfect mirror of `WingA` on vdlt.
+Fresh log showed an uncommitted, undocumented hardcoded special case
+(`ShouldRotateWingToFixedRail`/`TryRotateWingToFixedRailAngle`) yaw-rotating
+only that one piece (+7.783deg) - it matches only narrow-branch vee frogs
+whose rails are literally `standard-through:right x narrow-reversed:right`,
+which after Codex's samePhysicalSide reclassification is vdlt's `v2-frog:1`
+alone. Reported that as the vdlt answer; user then reported N178 has the
+same defect - and the log shows the rotation NEVER fires for N178
+(`narrow-normal:right x narrow-reversed:left` vee). So the rotation was a
+hand-tuned band-aid over a generic defect, not the root cause.
+
+Root cause in `CreateVeeWingRail` (SpecialWorkHardwareRenderer.cs): the
+appended kink point (from the wing's on-rail run across to the opposite
+heel, +0.1m outward) was stamped with `oppositeHeel.Rotation` - a frame
+sampled from the OTHER rail's curve, which faces with or against this
+wing's traversal purely depending on that rail's arbitrary curve
+orientation. On-rail points are fine (source frames are traversal-aligned;
+`ReverseRailCurvePreservingProfileSide` flips hand correctly on reversal) -
+the synthetic point is the only place an arbitrary-facing frame enters. For
+frame-corrected switches (`NeedsMeasuredRailFrameCorrection`, including
+`IsLeftNarrowBranchTruth` nodes like N178/vdlt), `NormalizeRenderFrames`
+with `preserveProfileCenter: true` compensates each point by
+`(originalRight - correctedRight) * (+-HeadWidth/2)`: forward-facing
+original -> ~zero shift; backwards-facing original -> a FULL railhead-width
+lateral shift of the wing tip. Which wing gets the backwards frame is
+arbitrary per switch -> exactly "one wing not mirroring its twin," in the
+same railhead-quantum family as every other hand bug this week.
+
+Fix: compute the appended point's rotation from the kink's own direction
+(`LookRotation(kinkTarget - wing.Tail.point)`), falling back to the old
+frame only for a degenerate zero-length kink. Hand-agnostic, applies to
+both wings of every vee (plain + compound). Removed the vdlt-only rotation
+special case and both helper methods - it was calibrated against the broken
+frame and would re-skew a corrected wing.
+
+Built and deployed (`-p:EnableModDeploy=true`): 0 warnings, 0 errors. This
+build supersedes Codex's 07:39 DLL from the same working tree (all Codex
+work included - shared-tree deploys mean last-build-wins). NOT
+live-verified. On full restart verify: N178 and vdlt wing pairs mirror; no
+`[VeeWingFixedRailRotation]` lines; both-diverge vee wings (fc97/p997)
+unchanged (same code path but `preserveProfileCenter: false` there, so the
+compensation that amplified the bad frame never applied).
+
+### [Claude] 2026-07-10 — 7n90 kinked blade/diverge rail + compressed development: backwards Bezier tangents in Codex's new narrow-join route
+
+User screenshots (against Codex's 08:07 build): a hard kink in 7n90's blade
+and narrow diverge rail ("not following the curve of the rail"), and the
+switch development compressed downstream of the correctly-placed stand,
+leaving a bare gap that "the whole switch needs to expand to fill."
+
+Read Codex's `reviews/dual-standard-narrow-authored-join-2026-07-10.md`
+(four same-morning corrections, ending at a 2m straight lead + 7m Bezier
+transition + authored departure). The Bezier is tangent-matched on paper -
+but its tangents come from `LinePoint.direction`
+(`dualApproach.Tail.direction` / `narrowTransitionEnd.direction`), and the
+shadow anchors those curves come from are oriented by a plain base-game
+`Reverse()` (`ShadowNarrowGaugeGraph.cs:393`, `TryGetOrientedCurve`) - which
+flips point order but NOT the stored per-point directions. This is the
+exact `Reverse()` defect that caused the inside-out blades on 2026-07-07.
+A backwards tangent puts a Bezier handle on the wrong side of its joint:
+kink at the joint, S-ballooned transition, compressed development. The
+splice-gap guard can't catch it - it checks endpoint POSITIONS only.
+
+Fix (surgical, consumer-side only): both handle tangents in
+`TryBuildNarrowJoinRouteFromShadowTransition` now come from chords of the
+curves themselves (Tail minus a point 0.5m back; a 1m chord straddling the
+transition end), which are orientation-proof regardless of how the anchor
+was reversed. Added `[NarrowJoinTangents] node=... startDot=... endDot=...`
+logging the dot between the stored direction and the chord - a negative
+value on the next restart is direct proof of which anchor faced backwards.
+
+Deliberately did NOT touch `TryGetOrientedCurve`'s plain `Reverse()`:
+every `OrientedCurve` consumer inherits the backwards directions, but some
+may compensate, so converting it to the direction-correcting
+`SectionedSpecialWorkBuilder.ReverseRailCurve` is a bigger blast radius -
+flagged in STATUS.md for Codex as an attributed architecture concern
+needing its own verification pass.
+
+Built and deployed: 0 warnings, 0 errors. NOT live-verified. On full
+restart: 7n90/Nove blade + diverge rail should follow one smooth curve
+through the toe; check `[NarrowJoinTangents]` dots. If geometry is smooth
+but development still ends short of the frogs, the fixed 2m+7m spans are
+the next suspect - not to be touched until this fix is verified (one change
+at a time).
+### [Codex] 2026-07-10 09:41 - Replace 7n90's two-piece S-curve and close both post-Vee route gaps
+
+Screenshots `091750`/`091833` showed the 08:07 two-metre straight lead did not
+solve the upper gap and introduced a visible S-shaped transition. Fresh
+diagnostics place the final V frog around route distance 61 m, but the generic
+measured work interval stops at last-event + 3 m while both authored outgoing
+legs continue farther. This mixed-gauge switch's vanilla leg meshes are
+suppressed as a unit, so the interval remainder is empty on both the standard
+through and narrow join.
+
+Replaced the straight 2 m + cubic 7 m handoff with one tangent-matched 9 m
+cubic, reduced its handles from half-chord to one-third-chord, and guarded
+against backward endpoint tangents. Scoped the boundary fix to exact two-route
+`dual.split-standard-narrow` plans: their four physical rail work intervals
+now continue through the actual outgoing route tails. Added tangent and work
+interval logs for the next manual restart.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 09:40:33`, size
+753,664 bytes, SHA-256
+`501B69A4285CC99C9504DD1E0F4344E7A01BB483A056C37067FBC3B38E72AF34`.
+No Railroader process was launched or controlled. Full restart/manual check is
+required for 7n90, with Nove as the same-topology regression check.
+
+### [Codex] 2026-07-10 10:04 - Fix Nove's reversed dual-leg centerline before blade derivation
+
+The user accepted 7n90 after the 09:40 restart, then showed that its left-hand
+counterpart Nove still had an empty throat. Fresh evidence isolates Nove at
+`blades=0`: its nearest candidate rails are 0.271 m apart at the authored node,
+exactly the missing dual-to-narrow center offset. EF&A confirms both segments
+are `DualGauge_L`, but 7n90's dual leg ends at the junction while Nove's begins
+there. Nove also logs the shadow anchor's stored start direction backward.
+
+The narrow join now takes its dual approach from the generated `ghostDual`
+segment, oriented toward the generated ghost node by the direction-safe helper,
+instead of rebuilding that approach from the authored shadow anchor. This is
+the authoritative third-rail centerline and preserves the physical 0.260 m
+offset in either traversal direction. The accepted 9 m transition and outgoing
+tail ownership remain unchanged. Added `toeCenterOffset` diagnostics.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 10:03:46`, size
+754,176 bytes, SHA-256
+`036B9B1036DCB2FC58DF154677F3F1D3A56D6B1B406E95B41C864A147832E925`.
+No game process was launched or controlled. Full restart/manual verification
+is required for Nove and regression check of accepted 7n90.
+
+### [Codex] 2026-07-10 10:40 - Put 7n90/Nove narrow branches back on their train graph
+
+The user found the functional root cause behind the remaining odd geometry:
+the 7n90/Nove narrow branches were attached to the authored standard node,
+while narrow trains occupy the generated ghost graph. The ghost route therefore
+ended at the switch and could not reach either branch. It also forced each
+visible narrow curve to begin on the standard center instead of the 0.260 m
+offset node.
+
+This supersedes the earlier decision to restore those branches to the source
+node. Exact dual + standard + narrow joins now rewire the real narrow branch to
+the ghost node and recreate one hidden control leg. That leg is only the native
+blocked state for the single blade: discovery now recognizes gauge separation
+before a generic narrow turnout, compiles only the two real routes
+(`standard-through` and `ghostDual ↔ narrowBranch`), binds the narrow route to
+its actual ghost-switch state, and suppresses the hidden segment mesh. It no
+longer creates a fake measured route or second blade.
+
+Also retained the immediately preceding Nove correction: its natural
+same-side crossing remains a double frog instead of being catalog-forced to V.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 10:39:35`, size
+755,712 bytes, SHA-256
+`09882AF110F8D4B0F9678EB43E3BF207935129E614E31361193748C159C54230`.
+No Railroader process was launched or controlled. Full restart/manual graph,
+visual, frog, and narrow-train verification is required for both switches.
+
+### [Codex] 2026-07-10 11:06 - Fix mirrored Nove standard route and add 7n90's missing V
+
+The graph-connected build exposed one mirror-order defect on Nove: its two
+standard source segments were passed to route construction in collection
+order, reversing the standard wheel path relative to the narrow path. This
+placed the standard ownership/work interval before the switch stand and made
+a large approach gap. Gauge-separation discovery now identifies the dual and
+standard-only segments by gauge and always assembles `dual -> source ->
+standard-only`.
+
+7n90's otherwise-correct two-route plan accepted its double crossing but no V.
+Dual-split plans which have a crossing and no V now receive one
+geometry-derived V from that crossing's standard rail to the opposite
+`narrow-diverge` side. Nove already has a V, so it is unaffected by this
+supplement.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 11:05:30`, size
+757,248 bytes, SHA-256
+`540FC24200E53FBDEE3437174FC6C197975D7FF5858C7537781C7A2AF5D609AC`.
+No Railroader process was launched or controlled. Full restart/manual
+verification is required.
+
+### [Codex] 2026-07-10 12:00 - Restore Nove ties; isolate bmgi/fc97 ghost-center collapse
+
+Fresh runtime evidence showed Nove's valid measured tie pass was being
+discarded only by the stale literal-Nove hardware-catalog exception. Removed
+that id match while retaining the explicit authored tie-suppression profile.
+U6n0 is not affected by this exception: its current plan created 59 ties over
+32.467 m.
+
+Separately traced the user's functional train-path report. The EFA corridor is
+`SCustom_s3y7` (`DualGauge_L`) -> `NCustom_bmgi` -> `SCustom_8vbl`
+(`DualGauge_R`) -> `NCustom_fc97`, whose other legs are `DualGauge_L`.
+Visible rails honor those explicit sides, but the one-ghost-node-per-source
+model averages conflicting narrow centers onto the standard center at bmgi
+(0.260 m deviation) and close to it at fc97 (0.347 m deviation). This is a
+functional shared-rail-transition topology gap, not a visual rail defect and
+not the existing degree-two `DualGauge_T` contract. Documented the required
+finite graph transition in
+`reviews/nove-ties-bmgi-fc97-ghost-transition-2026-07-10.md`; no speculative
+graph mutation was included in the tie build.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 11:59:09`, size
+757,248 bytes, SHA-256
+`DE1E80F4BC4D5ED64CCA6C4600278383A596A006860A4065E546DE50CBD3BCB4`.
+No Railroader process was launched or controlled.
+
+### [Codex] 2026-07-10 18:51 - Split dual-join tie beds and keep trains on finite ghost handoffs
+
+The first Nove tie restoration exposed that the generic measured tie pass used
+one standard-through guide and widened every timber to include every route.
+For `dual.split-standard-narrow` only, ties are now generated per logical route
+from that route's own rail intervals. The narrow duplicate is omitted while
+both paths still share the three-rail approach; after separation the standard
+and narrow routes receive independent family-width tie beds.
+
+Implemented the functional fix for the bmgi/fc97 offset collapse without
+moving visible rails. When a generated endpoint's physical narrow center
+differs from its shared ghost node, the generated counterpart is now a linked
+chain: a long body on the true physical offset plus a finite hidden handoff to
+the node. Degree-three switches resolve to the majority physical center and
+give only minority-side legs an 18 m handoff; fixed two-leg L/R joins preserve
+their midpoint and give both sides 7.5 m handoffs. All parts remain in the same
+ghost graph and map back to the same authored dual source for switch sync,
+validation, measured discovery, and ownership.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 18:50:29`, size
+765,952 bytes, SHA-256
+`64F8C1F671C67EDFB91150FEA1CCE9C143FFB960D1F701767F9F5AA8AB624B24`.
+No Railroader process was launched or controlled. Full restart/manual train
+and visual verification is required.
+
+### [Codex] 2026-07-10 19:45 - Reject ghost handoffs; keep the corridor on one continuous side
+
+The user's screenshot rejected the 18:51 finite-handoff model: it visibly
+crossed the narrow route through the middle and onto the opposite side, while
+the real U6n0 -> bmgi -> fc97 route never changes sides. Fully rolled back the
+handoff nodes/segments and route-chain support while retaining the independent
+Nove/7n90 tie beds.
+
+The replacement normalizes ordinary dual-gauge topology rather than adding
+geometry. A three-way node anchors its physical narrow center from
+`Graph.DecodeSwitchAt`'s entry leg and maps both routes to that same point. A
+degree-two L/R mismatch mirrors the adjoining segment's local offset to remain
+coincident. Only an explicit `DualGauge_T` segment may cross the shared rail.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 19:55:36`, size
+762,368 bytes, SHA-256
+`6C9991EA052EBA61D883E99034FF70969CAA8D17683FED0591FF68791A2A1A9B`.
+No Railroader process was launched or controlled. Full restart/manual route
+verification is required.
+
+### [Codex] 2026-07-10 20:09 - Roll back global shared-side normalization
+
+User screenshots `200647`/`200656` showed the 19:55 build breaking ordinary
+dual-gauge boundaries on w8sq, 8vbl, eeo2, and elsewhere. The runtime log
+confirmed the rule was internally contradictory: w8sq was repeatedly mirrored
+at vdlt and mirrored back at i8x0.
+
+Root correction from the user: L/R is relative to each segment's running
+direction. Reversed/flipped segments may have opposite labels while sharing
+the same physical rail. Removed the switch-entry and degree-two normalization
+in full; retained the earlier route-separated Nove/7n90 tie work.
+
+Recovery build/deploy: 0 warnings, 0 errors. DLL timestamp
+`2026-07-10 20:09:12`, size 758,784 bytes, SHA-256
+`9AF0CF27D01EFB1B507E71755E3B9F7E48DE751DF355808ED4475A718F02359F`.
+No Railroader process was launched or controlled. Full restart required.
+
+### [Codex] 2026-07-10 - Ghost shared-side propagation live-accepted
+
+User restarted and accepted the 22:55 switch-anchor/component-propagation build
+with “Finally!” The ghost shared-rail graph issue is live-verified fixed.
+Preserve the ghost-only component registry; do not restore midpoint averaging,
+lateral route joins, finite handoffs, or visible shared-rail normalization.
+
+### [Codex] 2026-07-10 23:25 - Correct Nove/7n90 narrow join tie length
+
+Route-separated narrow ties were scaling against a fictitious narrow-prefab
+length even though `CreateTieMatrix` instantiates the standard tie prefab. A
+scale of 1.0 therefore left narrow ties at standard length. Narrow join routes
+now use the established 6'9" (2.0574 m) three-foot tie length and scale it
+against the actual standard prefab base. Standard and shared-approach ties are
+unchanged.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 23:25:02`, size
+766,976 bytes, SHA-256
+`5CB89B9AAB40291AF759960A6C756F3F64F87B8B78E1BD0BC0CF599673CBE29C`.
+No Railroader process was launched or controlled. Full restart required.
+
+### [Codex] 2026-07-10 22:55 - Ghost-only switch anchors and component propagation
+
+The track graph and special-work logs showed the renderer already had coherent
+physical switch sides (wqbb/u6n0/Npv2 Right, fc97 Left), while ghost generation
+reinterpreted every raw L/R label independently. Added a separate ghost-only
+offset registry: three-leg switch consensus anchors one physical rail, then the
+world-space target propagates through ordinary connected nodes and is converted
+back into each segment's local A-to-B sign. `DualGauge_T` remains an intentional
+component boundary.
+
+No visible registry mutation, midpoint averaging, or connector segments.
+Conflicting later anchors emit `[GhostSharedSideConflict]` rather than silently
+moving the component.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 22:55:03`, size
+766,976 bytes, SHA-256
+`C72C0AA5B421D37C9231736FB6BAEEBF4A15CBEB36A4CF393C1F47D1F7004D9A`.
+No Railroader process was launched or controlled. Full restart required.
+
+### [Codex] 2026-07-10 22:17 - Reject lateral joins; apply L/R in segment direction frame
+
+Live screenshot showed locomotive 71 riding the hidden eeo2 route join off the
+rails. Fully removed route-specific nodes/joins and multipart link behavior;
+stale route joins are explicitly cleaned up on restart.
+
+User clarified the invariant: all segments use the same physical shared rail;
+L/R differs only because flipped segment direction reverses its meaning. Ghost
+endpoints now use +offset for `DualGauge_R` and -offset for `DualGauge_L`
+directly in the source segment's A-to-B frame. No connector, midpoint, or
+visible-rail mutation is involved.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 22:17:26`, size
+761,344 bytes, SHA-256
+`8C55ED01B86240FC048E7453A84882F9E3B197DABFE978D6CDE2B180F28A1399`.
+No Railroader process was launched or controlled. Full restart required.
+
+### [Codex] 2026-07-10 21:49 - Keep ghost bodies full-offset; join only inside switch work
+
+After full-offset cluster selection, eeo2, vp0t, 8vbl, and s3y7 still crossed
+directly over their visible source at mid-segment because each connected to
+opposite cluster choices at its two endpoints. tliv had the same predicted
+case. Added route-specific ghost boundary nodes 5 m inside mismatched switch
+legs. Each primary body now stays on its rendered 0.260 m offset; a hidden
+short join connects it to the canonical ghost switch node inside the work
+area. Visible rails and authored gauges remain unchanged.
+
+Extended link/switch synchronization to recognize body and hidden join parts
+as the same dual source; validation accepts route endpoints and skips hidden
+joins.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 21:48:52`, size
+765,440 bytes, SHA-256
+`393922C8DB61E7146CD3707E32C6D5E3FE1D86336A8F6C7F1FE69B877B5B566B`.
+No Railroader process was launched or controlled. Full restart required.
+
+### [Codex] 2026-07-10 21:15 - Select full-offset ghost candidate clusters; never midpoint-average
+
+Screenshots showed S09h's ghost spacing smaller than S4u5. Fresh candidate
+coordinates proved Npv2 was averaging two correct same-side endpoints with one
+opposite endpoint, collapsing the node from the required ~0.260 m offset to
+~0.087 m. Ghost node resolution now clusters coincident candidates and chooses
+the largest cluster. Ties choose a deterministic full-offset candidate; old
+midpoints are never preserved. Also removed an early-start manager dependency
+that briefly caused S09h/S4u5 ghost generation to be skipped.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 21:14:42`, size
+761,344 bytes, SHA-256
+`1D5AF61E98843BB00A6E5937527FD3145387305552CD4381229C1AD1FCCD38EA`.
+No Railroader process was launched or controlled. Full restart required.
+
+### [Codex] 2026-07-10 20:52 - Derive ghost offsets from rendered rail centers
+
+Recovery restored all visible rails, but fresh logs still showed functional
+ghost endpoint disagreement at bmgi, fc97, i8x0, wqbb, and npv2. Scoped the
+fix to ghost-node creation: it now measures the midpoint of the exact rendered
+narrow rail pair (standard shared rail plus selected middle rail) instead of
+reinterpreting L/R in A-to-B space. This preserves flipped segment semantics
+and leaves visible geometry and authoring untouched.
+
+Remaining disagreement warnings now include each source segment and its
+measured rendered-center coordinate for exact follow-up evidence.
+
+Build/deploy: 0 warnings, 0 errors. DLL timestamp `2026-07-10 20:58:03`, size
+759,808 bytes, SHA-256
+`6525F301C6497F888594560194BA7B3A30686C759C5ADFA01A0338363CC6BAB3`.
+No Railroader process was launched or controlled. Full restart required.
+
+### [Claude] 2026-07-10 — Nove rails frustum-cull at certain camera angles: anomaly-only bounds diagnostic deployed (no guessed fix)
+
+User screenshots at Nove: every rendered special-work rail vanishes at
+certain camera angles and reappears on camera move; ties persist
+(instanced drawer, not bounds-culled). The vanish/appear pattern tracks
+whether the node/switchHome area is in frame - consistent with
+per-renderer frustum culling against mesh bounds that sit near the local
+origin instead of covering the geometry.
+
+Static reading came up clean everywhere it could: base
+`TrackMeshBuilder.ExtrudePoints` ends with `RecalculateBounds()` (single
+site; BuildStockRailMesh/BuildFrogMesh both flow through it), and our
+vertex-mutating paths (`RemoveRailEndCap`, flangeway mesh clipping)
+recalculate afterward. Rather than guess, added an anomaly-only
+diagnostic in `NarrowGaugeTrackBuilder.CreateMeshObject` (the one chokepoint
+every special-work rail mesh passes through): logs
+`[MeshBoundsAnomaly] name/parent/center/extents/verts` only when a mesh's
+local bounds are degenerate (extents < 0.01) or implausibly far from the
+switch frame (center > 150m). Healthy meshes log nothing, so a quiet log
++ still-flickering Nove would itself be evidence (bounds fine -> problem
+is transform/parenting-level, e.g. piece parented under a far-away root).
+
+Note: Codex deployed an 18:50 ghost-graph handoff rework build while this
+was in progress; this build compiles the same shared tree, so all of that
+work is included (last-build-wins on the shared DLL, nothing lost).
+
+Build/deploy: 0 warnings, 0 errors. Full restart, visit Nove, reproduce
+the vanish, then grep `[MeshBoundsAnomaly]`. Also check whether 7n90
+flickers the same way (same dual-split join path) to scope Nove-specific
+catalogs vs the shared route code.
+
+### [Claude] 2026-07-10 — bounds hypothesis disproven by evidence (0 anomalies); occlusion-culling opt-out deployed as probe-and-fix
+
+User restarted: flicker persists, `[MeshBoundsAnomaly]` fired ZERO times
+with the diagnostic verified present in the running DLL (UTF-16 grep) -
+every special-work rail mesh has healthy local bounds. Mesh-bounds culling
+is ruled out by data, not argument.
+
+Remaining candidate fitting every fact (angle-dependent, all-at-once for
+the cluster, ties immune because the instanced drawer bypasses it, mesh
+bounds healthy): Unity dynamic-occlusion culling. The map's baked occlusion
+data predates mod track; volumes along Nove's narrow branch can be marked
+occluded from camera cells where the bake saw only terrain. Grepped the
+full decompile: the base game never sets `allowOcclusionWhenDynamic`, so
+every runtime rail renderer defaults to occlusion-enabled - vanilla rails
+sit in baked corridors and never notice.
+
+Deployed the one-line probe that doubles as the fix: our `CreateMeshObject`
+wrapper now sets `allowOcclusionWhenDynamic = false` on each created
+special-work MeshRenderer. If Nove still flickers, next suspect is the
+game's descriptor-level toggling - noted asymmetry: Nove's rails are built
+under the ghost-node descriptor (`switch-fuse-ng:n:Nove`,
+`BuildDualGaugeSwitch`) while 7n90's are under the authored node
+(`switch-NCustom_7n90`, `CreateDualGaugeSwitchRailObjects`).
+
+Build/deploy: 0 warnings, 0 errors. Full restart required, then re-test
+Nove from the angles that previously culled.

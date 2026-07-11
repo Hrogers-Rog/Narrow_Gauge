@@ -916,3 +916,26 @@ and 0 errors. Built and deployed DLLs both have timestamp
 2026-07-10 02:04:22, size 743,936 bytes, and SHA-256
 `A6679F5EF22FB59869AF9B434C05CBCB8C33F5AAACA9DC0EF86B162EEF1F7381`.
 No game process was launched or controlled.
+
+## Restore original vdlt WingB geometry; rotate only - 2026-07-10
+
+The frog-side parallel replacement is also rejected. The user clarified the
+actual constraint: the original `VeeFrog-0-WingB` position, length, endpoint
+construction, and side were already correct. Only its angle was wrong. The
+parallel-copy attempts moved and resliced geometry that did not need changing.
+
+Restore the ordinary `CreateVeeWingRail` source slice and opposite-heel flare
+for this object. Then, only for the established vdlt Vee pair, rigidly rotate
+that completed original curve until its source segment has the same world-space
+axis as Rail A / `Fixed-1`. Pivot at the original WingB head so its stock-side
+anchor does not move. Rotate every point and point direction by the same delta;
+do not translate, offset, reslice, extend, shorten, or change its hand.
+
+Implemented the rotation-only correction. The generic WingB source slice and
+opposite-heel flare are restored first; only the exact vdlt physical Vee pair
+then receives a rigid yaw rotation about its unchanged head. The combined
+four-switch build/deploy completed with 0 warnings and 0 errors. Built and
+deployed DLLs both have timestamp 2026-07-10 06:43:44, size 749,056 bytes, and
+SHA-256
+`FF1FEC03B1C2BD4D5D5B5159FB96702240C4E4E8CDE89C0842FD39855F16352A`.
+No game process was launched or controlled.

@@ -69,6 +69,17 @@ namespace NarrowGaugeMod
                 string presetId = GetTaggedPresetId(branch);
                 if (string.IsNullOrEmpty(sourceNodeId))
                 {
+                    sourceNodeId = FindImplicitAuthoredDualStandardNarrowJoinSourceNodeId(
+                        branch,
+                        allSegments);
+                    if (!string.IsNullOrEmpty(sourceNodeId))
+                    {
+                        presetId = SpecialWorkPresetIds.DualSplit;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(sourceNodeId))
+                {
                     sourceNodeId = FindImplicitNarrowBranchSourceNodeId(branch, allSegments);
                     if (!string.IsNullOrEmpty(sourceNodeId))
                     {
@@ -98,6 +109,50 @@ namespace NarrowGaugeMod
                 TrackNode sourceNode = graph.GetNode(sourceNodeId);
                 string ghostNodeId = GhostGraphSynchronizer.GetGhostNodeId(sourceNodeId);
                 TrackNode ghostNode = graph.GetNode(ghostNodeId);
+
+                // The real narrow leg must meet the generated narrow centerline at
+                // the ghost node. Leaving it on the authored standard node makes the
+                // narrow train graph terminate and also starts the visible branch
+                // 0.260m off its proper centerline. The hidden control leg remains a
+                // topology-only blocked state for the one physical blade; discovery
+                // deliberately excludes it from measured routes and rendering.
+                if (sourceNode != null
+                    && IsAuthoredDualStandardNarrowJoin(
+                        sourceNode,
+                        branch,
+                        allSegments))
+                {
+                    result.DualToNarrowContinuations++;
+                    if (ghostNode == null)
+                    {
+                        result.Issues.Add(
+                            $"Authored dual/standard/narrow join at '{sourceNodeId}' " +
+                            $"has no generated narrow node '{ghostNodeId}'.");
+                        continue;
+                    }
+
+                    string joinIssue = string.Empty;
+                    if (SegmentTouchesNode(branch, sourceNodeId)
+                        && TryRewireSegment(
+                            branch,
+                            sourceNodeId,
+                            ghostNodeId,
+                            sourceNodeId,
+                            SpecialWorkPresetIds.DualSplit,
+                            transitionActive: true,
+                            out joinIssue))
+                    {
+                        result.RewiredSegments++;
+                    }
+                    else if (SegmentTouchesNode(branch, sourceNodeId)
+                        && !string.IsNullOrEmpty(joinIssue))
+                    {
+                        result.Issues.Add(joinIssue);
+                    }
+
+                    continue;
+                }
+
                 bool sourceStillHasNarrowTransition = sourceNode != null
                     && SupportsNarrowTransition(sourceNode, branch, allSegments, presetId);
                 bool isContinuation = string.Equals(
@@ -534,6 +589,70 @@ namespace NarrowGaugeMod
             return true;
         }
 
+        private static bool IsAuthoredDualStandardNarrowJoin(
+            TrackNode sourceNode,
+            TrackSegment branch,
+            IReadOnlyCollection<TrackSegment> allSegments)
+        {
+            if (sourceNode == null || branch == null)
+            {
+                return false;
+            }
+
+            string sourceNodeId = sourceNode.id;
+            string ghostNodeId = GhostGraphSynchronizer.GetGhostNodeId(sourceNodeId);
+            bool branchTouchesSource = SegmentTouchesNode(branch, sourceNodeId);
+            bool branchBelongsToSource = branchTouchesSource
+                || SegmentTouchesNode(branch, ghostNodeId)
+                || string.Equals(
+                    GetTaggedSourceNodeId(branch),
+                    sourceNodeId,
+                    StringComparison.OrdinalIgnoreCase);
+            if (!branchBelongsToSource)
+            {
+                return false;
+            }
+
+            TrackSegment[] physicalAtSource = allSegments
+                .Where(segment =>
+                    segment != null
+                    && !GhostGraphSynchronizer.IsGeneratedGhostSegmentId(segment.id)
+                    && !IsHiddenControlSegment(segment)
+                    && SegmentTouchesNode(segment, sourceNodeId))
+                .ToArray();
+
+            return physicalAtSource.Count(IsDualSource) == 1
+                && physicalAtSource.Count(IsStandardOnly) == 1
+                && physicalAtSource.Count(IsRealNarrowOnly) == (branchTouchesSource ? 1 : 0)
+                && physicalAtSource.Length == (branchTouchesSource ? 3 : 2);
+        }
+
+        private static void RemoveRuntimeGaugeSeparationControl(string sourceNodeId)
+        {
+            string controlSegmentId = GhostGraphSynchronizer.GeneratedSegmentPrefix
+                + sourceNodeId
+                + ":control";
+            string controlNodeId = GhostGraphSynchronizer.GeneratedNodePrefix
+                + sourceNodeId
+                + ":control";
+
+            if (TrackAPI.GetSegment(controlSegmentId) != null)
+            {
+                TrackAPI.RemoveSegment(controlSegmentId);
+                Main.Log(
+                    $"Removed obsolete gauge-separation control segment '{controlSegmentId}' " +
+                    $"from authored dual/standard/narrow join '{sourceNodeId}'.");
+            }
+
+            if (TrackAPI.GetNode(controlNodeId) != null)
+            {
+                TrackAPI.RemoveNode(controlNodeId);
+                Main.Log(
+                    $"Removed obsolete gauge-separation control node '{controlNodeId}' " +
+                    $"from authored dual/standard/narrow join '{sourceNodeId}'.");
+            }
+        }
+
         private static bool HasHiddenControlLeg(
             string sourceNodeId,
             IEnumerable<TrackSegment> allSegments)
@@ -557,11 +676,36 @@ namespace NarrowGaugeMod
                     .ToArray();
 
                 int dualCount = connectedSources.Count(IsDualSource);
-                int standardCount = connectedSources.Count(IsStandardOnly);
                 if (connectedSources.Length == 3
                     && connectedSources.Count(IsRealNarrowOnly) == 1
-                    && (dualCount == 2
-                        || dualCount == 1 && standardCount == 1))
+                    && dualCount == 2)
+                {
+                    return endpoint.id;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static string FindImplicitAuthoredDualStandardNarrowJoinSourceNodeId(
+            TrackSegment branch,
+            IReadOnlyCollection<TrackSegment> allSegments)
+        {
+            foreach (TrackNode endpoint in new[] { branch.a, branch.b }
+                .Where(node => node != null
+                    && !GhostGraphSynchronizer.IsGeneratedGhostNodeId(node.id)))
+            {
+                TrackSegment[] connectedSources = allSegments
+                    .Where(segment =>
+                        segment != null
+                        && !NarrowGaugeManager.IsGeneratedGhost(segment)
+                        && !IsHiddenControlSegment(segment)
+                        && (segment.a == endpoint || segment.b == endpoint))
+                    .ToArray();
+                if (connectedSources.Length == 3
+                    && connectedSources.Count(IsDualSource) == 1
+                    && connectedSources.Count(IsStandardOnly) == 1
+                    && connectedSources.Count(IsRealNarrowOnly) == 1)
                 {
                     return endpoint.id;
                 }

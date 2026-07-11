@@ -1457,6 +1457,7 @@ namespace NarrowGaugeMod
                         SpecialWorkHardwareRenderer.ShouldUsePhysicalNarrowThroughCutter(
                             analysis,
                             objectName,
+                            standardRail,
                             narrowRail);
                     if (usePhysicalNarrowCutter)
                     {
@@ -1543,7 +1544,34 @@ namespace NarrowGaugeMod
                         narrowRail.Curve.Length);
                     frogSide = FrogEndpointSide.End;
                     frogDistance = narrowDistance;
-                    if (hasFlangewayCenters)
+                    bool usePhysicalStandardCutter =
+                        SpecialWorkHardwareRenderer.ShouldUsePhysicalStandardDoubleFrogCutter(
+                            analysis,
+                            objectName,
+                            standardRail,
+                            narrowRail);
+                    if (usePhysicalStandardCutter)
+                    {
+                        LineCurve targetCurve = narrowRail.Curve
+                            .Skip(piece.StartDistance, true)
+                            .Take(end - piece.StartDistance);
+                        SetFlangewayCut(
+                            new[]
+                            {
+                                SpecialWorkHardwareRenderer.SlicePhysicalRailCutterForTarget(
+                                    standardRail,
+                                    targetCurve)
+                            },
+                            narrowRail.Curve.LinePointAtDistance(Mathf.Clamp(
+                                piece.EndDistance - RenderedMinimumRailPieceLength,
+                                0f,
+                                narrowRail.Curve.Length)).point,
+                            plan.Parameters.RailHeadWidth + plan.Parameters.FlangewayWidth,
+                            out flangewayCenters,
+                            out flangewayKeepPoint,
+                            out flangewayWidth);
+                    }
+                    else if (hasFlangewayCenters)
                     {
                         SetFlangewayCut(
                             new[] { standardFlangeway, narrowFlangeway },

@@ -1513,33 +1513,30 @@ namespace NarrowGaugeMod
                 return;
             }
 
-            if (ShouldAlignWithOppositeFixedRail(analysis, frog, sourceRail)
-                && TryBuildFixedRailParallelWing(
-                    frog,
-                    sourceRail,
-                    oppositeHeel,
-                    sourceHeel,
-                    out LineCurve parallelWing))
+            Vector3 outward = oppositeHeel.point - sourceHeel.point;
+            outward.y = 0f;
+            if (outward.sqrMagnitude <= 0.0001f)
             {
-                Main.Log(
-                    $"[VeeWingFixedRailAlignment] node={analysis.Definition.Id} " +
-                    $"frog={frog.Id} rail={sourceRail.Id} object={name}");
-                wing = parallelWing;
+                outward = oppositeHeel.Rotation
+                    * (sourceRail.Side == RailSide.Left ? Vector3.left : Vector3.right);
             }
-            else
-            {
-                Vector3 outward = oppositeHeel.point - sourceHeel.point;
-                outward.y = 0f;
-                if (outward.sqrMagnitude <= 0.0001f)
-                {
-                    outward = oppositeHeel.Rotation
-                        * (sourceRail.Side == RailSide.Left ? Vector3.left : Vector3.right);
-                }
 
-                wing.Add(new LinePoint(
-                    oppositeHeel.point + outward.normalized * 0.1f,
-                    oppositeHeel.Rotation));
-            }
+            // The appended kink point's frame must face along the kink itself.
+            // Stamping it with oppositeHeel.Rotation (a frame lifted from the OTHER
+            // rail's curve) leaves it facing with or against this wing's traversal
+            // depending on that rail's arbitrary curve orientation - and
+            // NormalizeRenderFrames' profile-center compensation shifts a
+            // backwards-facing point by a full railhead width while a
+            // forward-facing one moves ~zero. That asymmetry is why one wing of a
+            // vee pair (N178, vdlt) rendered a railhead width off its mirror
+            // position while its twin was fine.
+            Vector3 kinkTarget = oppositeHeel.point + outward.normalized * 0.1f;
+            Vector3 kinkDirection = kinkTarget - wing.Tail.point;
+            kinkDirection.y = 0f;
+            Quaternion kinkRotation = kinkDirection.sqrMagnitude > 0.0001f
+                ? Quaternion.LookRotation(kinkDirection.normalized, Vector3.up)
+                : oppositeHeel.Rotation;
+            wing.Add(new LinePoint(kinkTarget, kinkRotation));
             CreateRail(
                 builder,
                 root,
@@ -1551,79 +1548,6 @@ namespace NarrowGaugeMod
                 switchHome,
                 name,
                 _ => 1f);
-        }
-
-        private static bool ShouldAlignWithOppositeFixedRail(
-            SpecialWorkAnalysis analysis,
-            FrogCandidate frog,
-            RailCenterline sourceRail)
-        {
-            if (!string.Equals(
-                    analysis.Definition.Preset.Id,
-                    SpecialWorkPresetIds.DualNarrowBranch,
-                    StringComparison.OrdinalIgnoreCase)
-                || sourceRail != frog.Intersection.RailB
-                || frog.Intersection.Kind != RailIntersectionKind.VeeFrogCandidate
-                || !string.Equals(
-                    frog.Intersection.RailA.Id,
-                    "standard-through:right",
-                    StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(
-                    sourceRail.Id,
-                    "narrow-reversed:right",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        private static bool TryBuildFixedRailParallelWing(
-            FrogCandidate frog,
-            RailCenterline sourceRail,
-            LinePoint fixedHeel,
-            LinePoint sourceHeel,
-            out LineCurve wing)
-        {
-            RailCenterline fixedRail = frog.Intersection.RailA;
-            float heelDistance = Mathf.Clamp(
-                fixedRail.Curve.DistanceTo(fixedHeel.point),
-                0f,
-                fixedRail.Curve.Length);
-            bool frogSideIsAfter = heelDistance < frog.Intersection.DistanceA;
-            float referenceStart = frogSideIsAfter
-                ? heelDistance
-                : Mathf.Max(0f, heelDistance - frog.CutHalfLength);
-            float referenceEnd = frogSideIsAfter
-                ? Mathf.Min(fixedRail.Curve.Length, heelDistance + frog.CutHalfLength)
-                : heelDistance;
-            if (referenceEnd - referenceStart < MinimumRailPieceLength)
-            {
-                wing = null!;
-                return false;
-            }
-
-            LineCurve reference = Slice(fixedRail.Curve, referenceStart, referenceEnd);
-            float centerSeparation = Gauge.Standard.HeadWidth + 0.05f;
-            LineCurve positive = reference.Parallel(
-                centerSeparation,
-                fixedRail.Curve.hand);
-            LineCurve negative = reference.Parallel(
-                -centerSeparation,
-                fixedRail.Curve.hand);
-            LinePoint positiveAtHeel = positive.LinePointAtDistance(
-                frogSideIsAfter ? 0f : positive.Length);
-            LinePoint negativeAtHeel = negative.LinePointAtDistance(
-                frogSideIsAfter ? 0f : negative.Length);
-            LineCurve selected = Vector3.Distance(
-                    positiveAtHeel.point,
-                    sourceHeel.point)
-                <= Vector3.Distance(negativeAtHeel.point, sourceHeel.point)
-                    ? positive
-                    : negative;
-            wing = new LineCurve(selected.Points, fixedRail.Curve.hand);
-            return true;
         }
 
         private static IEnumerable<(FrogCandidate First, FrogCandidate Second)> FindCloseVeeFrogPairs(
@@ -2193,6 +2117,7 @@ namespace NarrowGaugeMod
                     bool usePhysicalNarrowCutter = ShouldUsePhysicalNarrowThroughCutter(
                         analysis,
                         frogName,
+                        standardRail,
                         narrowRail);
                     IReadOnlyList<LineCurve> cutters = usePhysicalNarrowCutter
                         ? new[]
@@ -2274,18 +2199,41 @@ namespace NarrowGaugeMod
                             piece.EndDistance - MinimumRailPieceLength,
                             0f,
                             narrowRail.Curve.Length)).point;
+                    string frogName = name + "-NarrowReversedFrog";
+                    LineCurve pointCurve = Slice(
+                        narrowRail.Curve,
+                        piece.StartDistance,
+                        pocketEnd);
+                    bool usePhysicalStandardCutter =
+                        ShouldUsePhysicalStandardDoubleFrogCutter(
+                            analysis,
+                            frogName,
+                            standardRail,
+                            narrowRail);
+                    IReadOnlyList<LineCurve> cutters = usePhysicalStandardCutter
+                        ? new[]
+                        {
+                            CorrectMeasuredRailRenderFrame(
+                                analysis,
+                                standardRail.Id,
+                                SlicePhysicalRailCutterForTarget(standardRail, pointCurve))
+                        }
+                        : new[] { standardFlangeway, narrowFlangeway };
+                    float cutWidth = usePhysicalStandardCutter
+                        ? parameters.RailHeadWidth + parameters.FlangewayWidth
+                        : parameters.FlangewayWidth;
                     CreateFlangewayCutFrogRail(
                         builder,
                         root,
                         CorrectMeasuredRailRenderFrame(
                             analysis,
                             narrowRail.Id,
-                            Slice(narrowRail.Curve, piece.StartDistance, pocketEnd)),
-                        new[] { standardFlangeway, narrowFlangeway },
+                            pointCurve),
+                        cutters,
                         keepPoint,
-                        parameters.FlangewayWidth,
+                        cutWidth,
                         switchHome,
-                        name + "-NarrowReversedFrog");
+                        frogName);
                     return true;
                 }
             }
@@ -2329,17 +2277,54 @@ namespace NarrowGaugeMod
         internal static bool ShouldUsePhysicalNarrowThroughCutter(
             SpecialWorkAnalysis analysis,
             string objectName,
+            RailCenterline standardRail,
             RailCenterline narrowRail)
         {
             return IsDualBothDiverge(analysis)
                 && objectName.IndexOf(
                     "StandardThroughFrog",
                     StringComparison.OrdinalIgnoreCase) >= 0
-                && narrowRail.Side == RailSide.Right
-                && narrowRail.SourceRouteIds.Any(routeId => string.Equals(
-                    routeId,
-                    "narrow-normal",
-                    StringComparison.OrdinalIgnoreCase));
+                && AreComplementaryDoubleFrogRails(standardRail, narrowRail);
+        }
+
+        internal static bool ShouldUsePhysicalStandardDoubleFrogCutter(
+            SpecialWorkAnalysis analysis,
+            string objectName,
+            RailCenterline standardRail,
+            RailCenterline narrowRail)
+        {
+            return IsDualBothDiverge(analysis)
+                && objectName.IndexOf(
+                    "NarrowReversedFrog",
+                    StringComparison.OrdinalIgnoreCase) >= 0
+                && AreComplementaryDoubleFrogRails(standardRail, narrowRail);
+        }
+
+        private static bool AreComplementaryDoubleFrogRails(
+            RailCenterline standardRail,
+            RailCenterline narrowRail)
+        {
+            if (standardRail.Side != narrowRail.Side)
+            {
+                return false;
+            }
+
+            bool standardNormal = RailHasSourceRoute(standardRail, "standard-normal");
+            bool standardReversed = RailHasSourceRoute(standardRail, "standard-reversed");
+            bool narrowNormal = RailHasSourceRoute(narrowRail, "narrow-normal");
+            bool narrowReversed = RailHasSourceRoute(narrowRail, "narrow-reversed");
+            return (standardReversed && narrowNormal)
+                || (standardNormal && narrowReversed);
+        }
+
+        private static bool RailHasSourceRoute(
+            RailCenterline rail,
+            string routeId)
+        {
+            return rail.SourceRouteIds.Any(sourceRouteId => string.Equals(
+                sourceRouteId,
+                routeId,
+                StringComparison.OrdinalIgnoreCase));
         }
 
         internal static LineCurve SlicePhysicalRailCutterForTarget(

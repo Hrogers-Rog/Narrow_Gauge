@@ -113,8 +113,10 @@ namespace NarrowGaugeMod
                 return false;
             }
 
-            return MatchesAnyDefinitionId(analysis, NoveIds)
-                || HasHardwareProfile(analysis, SuppressSpecialWorkTieProfiles);
+            // Tie suppression is an explicit authoring option, not part of Nove's
+            // frog anatomy. The old literal Nove exception was a temporary cosmetic
+            // workaround and left the now-valid measured switch with no ties at all.
+            return HasHardwareProfile(analysis, SuppressSpecialWorkTieProfiles);
         }
 
         private static bool HasHardwareProfile(

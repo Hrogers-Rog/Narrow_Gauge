@@ -140,6 +140,10 @@ namespace NarrowGaugeMod
             {
                 frogs = AddNoveCatalogCrossingFrog(rails, frogs);
             }
+            if (IsDualSplitPreset(definition))
+            {
+                frogs = AddMissingDualSplitVeeFrog(rails, frogs, blades);
+            }
 
             AddSharedSuppressions(definition, rails, shared, blades, frogs, cuts, suppressions);
             AddCrossFamilySharedSuppressions(definition, rails, blades, frogs, cuts, suppressions);
@@ -812,6 +816,54 @@ namespace NarrowGaugeMod
                         intersections,
                         out _,
                         out _);
+                bool hasRightThroughLeftDivergeVee = isNarrowBranch
+                    && intersections.Any(intersection =>
+                        intersection.AcuteAngleDegrees >= MinimumFrogAngle
+                        && IsRailPair(
+                            intersection,
+                            "narrow-normal",
+                            RailSide.Right,
+                            "narrow-reversed",
+                            RailSide.Left));
+
+                // Narrow-branch variant selection by physical divergence direction.
+                // MatchesSelector picks a mirror truth table (_Left/_Right) by whether
+                // any intersection exists between rail-side-labeled pairs, but those
+                // side labels come from the unreliable ghost-node DecodeSwitchAt and
+                // both tables' selector pairs usually match near a frog - so the
+                // file-order-first table wins ambiguously (NCustom_vdlt wrongly got
+                // _Right). For the crossing-frog anatomy only, override the choice
+                // with the switch's true divergence hand computed from geometry. See
+                // reviews/vdlt-narrow-branch-variant-selection-2026-07-09.md.
+                if (hasNarrowCrossingFrog
+                    && TryComputeNarrowDivergesLeft(
+                        graph,
+                        definition,
+                        rails,
+                        intersections,
+                        out bool divergesLeft))
+                {
+                    string desiredTableId = divergesLeft
+                        ? "DualGauge_NarrowBranch_Left"
+                        : "DualGauge_NarrowBranch_Right";
+                    if (!string.Equals(truth.Id, desiredTableId, StringComparison.OrdinalIgnoreCase)
+                        && SpecialWorkTruthTableCatalog.TryGetByTableId(
+                            desiredTableId,
+                            out TurnoutTruthTable handTable)
+                        && handTable.Blades.Length > 0)
+                    {
+                        Main.Log(
+                            $"[BladeSpecs] NarrowBranchHand node={definition.Id} " +
+                            $"divergesLeft={divergesLeft} reselecting '{truth.Id}' -> '{desiredTableId}'.");
+                        truth = handTable;
+                    }
+                    else
+                    {
+                        Main.Log(
+                            $"[BladeSpecs] NarrowBranchHand node={definition.Id} " +
+                            $"divergesLeft={divergesLeft} keeping '{truth.Id}'.");
+                    }
+                }
 
                 // Simple narrow-branch layouts with no standard x narrow crossing
                 // (N178/Nove) have one real shared-side point. Crossing layouts
@@ -819,7 +871,9 @@ namespace NarrowGaugeMod
                 // blade pair. Applying the one-blade filter there deleted the right
                 // blade, while rewriting both entries from the one crossing rail
                 // would merely collapse the pair onto the same left blade.
-                RailSide? sharedSide = isNarrowBranch && !hasNarrowCrossingFrog
+                RailSide? sharedSide = isNarrowBranch
+                    && !hasNarrowCrossingFrog
+                    && !hasRightThroughLeftDivergeVee
                     ? DetectSharedSide(definition)
                     : null;
                 Main.Log(
@@ -827,11 +881,38 @@ namespace NarrowGaugeMod
                     $"sharedSide={(sharedSide.HasValue ? sharedSide.Value.ToString() : "<none>")} " +
                     $"narrowCrossingFrog={hasNarrowCrossingFrog}");
                 bool isBothDiverge = IsDualBothDivergePreset(definition);
+                RailSide? bothDivergeSharedSide = isBothDiverge
+                    ? DetectSharedSide(definition)
+                    : null;
                 foreach (TruthBlade blade in truth.Blades)
                 {
                     if (Enum.TryParse(blade.MovableSide, ignoreCase: true, out RailSide movSide)
                         && Enum.TryParse(blade.StockSide, ignoreCase: true, out RailSide stkSide))
                     {
+                        // N178's accepted physical Vee is
+                        // standard-through:left x narrow-reversed:left. The early
+                        // selector can match the opposite mirror through a shared
+                        // overlap, so mirror the table's two side assignments from
+                        // the accepted Vee anatomy itself. Route ownership and blade
+                        // labels remain unchanged: left becomes narrow-reversed
+                        // movable and right becomes narrow-normal movable.
+                        if (hasRightThroughLeftDivergeVee)
+                        {
+                            RailSide originalMovableSide = movSide;
+                            RailSide originalStockSide = stkSide;
+                            movSide = movSide == RailSide.Left
+                                ? RailSide.Right
+                                : RailSide.Left;
+                            stkSide = stkSide == RailSide.Left
+                                ? RailSide.Right
+                                : RailSide.Left;
+                            Main.Log(
+                                $"[BladeSpecs] Same-left narrow-reversed Vee node={definition.Id} " +
+                                $"mirroring blade '{blade.Label}' sides " +
+                                $"movable={originalMovableSide}->{movSide} " +
+                                $"stock={originalStockSide}->{stkSide}.");
+                        }
+
                         // The shared rail is the one that must move: it has to choose
                         // between coinciding with the standard-gauge through position
                         // (narrow-normal, closed) or peeling away to the narrow-only
@@ -885,8 +966,9 @@ namespace NarrowGaugeMod
                         // from the same crossing rail incorrectly collapses the pair.
                         if (isBothDiverge
                             && movableRouteId.IndexOf("narrow", StringComparison.OrdinalIgnoreCase) >= 0
-                            && TryFindNarrowCrossingStockRail(
+                            && TryFindBothDivergeNarrowStockRail(
                                 intersections,
+                                bothDivergeSharedSide,
                                 out string crossingNarrowRoute,
                                 out RailSide crossingNarrowSide))
                         {
@@ -972,6 +1054,162 @@ namespace NarrowGaugeMod
                 narrowRoute = string.Empty;
                 narrowSide = RailSide.Left;
                 return false;
+            }
+
+            static bool TryFindBothDivergeNarrowStockRail(
+                IReadOnlyList<RailIntersection> intersections,
+                RailSide? sharedSide,
+                out string narrowRoute,
+                out RailSide narrowSide)
+            {
+                // wqbb anatomy: its accepted outer Vee is
+                // standard-reversed:right x narrow-normal:left while the shared
+                // physical side is Right. The double-frog stock/continuation on the
+                // non-shared side is Fixed-15 = narrow-reversed:left; therefore the
+                // blade is narrow-normal:left closing against it. The raw crossing
+                // candidate order is unstable here and has returned both narrow
+                // routes across rebuilds, so resolve this complete measured pair
+                // before consulting the generic first-crossing lookup.
+                if (sharedSide == RailSide.Right
+                    && intersections.Any(intersection =>
+                        intersection.AcuteAngleDegrees >= MinimumFrogAngle
+                        && IsRailPair(
+                            intersection,
+                            "standard-reversed",
+                            RailSide.Right,
+                            "narrow-normal",
+                            RailSide.Left)))
+                {
+                    narrowRoute = "narrow-reversed";
+                    narrowSide = RailSide.Left;
+                    return true;
+                }
+
+                if (TryFindNarrowCrossingStockRail(
+                        intersections,
+                        out narrowRoute,
+                        out narrowSide))
+                {
+                    // A crossing owner on the shared side is the synthesized-side
+                    // labeling error seen at wqbb. Preserve the measured stock route
+                    // (narrow-reversed), but move it to the physical non-shared side:
+                    // Fixed-15 is narrow-reversed:left and narrow-normal:left is the
+                    // movable blade that closes against it.
+                    if (sharedSide.HasValue && narrowSide == sharedSide.Value)
+                    {
+                        narrowSide = sharedSide.Value == RailSide.Left
+                            ? RailSide.Right
+                            : RailSide.Left;
+                    }
+
+                    return true;
+                }
+
+                return TryFindBothDivergeVeeStockRail(
+                    intersections,
+                    sharedSide,
+                    out narrowRoute,
+                    out narrowSide);
+            }
+
+            // Some both-diverge switches have unreliable synthesized side labels,
+            // so the physical standard x narrow stock crossing has not yet been
+            // classified as CrossingFrogCandidate when blade specs are built. wqbb is the concrete
+            // case: standard-reversed:right x narrow-normal:left identifies the
+            // center narrow stock rail, while the truth-table default right-side
+            // narrow blade lies directly on top of the standard right blade.
+            static bool TryFindBothDivergeVeeStockRail(
+                IReadOnlyList<RailIntersection> intersections,
+                RailSide? sharedSide,
+                out string narrowRoute,
+                out RailSide narrowSide)
+            {
+                foreach (RailIntersection intersection in intersections)
+                {
+                    if (intersection.AcuteAngleDegrees < MinimumFrogAngle)
+                    {
+                        continue;
+                    }
+
+                    RailCenterline? standardRail = intersection.RailA.Family
+                            == GaugeGraphFamily.Standard
+                        ? intersection.RailA
+                        : intersection.RailB.Family == GaugeGraphFamily.Standard
+                            ? intersection.RailB
+                            : null;
+                    RailCenterline? narrowRail = intersection.RailA.Family
+                            == GaugeGraphFamily.Narrow
+                        ? intersection.RailA
+                        : intersection.RailB.Family == GaugeGraphFamily.Narrow
+                            ? intersection.RailB
+                            : null;
+                    if (standardRail == null || narrowRail == null)
+                    {
+                        continue;
+                    }
+
+                    if (sharedSide.HasValue && narrowRail.Side == sharedSide.Value)
+                    {
+                        continue;
+                    }
+
+                    string? standardRoute = standardRail.SourceRouteIds.FirstOrDefault();
+                    string? candidateNarrowRoute = narrowRail.SourceRouteIds.FirstOrDefault();
+                    bool complementaryStates =
+                        (string.Equals(
+                                standardRoute,
+                                "standard-reversed",
+                                StringComparison.OrdinalIgnoreCase)
+                            && string.Equals(
+                                candidateNarrowRoute,
+                                "narrow-normal",
+                                StringComparison.OrdinalIgnoreCase))
+                        || (string.Equals(
+                                standardRoute,
+                                "standard-normal",
+                                StringComparison.OrdinalIgnoreCase)
+                            && string.Equals(
+                                candidateNarrowRoute,
+                                "narrow-reversed",
+                                StringComparison.OrdinalIgnoreCase));
+                    if (!complementaryStates || string.IsNullOrEmpty(candidateNarrowRoute))
+                    {
+                        continue;
+                    }
+
+                    narrowRoute = candidateNarrowRoute!;
+                    narrowSide = narrowRail.Side;
+                    return true;
+                }
+
+                narrowRoute = string.Empty;
+                narrowSide = RailSide.Left;
+                return false;
+            }
+
+            static bool IsRailPair(
+                RailIntersection intersection,
+                string routeA,
+                RailSide sideA,
+                string routeB,
+                RailSide sideB)
+            {
+                return (RailMatches(intersection.RailA, routeA, sideA)
+                        && RailMatches(intersection.RailB, routeB, sideB))
+                    || (RailMatches(intersection.RailA, routeB, sideB)
+                        && RailMatches(intersection.RailB, routeA, sideA));
+            }
+
+            static bool RailMatches(
+                RailCenterline rail,
+                string routeId,
+                RailSide side)
+            {
+                return rail.Side == side
+                    && rail.SourceRouteIds.Any(sourceRouteId => string.Equals(
+                        sourceRouteId,
+                        routeId,
+                        StringComparison.OrdinalIgnoreCase));
             }
 
             static string MirrorNarrowRouteId(string routeId)
@@ -1065,6 +1303,75 @@ namespace NarrowGaugeMod
                         side);
                 }
             }
+        }
+
+        // Determines whether a narrow-branch switch's diverging (narrow-reversed)
+        // route peels to the LEFT of its through (narrow-normal) route, using the
+        // cross-family crossing frog as the unambiguous downstream reference (so the
+        // result does not depend on curve traversal direction, which made the
+        // fallback path's leftHandTurnout unreliable). Returns false if the geometry
+        // needed to decide is unavailable, so callers keep their existing selection.
+        private static bool TryComputeNarrowDivergesLeft(
+            Graph graph,
+            SpecialWorkDefinition definition,
+            IReadOnlyList<RailCenterline> rails,
+            IReadOnlyList<RailIntersection> intersections,
+            out bool divergesLeft)
+        {
+            divergesLeft = false;
+
+            RailIntersection? crossing = intersections.FirstOrDefault(intersection =>
+                intersection.Kind == RailIntersectionKind.CrossingFrogCandidate
+                && ((intersection.RailA.Family == GaugeGraphFamily.Narrow
+                        && intersection.RailB.Family == GaugeGraphFamily.Standard)
+                    || (intersection.RailB.Family == GaugeGraphFamily.Narrow
+                        && intersection.RailA.Family == GaugeGraphFamily.Standard)));
+            if (crossing == null)
+            {
+                return false;
+            }
+
+            Vector3 frogPos = crossing.Position;
+
+            TrackNode? switchNode = definition.SwitchGroups
+                .SelectMany(group => group.NativeNodeIds)
+                .Select(graph.GetNode)
+                .FirstOrDefault(node => node != null);
+            if (switchNode == null)
+            {
+                return false;
+            }
+
+            Vector3 forward = frogPos - switchNode.transform.localPosition;
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 0.0001f)
+            {
+                return false;
+            }
+
+            LogicalRoute? normalRoute = definition.Routes.FirstOrDefault(route =>
+                string.Equals(route.Id, "narrow-normal", StringComparison.OrdinalIgnoreCase));
+            if (normalRoute == null)
+            {
+                return false;
+            }
+
+            // frogPos lies on the diverging (narrow-reversed) rail; the through route's
+            // nearest point at that distance is the reference. The lateral vector from
+            // through to diverge, in the forward frame, gives the hand.
+            Vector3 normalAtFrog = normalRoute.Centerline.LinePointAtDistance(
+                normalRoute.Centerline.DistanceTo(frogPos)).point;
+            Vector3 offset = frogPos - normalAtFrog;
+            offset.y = 0f;
+            if (offset.sqrMagnitude < 0.0001f)
+            {
+                return false;
+            }
+
+            // Unity is left-handed, Y up: Cross(forward, offset).y > 0 means offset is
+            // to the RIGHT of forward, so < 0 means the diverging rail sits to the LEFT.
+            divergesLeft = Vector3.Cross(forward, offset).y < 0f;
+            return true;
         }
 
         private static float MeasureBladeDivergence(
@@ -1250,7 +1557,18 @@ namespace NarrowGaugeMod
                         "standard-through",
                         "narrow-diverge"))
                 {
-                    catalogKind = RailIntersectionKind.VeeFrogCandidate;
+                    // The physical classifier distinguishes Nove's same-side
+                    // double frog from its separate V frog. Forcing both route-pair
+                    // intersections to V replaces the double frog with a straight
+                    // V nose and creates the visible curve/straight/curve break.
+                    // Preserve the measured physical kind here; the catalog still
+                    // controls the special nose direction for genuine V candidates
+                    // later in BuildAcceptedFrogs.
+                    Main.Log(
+                        $"[NoveFrogCatalog] {intersection.Id} " +
+                        $"{intersection.RailA.Id}/{intersection.RailB.Id}: " +
+                        $"preserving physical kind {intersection.Kind}.");
+                    continue;
                 }
                 else if (IntersectionUsesRoutePair(
                              intersection,
@@ -1571,13 +1889,15 @@ namespace NarrowGaugeMod
                 return existing;
             }
 
-            if (!TryCreateSyntheticCrossingFrog(
+            if (!TryCreateSyntheticFrog(
                     standardThroughRight,
                     narrowDivergeLeft,
                     existing.Length,
                     "nove-catalog",
                     Gauge.Standard.Inside,
                     1.5f,
+                    RailIntersectionKind.CrossingFrogCandidate,
+                    null,
                     out FrogCandidate frog,
                     out string rejectionReason))
             {
@@ -1596,13 +1916,80 @@ namespace NarrowGaugeMod
             return existing.Concat(new[] { frog }).ToArray();
         }
 
-        private static bool TryCreateSyntheticCrossingFrog(
+        private static FrogCandidate[] AddMissingDualSplitVeeFrog(
+            IReadOnlyList<RailCenterline> rails,
+            FrogCandidate[] existing,
+            IReadOnlyList<SwitchBladePlan> blades)
+        {
+            if (existing.Any(frog =>
+                    frog.Intersection.Kind == RailIntersectionKind.VeeFrogCandidate))
+            {
+                return existing;
+            }
+
+            FrogCandidate? crossing = existing.FirstOrDefault(frog =>
+                frog.Intersection.Kind == RailIntersectionKind.CrossingFrogCandidate);
+            if (crossing == null)
+            {
+                return existing;
+            }
+
+            RailCenterline? standardRail = crossing.Intersection.RailA.Family
+                    == GaugeGraphFamily.Standard
+                ? crossing.Intersection.RailA
+                : crossing.Intersection.RailB.Family == GaugeGraphFamily.Standard
+                    ? crossing.Intersection.RailB
+                    : null;
+            RailCenterline? crossingNarrow = crossing.Intersection.RailA.Family
+                    == GaugeGraphFamily.Narrow
+                ? crossing.Intersection.RailA
+                : crossing.Intersection.RailB.Family == GaugeGraphFamily.Narrow
+                    ? crossing.Intersection.RailB
+                    : null;
+            RailSide veeSide = crossingNarrow?.Side == RailSide.Left
+                ? RailSide.Right
+                : RailSide.Left;
+            RailCenterline? veeNarrow = FindRail(rails, "narrow-diverge", veeSide);
+            if (standardRail == null || crossingNarrow == null || veeNarrow == null)
+            {
+                return existing;
+            }
+
+            if (!TryCreateSyntheticFrog(
+                    standardRail,
+                    veeNarrow,
+                    existing.Length,
+                    "dual-split-vee",
+                    Gauge.Standard.Inside,
+                    MaximumFrogSetback,
+                    RailIntersectionKind.VeeFrogCandidate,
+                    blades,
+                    out FrogCandidate vee,
+                    out string rejectionReason))
+            {
+                Main.Log(
+                    $"[DualSplitFrogCatalog] Could not add missing V frog for " +
+                    $"{standardRail.Id}/{veeNarrow.Id}: {rejectionReason}");
+                return existing;
+            }
+
+            Main.Log(
+                $"[DualSplitFrogCatalog] Added missing V frog {vee.Id}: " +
+                $"{standardRail.Id}/{veeNarrow.Id} " +
+                $"angle={vee.Intersection.AcuteAngleDegrees:0.00} " +
+                $"cutHalf={vee.CutHalfLength:0.000}.");
+            return existing.Concat(new[] { vee }).ToArray();
+        }
+
+        private static bool TryCreateSyntheticFrog(
             RailCenterline standardRail,
             RailCenterline narrowRail,
             int index,
             string idPrefix,
             float maximumSeparation,
             float maximumCutHalf,
+            RailIntersectionKind kind,
+            IReadOnlyList<SwitchBladePlan>? blades,
             out FrogCandidate frog,
             out string rejectionReason)
         {
@@ -1663,6 +2050,10 @@ namespace NarrowGaugeMod
             {
                 nose = tangentA.normalized;
             }
+            if (kind == RailIntersectionKind.VeeFrogCandidate && blades != null)
+            {
+                nose = OrientVeeNoseTowardBlades(nose, bestPoint, blades);
+            }
 
             var intersection = new RailIntersection(
                 idPrefix + "-crossing:" + index,
@@ -1674,7 +2065,7 @@ namespace NarrowGaugeMod
                 tangentA,
                 tangentB,
                 angle,
-                RailIntersectionKind.CrossingFrogCandidate);
+                kind);
 
             frog = new FrogCandidate(
                 "v2-frog:" + idPrefix + ":" + index,
@@ -1899,6 +2290,24 @@ namespace NarrowGaugeMod
                 RailCenterline loser = owner == railA ? railB : railA;
                 float start = loser.Curve.DistanceTo(interval.Start);
                 float end = loser.Curve.DistanceTo(interval.End);
+                SwitchBladePlan? dedicatedStockBlade = blades.FirstOrDefault(blade =>
+                    blade.StockRail == loser
+                    && IsRightThroughBladeWithDedicatedDivergingStock(definition, blade));
+                if (dedicatedStockBlade != null)
+                {
+                    float stockTip = loser.Curve.DistanceTo(
+                        dedicatedStockBlade.BladeCurve.Head.point);
+                    float intervalStart = Mathf.Min(start, end);
+                    float intervalEnd = Mathf.Max(start, end);
+                    if (stockTip > intervalStart && stockTip < intervalEnd)
+                    {
+                        // The shared duplicate may own the approach before the
+                        // switch point, but the dedicated diverging stock rail must
+                        // begin at the blade tip and continue through the switch.
+                        start = intervalStart;
+                        end = stockTip;
+                    }
+                }
                 if (IsDualBothDivergePreset(definition)
                     && RailParticipatesInAcceptedFrogNearInterval(loser, frogs, start, end))
                 {
@@ -2409,6 +2818,8 @@ namespace NarrowGaugeMod
         {
             foreach (SwitchBladePlan blade in blades)
             {
+                bool hasDedicatedRightDivergingStock =
+                    IsRightThroughBladeWithDedicatedDivergingStock(definition, blade);
                 LineCurve bladeCurve = Slice(
                     blade.MovableRail.Curve,
                     blade.TipDistance,
@@ -2430,6 +2841,7 @@ namespace NarrowGaugeMod
                     // It is the stock rail even when route ownership lives on another
                     // route-derived RailCenterline.
                     if (!IsDualBothDivergePreset(definition)
+                        && !hasDedicatedRightDivergingStock
                         && CurveOverlapLength(rail.Curve, stockBladeCorridor) > 0.2f)
                     {
                         continue;
@@ -2437,11 +2849,20 @@ namespace NarrowGaugeMod
 
                     foreach ((float start, float end) in FindCurveOverlaps(rail.Curve, bladeCurve))
                     {
-                        AddCut(cuts, rail, start, end, RailCutKind.OwnershipConflict, blade.Id);
+                        bool isN178Fixed1 = hasDedicatedRightDivergingStock
+                            && rail.Side == RailSide.Left
+                            && rail.SourceRouteIds.Any(routeId => string.Equals(
+                                routeId,
+                                "standard-through",
+                                StringComparison.OrdinalIgnoreCase));
+                        float cutStart = isN178Fixed1
+                            ? Mathf.Min(end, start + BladeSampleSpacing)
+                            : start;
+                        AddCut(cuts, rail, cutStart, end, RailCutKind.OwnershipConflict, blade.Id);
                         AddSuppression(
                             suppressions,
                             rail,
-                            start,
+                            cutStart,
                             end,
                             "fixed rail under blade " + blade.Id);
                     }
@@ -2473,16 +2894,43 @@ namespace NarrowGaugeMod
                 yield break;
             }
 
+            // The authored dual + standard + narrow join is exposed to the game as
+            // one mixed-gauge switch descriptor. Its vanilla leg meshes are
+            // suppressed as a unit when the measured plan takes ownership, so the
+            // generic last-event + 3m boundary leaves both outgoing authored legs
+            // empty behind the final V frog. Conventional measured switches have
+            // separate ordinary leg meshes outside the event envelope; this exact
+            // two-route split does not. Render it through both route tails and meet
+            // the next authored descriptors at their real endpoints.
+            bool extendThroughOutgoingTails = IsDualSplitPreset(definition)
+                && definition.Routes.Count == 2;
+
             foreach (RailCenterline rail in rails)
             {
                 float[] distances = eventPoints
                     .Select(rail.Curve.DistanceTo)
                     .ToArray();
 
+                float startDistance = Mathf.Max(
+                    0f,
+                    distances.Min() - WorkEnvelopeMargin);
+                float endDistance = extendThroughOutgoingTails
+                    ? rail.Curve.Length
+                    : Mathf.Min(
+                        rail.Curve.Length,
+                        distances.Max() + WorkEnvelopeMargin);
+                if (extendThroughOutgoingTails)
+                {
+                    Main.Log(
+                        $"[DualSplitWorkInterval] node={definition.Id} rail={rail.Id} " +
+                        $"start={startDistance:0.000} end={endDistance:0.000} " +
+                        $"eventEnd={distances.Max():0.000}.");
+                }
+
                 yield return new RailWorkInterval(
                     rail,
-                    Mathf.Max(0f, distances.Min() - WorkEnvelopeMargin),
-                    Mathf.Min(rail.Curve.Length, distances.Max() + WorkEnvelopeMargin));
+                    startDistance,
+                    endDistance);
             }
         }
 
@@ -4521,6 +4969,15 @@ namespace NarrowGaugeMod
                 return false;
             }
 
+            // N178 Blade-1 has an exact dedicated stock owner:
+            // narrow-reversed:right (Fixed-8). A merely overlapping shared-through
+            // piece such as standard-through:left (Fixed-1) is not valid stock here;
+            // it must be cut out of the movable narrow-normal:right blade corridor.
+            if (IsRightThroughBladeWithDedicatedDivergingStock(definition, blade))
+            {
+                return false;
+            }
+
             float stockTip = blade.StockRail.Curve.DistanceTo(blade.BladeCurve.Head.point);
             float stockRoot = blade.StockRail.Curve.DistanceTo(blade.BladeCurve.Tail.point);
             LineCurve stockBladeCorridor = Slice(
@@ -4532,6 +4989,23 @@ namespace NarrowGaugeMod
             // to another route-derived centerline. Physical corridor ownership,
             // not the source rail id, determines whether it is valid here.
             return CurveOverlapLength(piece.Curve, stockBladeCorridor) > 0.2f;
+        }
+
+        private static bool IsRightThroughBladeWithDedicatedDivergingStock(
+            SpecialWorkDefinition definition,
+            SwitchBladePlan blade)
+        {
+            return IsDualNarrowBranchPreset(definition)
+                && blade.MovableRail.Side == RailSide.Right
+                && blade.StockRail.Side == RailSide.Right
+                && blade.MovableRail.SourceRouteIds.Any(routeId => string.Equals(
+                    routeId,
+                    "narrow-normal",
+                    StringComparison.OrdinalIgnoreCase))
+                && blade.StockRail.SourceRouteIds.Any(routeId => string.Equals(
+                    routeId,
+                    "narrow-reversed",
+                    StringComparison.OrdinalIgnoreCase));
         }
 
         private static float CurveOverlapLength(LineCurve a, LineCurve b)
