@@ -247,6 +247,23 @@ does not alter its paired inward-facing shape, kink, length, or wings. Runtime
 diagnostics report the pre-fit center distance, final center distance, and
 edge-to-edge clearance.
 
+## Hard K-stock knuckle rendering
+
+The user's `23:49:32` close-up shows the outside K stock visually easing into
+its center angle instead of remaining straight on both sides. The logical
+stock curve is already correct at three stations. The remaining smoothing is
+caused by giving the single center extrusion ring an averaged miter rotation:
+the stock-mesh normals interpolate from each endpoint to that averaged frame,
+so the highlight and railhead profile appear gradually curved.
+
+The render-only curve now contains four frames while retaining the same three
+positions: start/incoming, center/incoming, center/outgoing, end/outgoing. The
+two center frames are coincident, so they add no length or intermediate bend.
+They make the first extrusion span use only its incoming orientation and the
+second use only its outgoing orientation, with the zero-length center bridge
+forming the one hard angle. The guard compiler continues to consume the
+original three-station logical stock curve.
+
 ## Open disagreements
 
 (none)

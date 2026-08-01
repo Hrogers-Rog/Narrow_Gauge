@@ -2158,10 +2158,11 @@ namespace NarrowGaugeMod
                 return false;
             }
 
+            LineCurve hardKinkStock = BuildHardKinkRenderCurve(outsideStock);
             CreateRail(
                 builder,
                 root,
-                outsideStock,
+                hardKinkStock,
                 crossingHome,
                 name + "-ContinuousOutsideStock",
                 _ => 1f,
@@ -2227,6 +2228,8 @@ namespace NarrowGaugeMod
                 $"pointRails={renderedPoints} " +
                 $"continuousStock=1 " +
                 $"stockStations={outsideStock.Points.Count()} " +
+                $"stockRenderStations={hardKinkStock.Points.Count()} " +
+                $"hardKink=1 " +
                 $"kinkedGuard=1 " +
                 $"guardStations={kinkedGuard.Points.Count()} " +
                 $"stockKink={HorizontalSignedKinkAngleDegrees(outsideStock):0.000}deg " +
@@ -2647,6 +2650,39 @@ namespace NarrowGaugeMod
             Vector3 offset = closest - frogPosition;
             offset.y = 0f;
             return Vector3.Dot(offset, outward);
+        }
+
+        private static LineCurve BuildHardKinkRenderCurve(LineCurve source)
+        {
+            LinePoint[] points = source.Points.ToArray();
+            if (points.Length != 3)
+            {
+                return source;
+            }
+
+            Vector3 incoming = points[1].point - points[0].point;
+            Vector3 outgoing = points[2].point - points[1].point;
+            if (incoming.sqrMagnitude <= 0.0001f
+                || outgoing.sqrMagnitude <= 0.0001f)
+            {
+                return source;
+            }
+
+            Quaternion incomingRotation = Quaternion.LookRotation(
+                incoming.normalized,
+                Vector3.up);
+            Quaternion outgoingRotation = Quaternion.LookRotation(
+                outgoing.normalized,
+                Vector3.up);
+            return new LineCurve(
+                new[]
+                {
+                    new LinePoint(points[0].point, incomingRotation),
+                    new LinePoint(points[1].point, incomingRotation),
+                    new LinePoint(points[1].point, outgoingRotation),
+                    new LinePoint(points[2].point, outgoingRotation)
+                },
+                source.hand);
         }
 
         private static bool TryBuildContinuousDiamondStockRail(

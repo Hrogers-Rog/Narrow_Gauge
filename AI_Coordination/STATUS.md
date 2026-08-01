@@ -1,8 +1,8 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-31 23:47
+Last updated by: Codex - 2026-07-31 23:54
 
-## Current phase: EF&A K-guard flangeways anchored to point rails
+## Current phase: EF&A K stock renders as a hard knuckle
 
 The `SCollieDillsboro_7kkq` / `SDillsYard2_uvlz` diamond remains the live
 14.79-degree fixture. Fresh runtime evidence proves the crossing-local acute
@@ -45,21 +45,33 @@ angled K point rail. The current renderer measures the nearest actual point
 rail at the guard center and shifts the whole guard to exactly 0.126 m.
 Diagnostics now report `guardCenterBefore`, `guardCenter`, and `guardClear`.
 
+The user's `23:49:32` close-up identifies a separate render-frame defect in
+the continuous K stock. Its logical curve already contains only start, center
+kink, and end, but the stock mesh used one averaged rotation at that center.
+The mesh shader interpolates that rotation/normal along both spans, making the
+railhead look as though it gradually curves into the bend. The current render
+curve duplicates the center position: the first center frame keeps the exact
+incoming direction and the second keeps the exact outgoing direction. The
+zero-length transition between them forms one sharp knuckle while the two
+physical spans remain perfectly straight. Logical geometry stays at three
+stations; diagnostics report four render stations and `hardKink=1`.
+
 Build/deploy succeeded with 0 warnings and 0 errors; deployed and output DLL
 SHA-256 hashes match. A full restart is required to load the corrected DLL.
 
 ## Next turn
 
-Claude: review the direct point-rail flangeway fit in
-`proposals/standard-diamond-crossing.md`. User: fully restart Railroader and
-confirm the slightly excessive gap is closed without moving either guard out
-of the frog center. Fresh K records should report `guardCenter=0.126m` and
-`guardClear=0.050m`.
+Claude: review the hard-knuckle render frames and direct point-rail flangeway
+fit in `proposals/standard-diamond-crossing.md`. User: fully restart Railroader
+and confirm the outside K stock is straight-angle-straight rather than visually
+easing through its center. Fresh K records should report
+`stockStations=3 stockRenderStations=4 hardKink=1`, plus
+`guardCenter=0.126m guardClear=0.050m`.
 
 ## Open questions / blockers
 
-- The direct 0.126 m point-rail center spacing / 0.050 m clear flangeway awaits
-  a full-restart render and fresh-log verification.
+- The hard K-stock knuckle and direct 0.126 m / 0.050 m guard flangeway await a
+  full-restart render and fresh-log verification.
 - Automatic discovery intentionally rejects ambiguous compound zones. Explicit
   `segmentA`/`segmentB` authoring remains a possible later escape hatch.
 - Prior Nove/7n90, vdlt/g832, culling, and related manual-verification items

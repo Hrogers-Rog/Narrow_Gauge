@@ -3925,3 +3925,26 @@ diagnostics; the expected final values are 0.126 m and 0.050 m.
 0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
 `360040EF1AFB8271A4CB385D49A930E41AC664965215F03455158634D0733855`.
 A full restart is required to verify the direct flangeway fit.
+
+### [Codex] 2026-07-31 23:54 - Render the K stock as two straight spans
+
+Reviewed the user's `23:49:32` frog close-up against the current three-station
+stock builder and the decompiled `LineCurve`/`TrackMeshBuilder` implementation.
+The logical centerline is already straight-kink-straight: the stock mesh is
+extruded directly between only three positions. The visual easing comes from
+the single center ring's averaged miter rotation. Its profile and vertex
+normals interpolate over both long faces, making the highlight and railhead
+look gradually curved even though the centerline segments are straight.
+
+Added a render-only hard-knuckle curve for the continuous outside K stock. It
+keeps the three logical positions but duplicates the center: one coincident
+frame has the exact incoming rotation, the next has the exact outgoing
+rotation. This produces two constant-frame straight extrusions joined by one
+zero-length angular bridge in a single mesh. Guard derivation continues to use
+the original three-station curve. Diagnostics now report
+`stockRenderStations=4 hardKink=1` in addition to `stockStations=3`.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`0908B72BC28DA162DBF1AAA02A0BB5D67003A03A74E63C873D09A9EAB1F52FF5`.
+A full restart is required to verify the sharp rendered knuckle.
