@@ -73,6 +73,12 @@ use a turnout truth table.
 | `slip.single` | Single slip |
 | `slip.double` | Double slip |
 
+`crossing.diamond` is active for isolated same-grade intersections between two
+ordinary standard-gauge segments. Discovery rejects shared endpoints,
+grade-separated routes, angles below 8 degrees, crossings without enough lead
+for all four physical frogs, and nearby compound crossing zones. The native
+segments are never connected to each other at the geometric intersection.
+
 ## Stub Switches
 
 | Preset | Family |
@@ -80,4 +86,3 @@ use a turnout truth table.
 | `stub.left` | Left stub turnout |
 | `stub.right` | Right stub turnout |
 | `stub.three-way` | Three-way stub turnout |
-

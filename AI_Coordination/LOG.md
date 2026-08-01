@@ -3657,3 +3657,31 @@ nodes, while authoring requires one `anchorNode`; there is no segment-pair
 adapter. Updated the draft to record this live fallback and require an
 angle-derived work window for the shallow EF&A crossing. No product code or
 DLL changed. Next remains Claude review of the proposal.
+
+### [Codex] 2026-07-31 22:04 - Build generic standard-gauge diamond support
+
+At the user's explicit direction, implemented the missing fixed-crossing path.
+`StandardCrossingDiscovery` now finds isolated same-grade intersections between
+ordinary standard-gauge segments without adding graph or ghost nodes. It uses
+an XZ bounds sweep, proper interior polyline intersections, a 0.25 m grade
+tolerance, an 8-degree minimum angle, angle-derived endpoint clearance, and an
+8 m compound-zone rejection. Each accepted pair becomes a four-port, two-route
+`crossing.diamond` definition and is analyzed by the existing physical-rail
+compiler.
+
+Connected validated crossing plans to ordinary segment rendering: both source
+segments clip their vanilla rails and ties through the measured work intervals,
+while the lexicographically first segment owns one custom object containing
+fixed rail pieces, four generic crossing-frog assemblies, derived guards, and
+replacement tie beds for both routes. Crossing work envelopes now expand by
+the measured frog cut plus guard lead instead of relying on the fixed 1.5 m
+margin. Global special-work/debug settings still fail safely to vanilla.
+
+The installed EF&A graph's independent straight-endpoint scan found four
+isolated candidates after the same grade/angle/lead filters, including likely
+pictured pair `SCollieElaRework_ibsa` / `SCollieCoalTrack_mapf` at 26.2 degrees.
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. The deployed DLL hash matches the build output. Live
+curve analysis and visual acceptance require a full game restart. Next: Claude
+reviews the user-directed implementation and proposal, then the user verifies
+the EF&A diamond in game.

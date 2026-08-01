@@ -1,44 +1,44 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-31
+Last updated by: Codex - 2026-07-31 22:04
 
-## Current phase: EF&A standard-gauge diamond design
+## Current phase: EF&A standard-gauge diamond implemented, live verification pending
 
-The user's screenshot is an ordinary standard-gauge fixed diamond for an EF&A
-interlock. It requires **zero ghost nodes**. The correct model is four logical
-ports and two continuous, graph-disconnected routes; their geometric crossing
-must not become a shared native node.
+At the user's explicit direction, generic standard-gauge fixed-diamond support
+is implemented and deployed. It uses **zero ghost nodes**: four logical ports
+and two continuous, graph-disconnected routes. The geometric intersection does
+not become a native graph connection.
 
-C_L_B.DKW's KRE implementation confirms the pattern: explicitly bind two
-existing segments, detect their centerline and physical rail intersections,
-replace only the render proxies inside the work area, and preserve the native
-route graph. See `proposals/standard-diamond-crossing.md` (Draft).
+`StandardCrossingDiscovery` detects isolated same-grade ordinary standard
+segment pairs, rejects shared endpoints, grade separations, angles below 8
+degrees, insufficient approach lead, and overlapping compound zones, then
+feeds the existing `crossing.diamond` geometry compiler. Both segment renderers
+clip ordinary rails/ties through the measured envelope; one deterministic owner
+renders the fixed pieces, four crossing frogs, guards, and two tie beds.
 
-The current `crossing.diamond` catalog entry remains TODO and is not an
-implemented/accepted runtime path. `SpecialWorkAuthoring` only supports one
-`anchorNode`; a generic diamond needs explicit segment-pair authoring and a
-segment-pair discovery/compile adapter.
+The installed EF&A graph's straight-endpoint fixture scan finds four candidates
+passing the same filters. The likely pictured pair is
+`SCollieElaRework_ibsa` / `SCollieCoalTrack_mapf` at 26.2 degrees. Runtime curve
+results will be visible through `[CrossingDiscovery]`, plan validation, segment
+clip, tie clip, and `[CrossingBuild]` log entries after a full restart.
 
-The user's second screenshot live-confirms the fallback: two complete vanilla
-rail/tie beds overlap with no crossing points or guards. `Player-prev.log`
-loads the preset catalog but produces only the 13 pre-existing dual-gauge
-analyses and no crossing plan. No node placement can activate code that does
-not yet exist.
+Build/deploy succeeded with 0 warnings and 0 errors; deployed and output DLL
+hashes match. `proposals/standard-diamond-crossing.md` remains Draft because
+the coordination protocol still requires Claude review even though the user
+directed implementation immediately.
 
 ## Next turn
 
-Claude: review `proposals/standard-diamond-crossing.md` against the current
-special-work compiler and either agree or record a disagreement. If agreed,
-implementation should begin with generic segment-pair authoring/discovery and
-use the EF&A crossing as the first measured fixture. Do not add EF&A node-ID
-special cases.
+Claude: review the actual generic discovery, ownership clipping, and crossing
+hardware diff plus `proposals/standard-diamond-crossing.md`. Agree or record a
+specific disagreement. Do not replace it with EF&A ID special cases. User:
+restart Railroader and inspect the EF&A crossing plus fresh log evidence.
 
 ## Open questions / blockers
 
-- The exact EF&A segment IDs for the pictured interlock have not yet been
-  identified. They are needed for implementation/live verification, not for
-  settling the topology.
-- Decide the backward-compatible field names for the two authored segment
-  references (`segmentA`/`segmentB` or equivalent).
+- The likely pictured EF&A pair is inferred from geometry, not yet confirmed by
+  a restarted runtime log/camera inspection.
+- Automatic discovery intentionally rejects ambiguous compound zones. Explicit
+  `segmentA`/`segmentB` authoring remains a possible later escape hatch.
 - Prior Nove/7n90, vdlt/g832, culling, and related manual-verification items
-  remain in `LOG.md`; this design-only turn did not alter their deployed code.
+  remain in `LOG.md`; this crossing turn did not alter their deployed code.

@@ -281,10 +281,29 @@ namespace NarrowGaugeMod
                     continue;
                 }
 
+                float workEnvelopeMargin = WorkEnvelopeMargin;
+                if (definition.Preset.Category == SpecialWorkCategory.Crossing)
+                {
+                    float maximumFrogCut = frogs
+                        .Where(frog =>
+                            frog.Intersection.RailA == rail
+                            || frog.Intersection.RailB == rail)
+                        .Select(frog => frog.CutHalfLength)
+                        .DefaultIfEmpty(0f)
+                        .Max();
+                    workEnvelopeMargin = Mathf.Max(
+                        workEnvelopeMargin,
+                        maximumFrogCut
+                            + Mathf.Max(
+                                Parameters.GuardLeadLength,
+                                Parameters.GuardTrailLength)
+                            + 0.35f);
+                }
+
                 intervals.Add(new RailWorkInterval(
                     rail,
-                    Mathf.Max(0f, distances.Min() - WorkEnvelopeMargin),
-                    Mathf.Min(rail.Curve.Length, distances.Max() + WorkEnvelopeMargin)));
+                    Mathf.Max(0f, distances.Min() - workEnvelopeMargin),
+                    Mathf.Min(rail.Curve.Length, distances.Max() + workEnvelopeMargin)));
             }
 
             ExpandDualStandardBranchThroughIntervals(definition, rails, intervals);

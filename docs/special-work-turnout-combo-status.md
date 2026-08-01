@@ -1,6 +1,6 @@
 # Special-Work Turnout Combo Status
 
-Date: 2026-06-13
+Date: 2026-07-31
 
 This is the working checklist for which turnout/special-work combinations are
 implemented, visually accepted, and ready for truth-table hardening.
@@ -11,6 +11,7 @@ implemented, visually accepted, and ready for truth-table hardening.
 |---|---|
 | DONE | Visually accepted in game and log-valid. Ready to preserve with truth tables/tests. |
 | LOG-VALID | Runtime plan validates and renders, but needs a final visual pass. |
+| BUILD-VALID | Compiler/render path builds cleanly but still needs a live runtime log and visual pass. |
 | PARTIAL | Some geometry exists, but behavior is known to be incomplete or orientation-sensitive. |
 | TODO | Catalog/runtime concept exists, but no accepted in-game example yet. |
 | RISK | Known likely breakage under another mirror/shared-rail orientation. |
@@ -65,6 +66,21 @@ Known risk:
 
 ## Log-Valid But Not Done
 
+### `crossing.diamond`: EF&A standard-gauge interlocks
+
+Current state:
+
+- Generic same-grade segment-pair discovery and rendering are build-valid.
+- Discovery preserves two continuous, graph-disconnected routes and derives
+  the four physical crossing frogs from measured rail intersections.
+- Both ordinary segment renderers clip rails and ties through the measured
+  envelope; one deterministic owner renders the fixed rails, crossing points,
+  guards, and the two route tie beds.
+- The EF&A graph's straight-endpoint fixture scan finds the likely pictured
+  pair `SCollieElaRework_ibsa` / `SCollieCoalTrack_mapf` at 26.2 degrees, plus
+  three other isolated same-grade candidates. The exact live curve results
+  must be confirmed after a full game restart.
+
 ### `dual.narrow-branch-joins-main`: `NCustom_0ifg` / `NCustom_kvg2`
 
 Current state:
@@ -115,7 +131,7 @@ done from the live examples above.
 | `dual.both-diverge` | DONE | `24b2`/`303j`; selector-based mirror truth tables added after visual approval. |
 | `dual.split-standard-narrow` | DONE | `5f81`/`qf3e`; both mirror variants have procedural blade/frog ownership and selector-based truth tables. |
 | `dual.shared-rail-flip` | LOG-VALID | Cataloged segment-anchored fixed transition; procedurally matches a degree-2 `DualGauge_T` between one `DualGauge_L` and one `DualGauge_R`. |
-| `crossing.diamond` | TODO | Cataloged; no accepted example yet. |
+| `crossing.diamond` | BUILD-VALID | Generic standard segment-pair discovery and hardware rendering implemented; EF&A live log and visual acceptance pending. |
 | `crossing.arbitrary-angle` | TODO | Cataloged; no accepted example yet. |
 | `crossing.90-degree` | TODO | Cataloged; no accepted example yet. |
 | `slip.single` | TODO | Cataloged; no accepted example yet. |

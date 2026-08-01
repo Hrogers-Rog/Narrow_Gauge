@@ -20,6 +20,7 @@ ghost routing, and custom trackwork rendering.
 - `src/SpecialWorkAuthoring.cs`: FUSE extension parser and preset binding validation
 - `src/SpecialWorkTopologySynchronizer.cs`: gauge-family boundary compiler
 - `src/SpecialWorkRuntimeDiscovery.cs`: runtime `SpecialWorkDefinition` expansion
+- `src/StandardCrossingDiscovery.cs`: same-grade standard diamond detection
 - `docs/special-work-catalog.md`: topology-driven switch, transition, crossing,
   slip, stub, and wye catalog
 - `src/SpecialWorkGeometryAnalyzer.cs`: physical rails, intersections, frogs,
@@ -99,6 +100,10 @@ dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true
 - Validated measured special-work plans replace fixed dual-gauge turnout rails
   with calculated running rails, frog noses, wing rails, and guard rails.
   Invalid plans retain the existing fallback geometry.
+- Isolated same-grade intersections between two ordinary standard-gauge
+  segments are compiled automatically as fixed `crossing.diamond` work. The
+  source routes remain graph-disconnected; only their rail and tie rendering is
+  replaced through the measured crossing envelope.
 - Generated ghost rails, roadbed, masks, and bumpers are hidden. A generated
   ghost switch is visible only when it owns a real narrow-to-dual transition.
 - `DualGaugeLinkRegistry.CanBridgeCoupling(...)` is the future cross-family
@@ -112,6 +117,9 @@ dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true
 Place normal track, assign segment gauges, then select a preset by binding one
 existing anchor node. NarrowGauge derives routes, physical rails, intersections,
 frogs, guards, blades, and supported native topology from the surrounding track.
+Fixed standard-gauge diamonds are the exception: two sufficiently long
+standard segments that are not joined at their same-grade geometric crossing
+are detected directly, so they require neither an anchor node nor ghost nodes.
 
 ```json
 {

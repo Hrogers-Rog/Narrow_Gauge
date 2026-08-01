@@ -35,7 +35,11 @@ namespace NarrowGaugeMod
 
         public static bool HasValidPlanForSegment(TrackSegment? segment)
         {
+            NarrowGaugeSettings? settings = Main.Settings;
             return segment != null
+                && settings?.EnableSpecialWorkHardware != false
+                && settings?.DebugShowOnlyVanillaTurnoutObjects != true
+                && settings?.DebugHideCustomRails != true
                 && SpecialWorkRuntimeRegistry.Analyses.Any(analysis =>
                     analysis.MeshPlan?.IsValid == true
                     && analysis.Definition.Routes.Any(route =>
@@ -350,6 +354,122 @@ namespace NarrowGaugeMod
             float cutEnd = Mathf.Max(cutStart, end - OwnershipSeamOverlap);
             cut = (cutStart, cutEnd);
             return cutEnd - cutStart >= MinimumRailPieceLength;
+        }
+
+        public static void AddSegmentCrossingHardware(
+            TrackObjectBuilder builder,
+            TrackSegment sourceSegment,
+            Transform parent)
+        {
+            if (sourceSegment == null || parent == null || !HasValidPlanForSegment(sourceSegment))
+            {
+                return;
+            }
+
+            foreach (SpecialWorkAnalysis analysis in SpecialWorkRuntimeRegistry.Analyses
+                .Where(item =>
+                    item.Definition.Preset.Category == SpecialWorkCategory.Crossing
+                    && item.MeshPlan?.IsValid == true
+                    && item.Definition.Routes.Any(route =>
+                        route.SourceSegmentIds.Contains(
+                            sourceSegment.id,
+                            StringComparer.OrdinalIgnoreCase)))
+                .OrderBy(item => item.Definition.Id, StringComparer.OrdinalIgnoreCase))
+            {
+                string? ownerSegmentId = analysis.Definition.Routes
+                    .SelectMany(route => route.SourceSegmentIds)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+                if (!string.Equals(
+                    ownerSegmentId,
+                    sourceSegment.id,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                SpecialWorkMeshPlan plan = analysis.MeshPlan!;
+                Vector3 crossingHome = plan.Frogs.Count > 0
+                    ? plan.Frogs.Aggregate(
+                        Vector3.zero,
+                        (sum, frog) => sum + frog.Intersection.Position) / plan.Frogs.Count
+                    : analysis.WheelPaths
+                        .Select(path => path.Centerline.LinePointAtDistance(
+                            path.Centerline.Length * 0.5f).point)
+                        .Aggregate(Vector3.zero, (sum, point) => sum + point)
+                        / Mathf.Max(1, analysis.WheelPaths.Count);
+
+                GameObject root = NarrowGaugeTrackBuilder.CreateTrackRoot(
+                    builder,
+                    "measured-crossing-" + analysis.Definition.Id,
+                    parent);
+                root.transform.localPosition = crossingHome;
+                Main.Log(
+                    $"[CrossingBuild] Rendering '{analysis.Definition.Id}' owner={sourceSegment.id} " +
+                    $"fixed={plan.FixedRunningRails.Count} frogs={plan.Frogs.Count} " +
+                    $"guards={plan.GuardRails.Count} home={crossingHome}.");
+
+                bool suppressSpecialWorkTies =
+                    SpecialWorkHardwareProfileCatalog.ShouldSuppressSpecialWorkTies(analysis);
+                if (Main.Settings?.DebugHideCustomTies != true && !suppressSpecialWorkTies)
+                {
+                    GameObject tiesRoot = NarrowGaugeTrackBuilder.CreateTrackRoot(
+                        builder,
+                        "CrossingTies",
+                        root.transform);
+                    NarrowGaugeTrackBuilder.CreateSpecialWorkTies(
+                        builder,
+                        analysis,
+                        tiesRoot.transform,
+                        crossingHome);
+                }
+
+                int fixedIndex = 0;
+                foreach (RailPiece piece in plan.FixedRunningRails)
+                {
+                    CreateRail(
+                        builder,
+                        root,
+                        CorrectMeasuredRailRenderFrame(
+                            analysis,
+                            piece.SourceRailId,
+                            piece.Curve),
+                        crossingHome,
+                        "Fixed-" + fixedIndex++,
+                        _ => 1f);
+                }
+
+                int frogIndex = 0;
+                foreach (FrogCandidate frog in plan.Frogs.Where(item =>
+                    item.Intersection.Kind == RailIntersectionKind.CrossingFrogCandidate))
+                {
+                    CreateCrossingFrogAssembly(
+                        builder,
+                        root,
+                        analysis,
+                        frog,
+                        Array.Empty<SwitchBladePlan>(),
+                        crossingHome,
+                        "CrossingFrog-" + frogIndex++);
+                }
+
+                int guardIndex = 0;
+                foreach (GuardRailPlan guard in plan.GuardRails)
+                {
+                    CreateRail(
+                        builder,
+                        root,
+                        CorrectMeasuredRailRenderFrame(
+                            analysis,
+                            guard.OppositeRunningRail.Id,
+                            guard.Curve),
+                        crossingHome,
+                        "Guard-" + guardIndex++,
+                        _ => 1f);
+                }
+            }
         }
 
         public static void AddAdditionalHardware(

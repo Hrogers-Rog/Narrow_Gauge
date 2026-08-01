@@ -134,6 +134,8 @@ namespace NarrowGaugeMod
                 }
             }
 
+            definitions.AddRange(StandardCrossingDiscovery.Discover(graph, allSegments));
+
             return definitions;
         }
 

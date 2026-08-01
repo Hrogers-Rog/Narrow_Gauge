@@ -1,5 +1,7 @@
 Status: Draft
 
+User-directed implementation exists; Claude review is pending.
+
 # Standard-Gauge Diamond Crossing
 
 ## Scope
@@ -25,22 +27,27 @@ remain distinct per route and must not be merged into a degree-four junction.
 For this standard-gauge instance the generated ghost-node count is zero.
 Four *ports* must not be confused with four ghost nodes.
 
-## Authoring
+## Discovery and authoring
 
-Follow the useful part of `C_L_B.DKW`'s KRE model: explicitly identify the two
-participating segments, then measure their intersection. Do not scan every
-segment pair and automatically convert every geometric crossing; that would
-misclassify grade-separated or intentionally untreated overlaps.
-
-The current `narrowGauge.specialWork` binding only accepts `anchorNode`, so it
-cannot describe a segment pair. Extend the backward-compatible schema with a
-crossing-specific pair such as `segmentA` and `segmentB` (final names to be
-agreed during implementation). Validation should require:
+The user's explicit request was to build crossing support from the physical
+crossing, so the first implementation follows the useful geometric part of
+`C_L_B.DKW`'s KRE model without requiring map-specific IDs. Runtime discovery
+scans ordinary standard-gauge segment pairs using XZ bounds before performing
+proper polyline intersections. Validation requires:
 
 - two distinct standard-gauge segments
 - one proper interior centerline intersection
-- acceptable vertical separation
-- a non-parallel crossing angle within supported numerical limits
+- no shared endpoint joining the routes at the crossing
+- no more than 0.25 m vertical separation
+- an acute angle of at least 8 degrees
+- angle-derived endpoint lead sufficient for the outer physical rail
+  intersections, frogs, and guard rails
+- no second crossing on a shared segment inside the same 8 m compound zone
+
+This automatic path intentionally handles isolated fixed diamonds only.
+Ambiguous compound crossings are rejected rather than guessed. An explicit
+`segmentA`/`segmentB` authoring override remains a possible later addition if a
+map needs to opt into or out of a geometrically ambiguous case.
 
 ## Geometry and rendering
 
@@ -52,8 +59,15 @@ agreed during implementation). Validation should require:
 5. Suppress or split only the ordinary rendered segment proxies in that
    window. Do not split or reconnect the native train graph.
 6. Build the four crossing-frog assemblies, wing/point continuations, derived
-   guard rails, ties, ballast mask, and any required render colliders.
+   guard rails, and replacement ties. Retain the two source roadbeds and
+   continuous route colliders.
 7. Retain the original continuous segment traversal and block ownership.
+
+The implemented renderer attaches the shared crossing object to the
+lexicographically first participating segment. Both segment descriptors still
+claim their own rail/tie cuts, but only that deterministic owner emits the
+fixed rail pieces, four frog assemblies, guards, and replacement ties. This
+prevents descriptor build order from double-rendering the hardware.
 
 The pictured EF&A crossing is shallow enough that the four rail intersections
 span a substantial distance along both routes. The render-suppression window

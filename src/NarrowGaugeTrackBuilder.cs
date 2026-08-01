@@ -543,6 +543,14 @@ namespace NarrowGaugeMod
                 segment.Segment,
                 tieLengthScale);
 
+            if (!narrowOnly)
+            {
+                SpecialWorkHardwareRenderer.AddSegmentCrossingHardware(
+                    builder,
+                    segment.Segment,
+                    container.transform);
+            }
+
             CreateRoadbed(builder, segment.Curve, container.transform, segment.Segment.style);
             container.SetActive(true);
             return container;
@@ -4777,10 +4785,12 @@ namespace NarrowGaugeMod
             }
 
             SpecialWorkAnalysis safeAnalysis = analysis!;
-            bool separateRoutes = string.Equals(
-                safeAnalysis.Definition.Preset.Id,
-                SpecialWorkPresetIds.DualSplit,
-                StringComparison.OrdinalIgnoreCase);
+            bool separateRoutes = safeAnalysis.Definition.Preset.Category
+                    == SpecialWorkCategory.Crossing
+                || string.Equals(
+                    safeAnalysis.Definition.Preset.Id,
+                    SpecialWorkPresetIds.DualSplit,
+                    StringComparison.OrdinalIgnoreCase);
             WheelPath[] guides = separateRoutes
                 ? safeAnalysis.WheelPaths
                     .GroupBy(path => path.RouteId, StringComparer.OrdinalIgnoreCase)
