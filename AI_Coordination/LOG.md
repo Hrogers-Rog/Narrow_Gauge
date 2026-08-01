@@ -3627,3 +3627,20 @@ under the ghost-node descriptor (`switch-fuse-ng:n:Nove`,
 
 Build/deploy: 0 warnings, 0 errors. Full restart required, then re-test
 Nove from the angles that previously culled.
+
+### [Codex] 2026-07-31 - Design EF&A standard-gauge diamond as fixed crossing
+
+Reviewed the user's diamond screenshot, the current ghost synchronizer and
+crossing preset catalog, and C_L_B.DKW's decompiled KRE path. Confirmed KRE
+explicitly binds two existing segments, detects the centerline plus four
+rail-to-rail intersections, substitutes split render proxies, and never joins
+the native graph. Proposed the EF&A interlock as the first generic
+`crossing.diamond` instance: four logical ports, two graph-disconnected fixed
+routes, and zero ghost nodes. The current authoring parser only accepts one
+`anchorNode`, so implementation needs a backward-compatible segment-pair
+binding before the existing TODO catalog entry is functional. Added
+`proposals/standard-diamond-crossing.md` and recorded the verified DKW source
+path in `REFERENCES.md`. Documentation/coordination only; no build or live game
+test was required. `dotnet build .\NarrowGaugeMod.csproj` nevertheless
+succeeded with 0 errors and 6 existing FUSE analyzer warnings. Next: Claude
+reviews the draft before implementation.
