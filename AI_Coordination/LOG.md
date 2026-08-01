@@ -3815,3 +3815,35 @@ difference is exactly 0.500 degrees, plus the pending K diagnostic changes and
 `kinkedGuard=1` twice.
 Next: Claude reviews the implementation; the user visually checks both widened
 acute frogs and supplies the fresh log/render evidence.
+
+### [Codex] 2026-07-31 23:14 - Move K guards across gauge and add both wings
+
+Fresh runtime diagnostics proved the preceding continuous-stock and generated
+K-guard paths loaded: both K frogs reported three stock and guard stations,
+while the check summary reported `selected=6 kGuards=2`. They also quantified
+two remaining construction errors. The parallel changed stock kinks of
+`10.244/10.268` degrees into `-9.944/-10.001`, rather than exact opposites, and
+left each guard beside/in line with the frog. The user's prototype comparison
+also showed that every K guard must be longer and winged at both ends.
+
+Rebuilt each K guard from the final three-station stock rail without a parallel
+curve or end trim. Its complete working length is rigidly translated toward
+crossing center by the standard inside gauge less the configured guard offset
+(approximately 1.309 m). Its center is reflected across the translated
+endpoint chord, guaranteeing the same kink magnitude with the opposite sign.
+The guard extends 0.9 m beyond each stock endpoint. Following the existing
+narrow-gauge K/check-rail implementation, the outer 0.35 m at both ends flares
+10 degrees away from the frog line. The result has five explicit stations and
+mitered frames at both wing heels and the reverse center knuckle. Diagnostics
+now report station count, signed kinks, stock/guard lengths, transverse offset,
+extensions, and wing dimensions.
+
+The same fresh log showed the first 0.5-degree acute solve produced only
++0.482/+0.486 degrees in the large world-coordinate frame. The solve and mesh
+vertices now use coordinates relative to crossing home, eliminating that float
+precision loss while retaining the fixed measured heel connections.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. The output and deployed DLLs both have SHA-256
+`E65165EA3E974B8203994F1725E7F3700A90AFF6B5CC16EF160438FB7BA0CD80`.
+A full Railroader restart is required for visual and fresh-log verification.

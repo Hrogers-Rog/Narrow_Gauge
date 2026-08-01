@@ -23,6 +23,8 @@ namespace NarrowGaugeMod
         private const float TieOwnershipMargin = 0.35f;
         private const float FrogPointNoseTaperLength = 0.38f;
         private const float DiamondAcuteFrogAngleCorrectionDegrees = 0.5f;
+        private const float DiamondKGuardWingLength = 0.35f;
+        private const float DiamondKGuardWingAngleDegrees = 10f;
         private const float BladeTipStubCullLength = 1.05f;
         private const float BladeStockLeadExtensionLength = 1.05f;
         private const float BladeFullWidthTailLength = 0.65f;
@@ -1814,19 +1816,21 @@ namespace NarrowGaugeMod
                 frog.Intersection.DistanceB,
                 frog,
                 noseSide);
-            Vector3 theoreticalNose = frog.Intersection.Position;
-            Vector3 renderNose = OpenVeeFrogNoseByDegrees(
-                heelA.point,
-                theoreticalNose,
-                heelB.point,
+            Vector3 localHeelA = heelA.point - switchHome;
+            Vector3 localHeelB = heelB.point - switchHome;
+            Vector3 localTheoreticalNose = frog.Intersection.Position - switchHome;
+            Vector3 localRenderNose = OpenVeeFrogNoseByDegrees(
+                localHeelA,
+                localTheoreticalNose,
+                localHeelB,
                 veeAngleAdjustmentDegrees);
             LinePoint[] points =
             {
-                new LinePoint(heelA.point - switchHome, heelA.Rotation),
+                new LinePoint(localHeelA, heelA.Rotation),
                 new LinePoint(
-                    renderNose - switchHome,
+                    localRenderNose,
                     Quaternion.LookRotation(noseSide, Vector3.up)),
-                new LinePoint(heelB.point - switchHome, heelB.Rotation)
+                new LinePoint(localHeelB, heelB.Rotation)
             };
             if (NeedsMeasuredRailFrameCorrection(analysis))
             {
@@ -1844,9 +1848,9 @@ namespace NarrowGaugeMod
             {
                 Main.Log(
                     $"[VeeFrogAngle] name={name} " +
-                    $"source={HorizontalVeeAngleDegrees(heelA.point, theoreticalNose, heelB.point):0.000}deg " +
-                    $"target={HorizontalVeeAngleDegrees(heelA.point, renderNose, heelB.point):0.000}deg " +
-                    $"noseSetback={HorizontalDistance(theoreticalNose, renderNose):0.000}m.");
+                    $"source={HorizontalVeeAngleDegrees(localHeelA, localTheoreticalNose, localHeelB):0.000}deg " +
+                    $"target={HorizontalVeeAngleDegrees(localHeelA, localRenderNose, localHeelB):0.000}deg " +
+                    $"noseSetback={HorizontalDistance(localTheoreticalNose, localRenderNose):0.000}m.");
             }
 
             CreateVeeWingRail(
@@ -2200,6 +2204,11 @@ namespace NarrowGaugeMod
                 $"guardStations={kinkedGuard.Points.Count()} " +
                 $"stockKink={HorizontalSignedKinkAngleDegrees(outsideStock):0.000}deg " +
                 $"guardKink={HorizontalSignedKinkAngleDegrees(kinkedGuard):0.000}deg " +
+                $"stockLength={outsideStock.Length:0.000}m " +
+                $"guardLength={kinkedGuard.Length:0.000}m " +
+                $"guardOffset={Gauge.Standard.Inside - plan.Parameters.GuardCenterOffset:0.000}m " +
+                $"guardExtensions={plan.Parameters.GuardLeadLength:0.000}/{plan.Parameters.GuardTrailLength:0.000}m " +
+                $"guardWings={DiamondKGuardWingLength:0.000}m@{DiamondKGuardWingAngleDegrees:0.0}deg " +
                 $"flangeway={plan.Parameters.FlangewayWidth:0.000} " +
                 $"inwardDot={inwardDot:0.000}.");
             return renderedPoints == 2;
@@ -2210,41 +2219,33 @@ namespace NarrowGaugeMod
             Vector3 crossingHome,
             SpecialWorkGeometryParameters parameters)
         {
-            float endTrim = Mathf.Min(
-                0.22f,
-                Mathf.Max(0f, (outsideStock.Length - 0.5f) * 0.5f));
-            LineCurve stockSection = Slice(
-                outsideStock,
-                endTrim,
-                outsideStock.Length - endTrim);
-            LineCurve positive = stockSection.Parallel(parameters.GuardCenterOffset);
-            LineCurve negative = stockSection.Parallel(-parameters.GuardCenterOffset);
-            Vector3 positiveMiddle = positive.LinePointAtDistance(
-                positive.Length * 0.5f).point;
-            Vector3 negativeMiddle = negative.LinePointAtDistance(
-                negative.Length * 0.5f).point;
-
-            // The K guard belongs on the point-rail/diamond side of the
-            // continuous outside stock rail. Its knuckle is the mirror of the
-            // stock knuckle: equal angle, opposite signed direction.
-            LineCurve parallel = HorizontalDistance(positiveMiddle, crossingHome)
-                <= HorizontalDistance(negativeMiddle, crossingHome)
-                    ? positive
-                    : negative;
-            LinePoint[] points = parallel.Points.ToArray();
+            LinePoint[] points = outsideStock.Points.ToArray();
             if (points.Length < 3)
             {
-                return parallel;
+                return outsideStock;
             }
 
-            Vector3 start = points[0].point;
-            Vector3 end = points[points.Length - 1].point;
-            Vector3 sourceKink = points[points.Length / 2].point;
+            Vector3 stockKink = points[points.Length / 2].point;
+            Vector3 acrossGauge = crossingHome - stockKink;
+            acrossGauge.y = 0f;
+            if (acrossGauge.sqrMagnitude <= 0.0001f)
+            {
+                acrossGauge = points[0].Rotation * Vector3.right;
+                acrossGauge.y = 0f;
+            }
+            acrossGauge.Normalize();
+            float transverseOffset = Mathf.Max(
+                parameters.GuardCenterOffset,
+                Gauge.Standard.Inside - parameters.GuardCenterOffset);
+            Vector3 translation = acrossGauge * transverseOffset;
+            Vector3 start = points[0].point + translation;
+            Vector3 end = points[points.Length - 1].point + translation;
+            Vector3 sourceKink = stockKink + translation;
             Vector3 chord = end - start;
             chord.y = 0f;
             if (chord.sqrMagnitude <= 0.0001f)
             {
-                return parallel;
+                return outsideStock;
             }
 
             Vector3 kinkOffset = sourceKink - start;
@@ -2260,25 +2261,92 @@ namespace NarrowGaugeMod
             if (incoming.sqrMagnitude <= 0.0001f
                 || outgoing.sqrMagnitude <= 0.0001f)
             {
-                return parallel;
+                return outsideStock;
             }
 
             incoming.Normalize();
             outgoing.Normalize();
+            float startWingLength = Mathf.Min(
+                DiamondKGuardWingLength,
+                parameters.GuardLeadLength);
+            float endWingLength = Mathf.Min(
+                DiamondKGuardWingLength,
+                parameters.GuardTrailLength);
+            Vector3 startWorkingHeel = start
+                - incoming * Mathf.Max(
+                    0f,
+                    parameters.GuardLeadLength - startWingLength);
+            Vector3 endWorkingHeel = end
+                + outgoing * Mathf.Max(
+                    0f,
+                    parameters.GuardTrailLength - endWingLength);
+            Vector3 startFlareSide = Vector3.Cross(Vector3.up, incoming).normalized;
+            if (Vector3.Dot(startFlareSide, acrossGauge) < 0f)
+            {
+                startFlareSide = -startFlareSide;
+            }
+            Vector3 endFlareSide = Vector3.Cross(Vector3.up, outgoing).normalized;
+            if (Vector3.Dot(endFlareSide, acrossGauge) < 0f)
+            {
+                endFlareSide = -endFlareSide;
+            }
+            float startLateralFlare = Mathf.Tan(
+                DiamondKGuardWingAngleDegrees * Mathf.Deg2Rad) * startWingLength;
+            float endLateralFlare = Mathf.Tan(
+                DiamondKGuardWingAngleDegrees * Mathf.Deg2Rad) * endWingLength;
+            Vector3 startWingTip = startWorkingHeel
+                - incoming * startWingLength
+                + startFlareSide * startLateralFlare;
+            Vector3 endWingTip = endWorkingHeel
+                + outgoing * endWingLength
+                + endFlareSide * endLateralFlare;
+            Vector3 startWingDirection = startWorkingHeel - startWingTip;
+            Vector3 endWingDirection = endWingTip - endWorkingHeel;
+            startWingDirection.y = 0f;
+            endWingDirection.y = 0f;
+            startWingDirection.Normalize();
+            endWingDirection.Normalize();
+            Vector3 startMiterDirection = (startWingDirection + incoming).normalized;
+            if (startMiterDirection.sqrMagnitude <= 0.0001f)
+            {
+                startMiterDirection = incoming;
+            }
             Vector3 miterDirection = (incoming + outgoing).normalized;
             if (miterDirection.sqrMagnitude <= 0.0001f)
             {
                 miterDirection = outgoing;
             }
+            Vector3 endMiterDirection = (outgoing + endWingDirection).normalized;
+            if (endMiterDirection.sqrMagnitude <= 0.0001f)
+            {
+                endMiterDirection = outgoing;
+            }
 
+            // A K-frog check rail is a detached five-station rail: a flared
+            // lead wing, a straight working face, one reverse knuckle, a
+            // second straight working face, and a flared trail wing. Translate
+            // the complete stock-rail working length across the gauge first;
+            // this keeps the guard out of the frog line. Reflecting only its
+            // center knuckle gives the same angle as the stock, with the
+            // opposite sign.
             return new LineCurve(
                 new[]
                 {
-                    new LinePoint(start, Quaternion.LookRotation(incoming, Vector3.up)),
+                    new LinePoint(
+                        startWingTip,
+                        Quaternion.LookRotation(startWingDirection, Vector3.up)),
+                    new LinePoint(
+                        startWorkingHeel,
+                        Quaternion.LookRotation(startMiterDirection, Vector3.up)),
                     new LinePoint(mirroredKink, Quaternion.LookRotation(miterDirection, Vector3.up)),
-                    new LinePoint(end, Quaternion.LookRotation(outgoing, Vector3.up))
+                    new LinePoint(
+                        endWorkingHeel,
+                        Quaternion.LookRotation(endMiterDirection, Vector3.up)),
+                    new LinePoint(
+                        endWingTip,
+                        Quaternion.LookRotation(endWingDirection, Vector3.up))
                 },
-                parallel.hand);
+                outsideStock.hand);
         }
 
         internal static float HorizontalSignedKinkAngleDegrees(LineCurve curve)
@@ -2289,9 +2357,9 @@ namespace NarrowGaugeMod
                 return 0f;
             }
 
-            Vector3 incoming = points[points.Length / 2].point - points[0].point;
-            Vector3 outgoing = points[points.Length - 1].point
-                - points[points.Length / 2].point;
+            int middle = points.Length / 2;
+            Vector3 incoming = points[middle].point - points[middle - 1].point;
+            Vector3 outgoing = points[middle + 1].point - points[middle].point;
             incoming.y = 0f;
             outgoing.y = 0f;
             return incoming.sqrMagnitude <= 0.0001f

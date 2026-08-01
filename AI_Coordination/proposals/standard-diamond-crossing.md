@@ -72,10 +72,14 @@ map needs to opt into or out of a geometrically ambiguous case.
    three-station mesh: straight outer span, one frog-center kink, straight
    outer span. Do not preserve intermediate spline samples through the knuckle.
    Select one approach check rail per running rail. Derive each of the two
-   central K-frog guards as an inward parallel of its continuous stock/knuckle
-   rail, then mirror the guard's center point across its endpoint chord. The
-   guard must kink by the exact same angle as the stock rail in the opposite
-   signed direction.
+   central K-frog guards by rigidly translating the complete stock/knuckle
+   working length across the gauge toward crossing center by
+   `Gauge.Standard.Inside - GuardCenterOffset`. Mirror the guard's center point
+   across its translated endpoint chord so it kinks by the stock rail's exact
+   angle in the opposite signed direction. Extend both ends and use the
+   established narrow-gauge check-rail wing geometry on each tip: 0.35 m at 10
+   degrees away from the frog line. This yields wing-straight-reverse
+   kink-straight-wing construction.
 7. Build replacement ties while retaining the two source roadbeds and
    continuous route colliders.
 8. Retain the original continuous segment traversal and block ownership.
@@ -168,14 +172,15 @@ user's observation that the two central K-frog guards are absent.
 
 The corrected K renderer keeps only the two enclosed-diamond halves as relieved
 point rails. It chooses the outward one of the compiler's two obtuse pieces,
-matches its endpoints to the two measured wing spans, orders all three curves,
-and retains only their two outside endpoints plus the obtuse piece's center
-knuckle. It recalculates one miter frame there and extrudes the resulting
-straight-kink-straight stock rail once. Guard selection still keeps the four farthest approach
-checks. The two central K guards are not straight generic candidates: each is
-trimmed from and offset inward from the completed outside stock curve. Its
-parallel knuckle is then reflected across the guard's straight endpoint chord,
-giving an equal-magnitude, opposite-direction center kink.
+matches its endpoints to the two measured wing spans, and retains only their
+two outside endpoints plus the obtuse piece's center knuckle. It recalculates
+one miter frame there and extrudes the resulting straight-kink-straight stock
+rail once. Guard selection still keeps the four farthest approach checks. Each
+central K guard translates that complete working length across the standard
+gauge, mirrors only the center knuckle, extends 0.9 m past both stock ends, and
+flares the outer 0.35 m of each extension by 10 degrees. Thus it is detached
+from the frog rails, longer than the stock working section, winged at both
+ends, and has an equal-magnitude/opposite-direction center kink.
 
 ## Acute-angle calibration evidence
 
@@ -188,7 +193,11 @@ heels and moves only the point nose along their angle bisector until the
 horizontal included angle is exactly `source + 0.5 degrees`. This is a diamond-only mesh
 correction; ordinary turnout V frogs retain their original construction. A
 `[VeeFrogAngle]` diagnostic records source angle, corrected target angle, and
-the resulting nose setback for each acute frog on the next full game load.
+the resulting nose setback for each acute frog. The first live solve in world
+coordinates achieved only +0.482/+0.486 degrees because the large map
+coordinates exhausted float precision. The current implementation subtracts
+crossing home before solving and building the V mesh, preserving the requested
+exact +0.500-degree delta in a small local coordinate frame.
 
 ## Open disagreements
 
