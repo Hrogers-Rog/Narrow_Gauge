@@ -3766,3 +3766,52 @@ report point/continuous-stock counts and `kGuards` explicitly.
 full restart is required; expected evidence is `pointRails=2 continuousStock=1`
 twice and `selected=6 kGuards=2` once. Next: Claude reviews the change, while
 the user visually checks both continuous K stock rails and the two new guards.
+
+### [Codex] 2026-07-31 22:57 - Open diamond V frogs by 0.5 degrees
+
+Reviewed the user's latest end-on overview and the active acute-frog renderer.
+The common-crossing mesh used two measured heel endpoints and the theoretical
+physical-rail intersection as its three vertices. The user reports that the
+resulting V casting remains approximately 0.5 degrees too tight. Rotating the
+heel legs would misalign their fixed-running-rail seams, so the correction
+preserves both heels and sets the rendered nose back along their horizontal
+angle bisector until the included angle is exactly 0.5 degrees wider.
+
+Added a diamond-only `0.5f` acute-angle correction and a deterministic 24-step
+binary solve. Ordinary turnout and dual-gauge V frogs keep the default zero
+adjustment. Added `[VeeFrogAngle]` diagnostics containing the source angle,
+corrected angle, and nose setback, plus the requested correction in the
+existing `[DiamondAcuteFrog]` record. The fresh pre-restart log still contains
+the predecessor K diagnostics (`pieces=4`, `selected=4`), so neither the prior
+continuous-stock/guard commit nor this angle calibration has received runtime
+verification yet.
+
+The user then clarified that the missing kink is specifically on each K-frog
+guard. Replaced the two straight extra generic guards with one guard generated
+inside each K assembly. It is a short inward parallel of the completed
+continuous outside stock rail. After offsetting, its center is reflected across
+the line between its endpoints, reversing the signed knuckle while preserving
+the exact angle magnitude. The four approach check rails remain selected and
+rendered unchanged; diagnostics still total six guards and now add
+`kinkedGuard=1` per K frog.
+
+The following K close-up showed that the joined outside stock still rounded
+through the frog because it retained intermediate samples from both measured
+wing curves. Reduced that rail to exactly three positions: its two fixed outer
+endpoints and the planned obtuse piece's frog-center point. The two spans are
+now straight and the middle station owns the only direction change and miter.
+Because each K guard is derived from this final stock curve, it receives the
+same single kink. Diagnostics add `stockStations=3` and `guardStations=3`.
+
+The user further specified that the K guard's kink direction must oppose the
+stock kink at the exact same angle. Added signed-angle diagnostics for both
+three-station curves; the next runtime record should show equal magnitudes and
+opposite signs in `stockKink` and `guardKink`.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. The output and deployed DLL SHA-256 hashes match. A
+full restart should produce two `[VeeFrogAngle]` lines whose target-source
+difference is exactly 0.500 degrees, plus the pending K diagnostic changes and
+`kinkedGuard=1` twice.
+Next: Claude reviews the implementation; the user visually checks both widened
+acute frogs and supplies the fresh log/render evidence.

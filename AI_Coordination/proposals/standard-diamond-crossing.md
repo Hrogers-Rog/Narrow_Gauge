@@ -62,12 +62,20 @@ map needs to opt into or out of a geometrically ambiguous case.
    center: the distant pair are inward-facing acute V-frogs and the near pair
    are obtuse/K frogs. At each acute frog, put the point rail on the diamond
    side and the wing rails on the approach side, separated by one railhead plus
-   the configured flangeway. Build each K frog from two opposing point rails
+   the configured flangeway. Open the rendered acute V by 0.5 degrees relative
+   to its theoretical heel-to-intersection chords by setting the nose back on
+   the V bisector; keep both measured heel connections fixed. Build each K frog
+   from two opposing point rails
    relieved against the measured wheel-flange guides and one outside
    stock/knuckle rail. Join that outside rail's two planned wing spans through
-   its outer obtuse piece and extrude the result as one uninterrupted mesh.
-   Select one approach check rail per running rail and retain the two additional
-   central K-frog guards.
+   its outer obtuse piece and extrude the result as one uninterrupted
+   three-station mesh: straight outer span, one frog-center kink, straight
+   outer span. Do not preserve intermediate spline samples through the knuckle.
+   Select one approach check rail per running rail. Derive each of the two
+   central K-frog guards as an inward parallel of its continuous stock/knuckle
+   rail, then mirror the guard's center point across its endpoint chord. The
+   guard must kink by the exact same angle as the stock rail in the opposite
+   signed direction.
 7. Build replacement ties while retaining the two source roadbeds and
    continuous route colliders.
 8. Retain the original continuous segment traversal and block ownership.
@@ -161,10 +169,26 @@ user's observation that the two central K-frog guards are absent.
 The corrected K renderer keeps only the two enclosed-diamond halves as relieved
 point rails. It chooses the outward one of the compiler's two obtuse pieces,
 matches its endpoints to the two measured wing spans, orders all three curves,
-removes duplicate seam points, recalculates frames, and extrudes the complete
-outside stock rail once. Guard selection still keeps the four farthest approach
-checks, then adds the two remaining candidates nearest the diamond center as
-the K-frog guards.
+and retains only their two outside endpoints plus the obtuse piece's center
+knuckle. It recalculates one miter frame there and extrudes the resulting
+straight-kink-straight stock rail once. Guard selection still keeps the four farthest approach
+checks. The two central K guards are not straight generic candidates: each is
+trimmed from and offset inward from the completed outside stock curve. Its
+parallel knuckle is then reflected across the guard's straight endpoint chord,
+giving an equal-magnitude, opposite-direction center kink.
+
+## Acute-angle calibration evidence
+
+The user's subsequent end-on overview reports that the two acute V castings are
+still approximately 0.5 degrees too tight. The existing mesh uses the measured
+heel points and the theoretical physical-rail intersection as its three V
+vertices. For a shallow crossing, changing the heel locations would break the
+connections to the fixed running rails. The renderer therefore preserves both
+heels and moves only the point nose along their angle bisector until the
+horizontal included angle is exactly `source + 0.5 degrees`. This is a diamond-only mesh
+correction; ordinary turnout V frogs retain their original construction. A
+`[VeeFrogAngle]` diagnostic records source angle, corrected target angle, and
+the resulting nose setback for each acute frog on the next full game load.
 
 ## Open disagreements
 

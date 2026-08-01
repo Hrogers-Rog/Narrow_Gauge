@@ -22,6 +22,7 @@ namespace NarrowGaugeMod
         private const float TieOverlapTolerance = 1.0f;
         private const float TieOwnershipMargin = 0.35f;
         private const float FrogPointNoseTaperLength = 0.38f;
+        private const float DiamondAcuteFrogAngleCorrectionDegrees = 0.5f;
         private const float BladeTipStubCullLength = 1.05f;
         private const float BladeStockLeadExtensionLength = 1.05f;
         private const float BladeFullWidthTailLength = 0.65f;
@@ -443,6 +444,7 @@ namespace NarrowGaugeMod
                 }
 
                 int frogIndex = 0;
+                int renderedKGuardCount = 0;
                 FrogCandidate[] crossingFrogs = plan.Frogs.Where(item =>
                     item.Intersection.Kind == RailIntersectionKind.CrossingFrogCandidate).ToArray();
                 bool resolvedDiamondRoles = TryClassifyDiamondFrogs(
@@ -464,14 +466,17 @@ namespace NarrowGaugeMod
                     }
                     else if (resolvedDiamondRoles)
                     {
-                        CreateDiamondObtuseFrogAssembly(
+                        if (CreateDiamondObtuseFrogAssembly(
                             builder,
                             root,
                             analysis,
                             plan,
                             frog,
                             crossingHome,
-                            "ObtuseFrog-" + frogIndex++);
+                            "ObtuseFrog-" + frogIndex++))
+                        {
+                            renderedKGuardCount++;
+                        }
                     }
                     else
                     {
@@ -489,12 +494,12 @@ namespace NarrowGaugeMod
                 int guardIndex = 0;
                 GuardRailPlan[] checkRails = SelectDiamondCheckRails(
                     plan.GuardRails,
-                    crossingHome,
-                    out int kGuardCount);
+                    crossingHome);
                 Main.Log(
                     $"[DiamondCheckRails] id={analysis.Definition.Id} " +
-                    $"candidates={plan.GuardRails.Count} selected={checkRails.Length} " +
-                    $"kGuards={kGuardCount}.");
+                    $"candidates={plan.GuardRails.Count} " +
+                    $"selected={checkRails.Length + renderedKGuardCount} " +
+                    $"kGuards={renderedKGuardCount}.");
                 foreach (GuardRailPlan guard in checkRails)
                 {
                     CreateRail(
@@ -598,15 +603,17 @@ namespace NarrowGaugeMod
                 Array.Empty<SwitchBladePlan>(),
                 crossingHome,
                 name,
-                plan.Parameters.RailHeadWidth + plan.Parameters.FlangewayWidth);
+                plan.Parameters.RailHeadWidth + plan.Parameters.FlangewayWidth,
+                DiamondAcuteFrogAngleCorrectionDegrees);
             Main.Log(
                 $"[DiamondAcuteFrog] name={name} direction=inward " +
                 $"wingSeparation=" +
                 $"{plan.Parameters.RailHeadWidth + plan.Parameters.FlangewayWidth:0.000} " +
-                $"flangeway={plan.Parameters.FlangewayWidth:0.000}.");
+                $"flangeway={plan.Parameters.FlangewayWidth:0.000} " +
+                $"angleCorrection={DiamondAcuteFrogAngleCorrectionDegrees:0.000}deg.");
         }
 
-        private static void CreateDiamondObtuseFrogAssembly(
+        private static bool CreateDiamondObtuseFrogAssembly(
             TrackObjectBuilder builder,
             GameObject root,
             SpecialWorkAnalysis analysis,
@@ -625,7 +632,7 @@ namespace NarrowGaugeMod
                 name,
                 "obtuse-k"))
             {
-                return;
+                return true;
             }
 
             RailPiece[] pointAndElbowRails = plan.FrogPieces
@@ -655,7 +662,7 @@ namespace NarrowGaugeMod
                     Array.Empty<SwitchBladePlan>(),
                     crossingHome,
                     name + "-Fallback");
-                return;
+                return false;
             }
 
             int wingIndex = 0;
@@ -686,6 +693,7 @@ namespace NarrowGaugeMod
                     _ => 1f,
                     minimumLength: MinimumPieceLengthForDiamondHardware);
             }
+            return false;
         }
 
         private static bool IsObtuseFrogPiece(
@@ -703,10 +711,9 @@ namespace NarrowGaugeMod
 
         private static GuardRailPlan[] SelectDiamondCheckRails(
             IReadOnlyList<GuardRailPlan> guards,
-            Vector3 crossingHome,
-            out int kGuardCount)
+            Vector3 crossingHome)
         {
-            GuardRailPlan[] approachChecks = guards
+            return guards
                 .GroupBy(
                     guard => guard.OppositeRunningRail.Id,
                     StringComparer.OrdinalIgnoreCase)
@@ -717,15 +724,6 @@ namespace NarrowGaugeMod
                     .First())
                 .OrderBy(guard => guard.OppositeRunningRail.Id, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            GuardRailPlan[] kGuards = guards
-                .Where(guard => !approachChecks.Contains(guard))
-                .OrderBy(guard => HorizontalDistance(
-                    guard.Curve.LinePointAtDistance(guard.Curve.Length * 0.5f).point,
-                    crossingHome))
-                .Take(2)
-                .ToArray();
-            kGuardCount = kGuards.Length;
-            return approachChecks.Concat(kGuards).ToArray();
         }
 
         private static float HorizontalDistance(Vector3 first, Vector3 second)
@@ -1802,7 +1800,8 @@ namespace NarrowGaugeMod
             IReadOnlyList<SwitchBladePlan> blades,
             Vector3 switchHome,
             string name,
-            float wingCenterSeparation = 0.1f)
+            float wingCenterSeparation = 0.1f,
+            float veeAngleAdjustmentDegrees = 0f)
         {
             Vector3 noseSide = DirectionTowardBlades(frog, blades);
             LinePoint heelA = HeelPoint(
@@ -1815,11 +1814,17 @@ namespace NarrowGaugeMod
                 frog.Intersection.DistanceB,
                 frog,
                 noseSide);
+            Vector3 theoreticalNose = frog.Intersection.Position;
+            Vector3 renderNose = OpenVeeFrogNoseByDegrees(
+                heelA.point,
+                theoreticalNose,
+                heelB.point,
+                veeAngleAdjustmentDegrees);
             LinePoint[] points =
             {
                 new LinePoint(heelA.point - switchHome, heelA.Rotation),
                 new LinePoint(
-                    frog.Intersection.Position - switchHome,
+                    renderNose - switchHome,
                     Quaternion.LookRotation(noseSide, Vector3.up)),
                 new LinePoint(heelB.point - switchHome, heelB.Rotation)
             };
@@ -1834,6 +1839,15 @@ namespace NarrowGaugeMod
 
             Mesh mesh = NarrowGaugeTrackBuilder.BuildFrogMesh(points, Gauge.Standard);
             NarrowGaugeTrackBuilder.CreateMeshObject(builder, mesh, name, root);
+
+            if (veeAngleAdjustmentDegrees > 0.0001f)
+            {
+                Main.Log(
+                    $"[VeeFrogAngle] name={name} " +
+                    $"source={HorizontalVeeAngleDegrees(heelA.point, theoreticalNose, heelB.point):0.000}deg " +
+                    $"target={HorizontalVeeAngleDegrees(heelA.point, renderNose, heelB.point):0.000}deg " +
+                    $"noseSetback={HorizontalDistance(theoreticalNose, renderNose):0.000}m.");
+            }
 
             CreateVeeWingRail(
                 builder,
@@ -1861,6 +1875,82 @@ namespace NarrowGaugeMod
                 switchHome,
                 name + "-WingB",
                 wingCenterSeparation);
+        }
+
+        internal static Vector3 OpenVeeFrogNoseByDegrees(
+            Vector3 heelA,
+            Vector3 theoreticalNose,
+            Vector3 heelB,
+            float adjustmentDegrees)
+        {
+            float sourceAngle = HorizontalVeeAngleDegrees(
+                heelA,
+                theoreticalNose,
+                heelB);
+            if (adjustmentDegrees <= 0.0001f
+                || sourceAngle <= 0.0001f
+                || sourceAngle >= 174.999f)
+            {
+                return theoreticalNose;
+            }
+
+            float targetAngle = Mathf.Min(
+                sourceAngle + adjustmentDegrees,
+                175f);
+            Vector3 towardHeelA = heelA - theoreticalNose;
+            Vector3 towardHeelB = heelB - theoreticalNose;
+            towardHeelA.y = 0f;
+            towardHeelB.y = 0f;
+            float maximumSetback = Mathf.Min(
+                towardHeelA.magnitude,
+                towardHeelB.magnitude) * 0.9f;
+            Vector3 bisector = towardHeelA.normalized + towardHeelB.normalized;
+            bisector.y = 0f;
+            if (bisector.sqrMagnitude <= 0.0001f || maximumSetback <= 0.0001f)
+            {
+                return theoreticalNose;
+            }
+            bisector.Normalize();
+
+            float low = 0f;
+            float high = maximumSetback;
+            for (int iteration = 0; iteration < 24; iteration++)
+            {
+                float setback = (low + high) * 0.5f;
+                Vector3 candidate = theoreticalNose + bisector * setback;
+                float candidateAngle = HorizontalVeeAngleDegrees(
+                    heelA,
+                    candidate,
+                    heelB);
+                if (candidateAngle < targetAngle)
+                {
+                    low = setback;
+                }
+                else
+                {
+                    high = setback;
+                }
+            }
+
+            Vector3 result = theoreticalNose
+                + bisector * ((low + high) * 0.5f);
+            result.y = theoreticalNose.y;
+            return result;
+        }
+
+        internal static float HorizontalVeeAngleDegrees(
+            Vector3 heelA,
+            Vector3 nose,
+            Vector3 heelB)
+        {
+            Vector3 first = heelA - nose;
+            Vector3 second = heelB - nose;
+            first.y = 0f;
+            second.y = 0f;
+            return first.sqrMagnitude <= 0.0000001f
+                || second.sqrMagnitude <= 0.0000001f
+                    ? 0f
+                    : Vector3.Angle(first, second);
         }
 
         private static void CreateVeeWingRail(
@@ -2056,6 +2146,18 @@ namespace NarrowGaugeMod
                 name + "-ContinuousOutsideStock",
                 _ => 1f,
                 minimumLength: MinimumPieceLengthForDiamondHardware);
+            LineCurve kinkedGuard = BuildDiamondKinkedGuardRail(
+                outsideStock,
+                crossingHome,
+                plan.Parameters);
+            CreateRail(
+                builder,
+                root,
+                kinkedGuard,
+                crossingHome,
+                name + "-KinkedGuard",
+                _ => 1f,
+                minimumLength: MinimumPieceLengthForDiamondHardware);
 
             int renderedPoints = 0;
             renderedPoints += CreateDiamondFlangewayPointRail(
@@ -2093,9 +2195,109 @@ namespace NarrowGaugeMod
                 $"[DiamondFlangewayFrog] name={name} role={role} " +
                 $"pointRails={renderedPoints} " +
                 $"continuousStock=1 " +
+                $"stockStations={outsideStock.Points.Count()} " +
+                $"kinkedGuard=1 " +
+                $"guardStations={kinkedGuard.Points.Count()} " +
+                $"stockKink={HorizontalSignedKinkAngleDegrees(outsideStock):0.000}deg " +
+                $"guardKink={HorizontalSignedKinkAngleDegrees(kinkedGuard):0.000}deg " +
                 $"flangeway={plan.Parameters.FlangewayWidth:0.000} " +
                 $"inwardDot={inwardDot:0.000}.");
             return renderedPoints == 2;
+        }
+
+        private static LineCurve BuildDiamondKinkedGuardRail(
+            LineCurve outsideStock,
+            Vector3 crossingHome,
+            SpecialWorkGeometryParameters parameters)
+        {
+            float endTrim = Mathf.Min(
+                0.22f,
+                Mathf.Max(0f, (outsideStock.Length - 0.5f) * 0.5f));
+            LineCurve stockSection = Slice(
+                outsideStock,
+                endTrim,
+                outsideStock.Length - endTrim);
+            LineCurve positive = stockSection.Parallel(parameters.GuardCenterOffset);
+            LineCurve negative = stockSection.Parallel(-parameters.GuardCenterOffset);
+            Vector3 positiveMiddle = positive.LinePointAtDistance(
+                positive.Length * 0.5f).point;
+            Vector3 negativeMiddle = negative.LinePointAtDistance(
+                negative.Length * 0.5f).point;
+
+            // The K guard belongs on the point-rail/diamond side of the
+            // continuous outside stock rail. Its knuckle is the mirror of the
+            // stock knuckle: equal angle, opposite signed direction.
+            LineCurve parallel = HorizontalDistance(positiveMiddle, crossingHome)
+                <= HorizontalDistance(negativeMiddle, crossingHome)
+                    ? positive
+                    : negative;
+            LinePoint[] points = parallel.Points.ToArray();
+            if (points.Length < 3)
+            {
+                return parallel;
+            }
+
+            Vector3 start = points[0].point;
+            Vector3 end = points[points.Length - 1].point;
+            Vector3 sourceKink = points[points.Length / 2].point;
+            Vector3 chord = end - start;
+            chord.y = 0f;
+            if (chord.sqrMagnitude <= 0.0001f)
+            {
+                return parallel;
+            }
+
+            Vector3 kinkOffset = sourceKink - start;
+            kinkOffset.y = 0f;
+            Vector3 projectedKink = start
+                + chord * (Vector3.Dot(kinkOffset, chord) / chord.sqrMagnitude);
+            Vector3 mirroredKink = projectedKink * 2f - sourceKink;
+            mirroredKink.y = sourceKink.y;
+            Vector3 incoming = mirroredKink - start;
+            Vector3 outgoing = end - mirroredKink;
+            incoming.y = 0f;
+            outgoing.y = 0f;
+            if (incoming.sqrMagnitude <= 0.0001f
+                || outgoing.sqrMagnitude <= 0.0001f)
+            {
+                return parallel;
+            }
+
+            incoming.Normalize();
+            outgoing.Normalize();
+            Vector3 miterDirection = (incoming + outgoing).normalized;
+            if (miterDirection.sqrMagnitude <= 0.0001f)
+            {
+                miterDirection = outgoing;
+            }
+
+            return new LineCurve(
+                new[]
+                {
+                    new LinePoint(start, Quaternion.LookRotation(incoming, Vector3.up)),
+                    new LinePoint(mirroredKink, Quaternion.LookRotation(miterDirection, Vector3.up)),
+                    new LinePoint(end, Quaternion.LookRotation(outgoing, Vector3.up))
+                },
+                parallel.hand);
+        }
+
+        internal static float HorizontalSignedKinkAngleDegrees(LineCurve curve)
+        {
+            LinePoint[] points = curve?.Points.ToArray() ?? Array.Empty<LinePoint>();
+            if (points.Length < 3)
+            {
+                return 0f;
+            }
+
+            Vector3 incoming = points[points.Length / 2].point - points[0].point;
+            Vector3 outgoing = points[points.Length - 1].point
+                - points[points.Length / 2].point;
+            incoming.y = 0f;
+            outgoing.y = 0f;
+            return incoming.sqrMagnitude <= 0.0001f
+                || outgoing.sqrMagnitude <= 0.0001f
+                    ? 0f
+                    : Vector3.SignedAngle(incoming, outgoing, Vector3.up);
         }
 
         private static float DiamondFrogPieceSideScore(
@@ -2149,18 +2351,44 @@ namespace NarrowGaugeMod
                 tailWing.Curve,
                 stockPiece.Curve.Tail.point,
                 endAtTarget: false);
-            var points = new List<LinePoint>();
-            AppendCurvePoints(points, first);
-            AppendCurvePoints(points, stockPiece.Curve);
-            AppendCurvePoints(points, last);
-            if (points.Count < 4)
+            LinePoint[] stockPoints = stockPiece.Curve.Points.ToArray();
+            if (stockPoints.Length < 3)
             {
                 return false;
             }
 
-            continuous = NormalizeRenderFrames(
-                new LineCurve(points, first.hand),
-                preserveProfileCenter: false);
+            Vector3 start = first.Head.point;
+            Vector3 kink = stockPoints[stockPoints.Length / 2].point;
+            Vector3 end = last.Tail.point;
+            Vector3 incoming = kink - start;
+            Vector3 outgoing = end - kink;
+            incoming.y = 0f;
+            outgoing.y = 0f;
+            if (incoming.sqrMagnitude <= 0.0001f
+                || outgoing.sqrMagnitude <= 0.0001f)
+            {
+                return false;
+            }
+
+            incoming.Normalize();
+            outgoing.Normalize();
+            Vector3 miterDirection = (incoming + outgoing).normalized;
+            if (miterDirection.sqrMagnitude <= 0.0001f)
+            {
+                miterDirection = outgoing;
+            }
+
+            // A fixed K crossing uses a knuckle, not a spline. Keep only the
+            // two measured outer endpoints and the compiler's frog-center
+            // point so the mesh is straight -> one kink -> straight.
+            continuous = new LineCurve(
+                new[]
+                {
+                    new LinePoint(start, Quaternion.LookRotation(incoming, Vector3.up)),
+                    new LinePoint(kink, Quaternion.LookRotation(miterDirection, Vector3.up)),
+                    new LinePoint(end, Quaternion.LookRotation(outgoing, Vector3.up))
+                },
+                first.hand);
             return continuous.Length >= MinimumPieceLengthForDiamondHardware;
         }
 
@@ -2184,25 +2412,6 @@ namespace NarrowGaugeMod
             return reverse
                 ? ReverseRailCurvePreservingProfileSide(curve)
                 : curve;
-        }
-
-        private static void AppendCurvePoints(
-            ICollection<LinePoint> destination,
-            LineCurve source)
-        {
-            foreach (LinePoint point in source.Points)
-            {
-                LinePoint? previous = destination.Count > 0
-                    ? destination.Last()
-                    : (LinePoint?)null;
-                if (previous.HasValue
-                    && HorizontalDistance(previous.Value.point, point.point) <= 0.005f)
-                {
-                    continue;
-                }
-
-                destination.Add(point);
-            }
         }
 
         private static int CreateDiamondFlangewayPointRail(
