@@ -453,12 +453,12 @@ namespace NarrowGaugeMod
                 {
                     if (resolvedDiamondRoles && acuteFrogs.Contains(frog))
                     {
-                        CreateVeeFrogAssembly(
+                        CreateDiamondAcuteFrogAssembly(
                             builder,
                             root,
                             analysis,
-                            OrientDiamondAcuteFrog(frog, crossingHome),
-                            Array.Empty<SwitchBladePlan>(),
+                            plan,
+                            frog,
                             crossingHome,
                             "AcuteFrog-" + frogIndex++);
                     }
@@ -549,19 +549,22 @@ namespace NarrowGaugeMod
             FrogCandidate frog,
             Vector3 crossingHome)
         {
-            Vector3 outward = frog.Intersection.Position - crossingHome;
-            outward.y = 0f;
-            if (outward.sqrMagnitude <= 0.0001f)
+            // A diamond's two common-crossing noses face into the enclosed
+            // diamond. The previous version pointed them away from the crossing
+            // center, which put both vee heels inside and reversed both frogs.
+            Vector3 inward = crossingHome - frog.Intersection.Position;
+            inward.y = 0f;
+            if (inward.sqrMagnitude <= 0.0001f)
             {
-                outward = frog.NoseDirection;
+                inward = frog.NoseDirection;
             }
 
-            outward.Normalize();
+            inward.Normalize();
             return new FrogCandidate(
                 frog.Id,
                 frog.Intersection,
-                outward,
-                -outward,
+                inward,
+                -inward,
                 frog.Handedness,
                 frog.RailHeadSetback,
                 frog.FlangewaySetback,
@@ -569,6 +572,36 @@ namespace NarrowGaugeMod
                 frog.OwnerRouteId,
                 frog.CrossingRouteId,
                 frog.ProtectedRouteId);
+        }
+
+        private static void CreateDiamondAcuteFrogAssembly(
+            TrackObjectBuilder builder,
+            GameObject root,
+            SpecialWorkAnalysis analysis,
+            SpecialWorkMeshPlan plan,
+            FrogCandidate frog,
+            Vector3 crossingHome,
+            string name)
+        {
+            FrogCandidate inwardFrog = OrientDiamondAcuteFrog(frog, crossingHome);
+            // These are explicit common crossings, not symmetric rail-on-rail
+            // cuts: the vee/point belongs on the inside of the diamond and the
+            // two wing rails belong on the outside. Supplying the full center
+            // separation adds the configured wheel-flange slot between them.
+            CreateVeeFrogAssembly(
+                builder,
+                root,
+                analysis,
+                inwardFrog,
+                Array.Empty<SwitchBladePlan>(),
+                crossingHome,
+                name,
+                plan.Parameters.RailHeadWidth + plan.Parameters.FlangewayWidth);
+            Main.Log(
+                $"[DiamondAcuteFrog] name={name} direction=inward " +
+                $"wingSeparation=" +
+                $"{plan.Parameters.RailHeadWidth + plan.Parameters.FlangewayWidth:0.000} " +
+                $"flangeway={plan.Parameters.FlangewayWidth:0.000}.");
         }
 
         private static void CreateDiamondObtuseFrogAssembly(
@@ -580,6 +613,19 @@ namespace NarrowGaugeMod
             Vector3 crossingHome,
             string name)
         {
+            if (CreateDiamondFlangewayFrogAssembly(
+                builder,
+                root,
+                analysis,
+                plan,
+                frog,
+                crossingHome,
+                name,
+                "obtuse-k"))
+            {
+                return;
+            }
+
             RailPiece[] pointAndElbowRails = plan.FrogPieces
                 .Where(piece =>
                     string.Equals(
@@ -1743,7 +1789,8 @@ namespace NarrowGaugeMod
             FrogCandidate frog,
             IReadOnlyList<SwitchBladePlan> blades,
             Vector3 switchHome,
-            string name)
+            string name,
+            float wingCenterSeparation = 0.1f)
         {
             Vector3 noseSide = DirectionTowardBlades(frog, blades);
             LinePoint heelA = HeelPoint(
@@ -1787,7 +1834,8 @@ namespace NarrowGaugeMod
                 frog,
                 blades,
                 switchHome,
-                name + "-WingA");
+                name + "-WingA",
+                wingCenterSeparation);
             CreateVeeWingRail(
                 builder,
                 root,
@@ -1799,7 +1847,8 @@ namespace NarrowGaugeMod
                 frog,
                 blades,
                 switchHome,
-                name + "-WingB");
+                name + "-WingB",
+                wingCenterSeparation);
         }
 
         private static void CreateVeeWingRail(
@@ -1813,7 +1862,8 @@ namespace NarrowGaugeMod
             FrogCandidate frog,
             IReadOnlyList<SwitchBladePlan> blades,
             Vector3 switchHome,
-            string name)
+            string name,
+            float wingCenterSeparation = 0.1f)
         {
             Vector3 bladeDirection = DirectionTowardBlades(frog, blades);
             float beforeDistance = Mathf.Max(0f, intersectionDistance - frog.CutHalfLength);
@@ -1856,7 +1906,8 @@ namespace NarrowGaugeMod
             // forward-facing one moves ~zero. That asymmetry is why one wing of a
             // vee pair (N178, vdlt) rendered a railhead width off its mirror
             // position while its twin was fine.
-            Vector3 kinkTarget = oppositeHeel.point + outward.normalized * 0.1f;
+            Vector3 kinkTarget = oppositeHeel.point
+                + outward.normalized * wingCenterSeparation;
             Vector3 kinkDirection = kinkTarget - wing.Tail.point;
             kinkDirection.y = 0f;
             Quaternion kinkRotation = kinkDirection.sqrMagnitude > 0.0001f
@@ -1915,6 +1966,126 @@ namespace NarrowGaugeMod
                     break;
                 }
             }
+        }
+
+        private static bool CreateDiamondFlangewayFrogAssembly(
+            TrackObjectBuilder builder,
+            GameObject root,
+            SpecialWorkAnalysis analysis,
+            SpecialWorkMeshPlan plan,
+            FrogCandidate frog,
+            Vector3 crossingHome,
+            string name,
+            string role)
+        {
+            RailCenterline railA = frog.Intersection.RailA;
+            RailCenterline railB = frog.Intersection.RailB;
+            if (!TryResolveRailFlangeway(railA, analysis.WheelPaths, out LineCurve guideA)
+                || !TryResolveRailFlangeway(railB, analysis.WheelPaths, out LineCurve guideB))
+            {
+                Main.Warn(
+                    $"[DiamondFlangewayFrog] {name} fallback: wheel flange guides " +
+                    $"were not available for {railA.Id}/{railB.Id}.");
+                return false;
+            }
+
+            int renderedPieces = 0;
+            renderedPieces += CreateDiamondFlangewayRailPair(
+                builder,
+                root,
+                analysis,
+                railA,
+                frog.Intersection.DistanceA,
+                guideB,
+                frog.CutHalfLength,
+                plan.Parameters.FlangewayWidth,
+                crossingHome,
+                name + "-RailA");
+            renderedPieces += CreateDiamondFlangewayRailPair(
+                builder,
+                root,
+                analysis,
+                railB,
+                frog.Intersection.DistanceB,
+                guideA,
+                frog.CutHalfLength,
+                plan.Parameters.FlangewayWidth,
+                crossingHome,
+                name + "-RailB");
+
+            Vector3 noseDirection = frog.NoseDirection;
+            noseDirection.y = 0f;
+            Vector3 expectedInward = crossingHome - frog.Intersection.Position;
+            expectedInward.y = 0f;
+            float inwardDot = noseDirection.sqrMagnitude > 0.0001f
+                && expectedInward.sqrMagnitude > 0.0001f
+                    ? Vector3.Dot(noseDirection.normalized, expectedInward.normalized)
+                    : 0f;
+            Main.Log(
+                $"[DiamondFlangewayFrog] name={name} role={role} " +
+                $"pieces={renderedPieces} flangeway={plan.Parameters.FlangewayWidth:0.000} " +
+                $"inwardDot={inwardDot:0.000}.");
+            return renderedPieces == 4;
+        }
+
+        private static int CreateDiamondFlangewayRailPair(
+            TrackObjectBuilder builder,
+            GameObject root,
+            SpecialWorkAnalysis analysis,
+            RailCenterline targetRail,
+            float intersectionDistance,
+            LineCurve crossingFlangeGuide,
+            float cutHalfLength,
+            float flangewayWidth,
+            Vector3 crossingHome,
+            string name)
+        {
+            float start = Mathf.Clamp(
+                intersectionDistance - cutHalfLength,
+                0f,
+                targetRail.Curve.Length);
+            float end = Mathf.Clamp(
+                intersectionDistance + cutHalfLength,
+                0f,
+                targetRail.Curve.Length);
+            if (end - start < MinimumPieceLengthForDiamondHardware)
+            {
+                return 0;
+            }
+
+            LineCurve target = CorrectMeasuredRailRenderFrame(
+                analysis,
+                targetRail.Id,
+                Slice(targetRail.Curve, start, end));
+            if (target.Points.Count() < 2)
+            {
+                return 0;
+            }
+
+            // Two copies of the measured running rail are clipped to opposite
+            // sides of the other route's flange guide. Their union is the frog
+            // casting while the omitted band is the true wheel-flange slot.
+            // Doing this for both physical rails produces the four relieved
+            // paths required through an obtuse/K frog.
+            CreateFlangewayCutFrogRail(
+                builder,
+                root,
+                target,
+                new[] { crossingFlangeGuide },
+                target.Head.point,
+                flangewayWidth,
+                crossingHome,
+                name + "-Before");
+            CreateFlangewayCutFrogRail(
+                builder,
+                root,
+                target,
+                new[] { crossingFlangeGuide },
+                target.Tail.point,
+                flangewayWidth,
+                crossingHome,
+                name + "-After");
+            return 2;
         }
 
         private static void CreateCompoundVeeFrogAssembly(

@@ -3713,3 +3713,29 @@ four physical running rails instead of rendering all six generic candidates.
 game restart and second screenshot/log pass are required. Next: verify
 `[DiamondFrogRoles]`, `[DiamondCheckRails]`, the two acute V ends, both K frogs,
 and closure of the central diamond.
+
+### [Codex] 2026-07-31 22:42 - Reverse acute frogs and cut true flangeways
+
+Reviewed the user's second overview, acute-frog close-up, supplied railway
+diamond diagram, and fresh runtime log. The role classifier is confirmed:
+`frog:3`/`frog:0` are the 5.572 m-radius acute pair and `frog:1`/`frog:2` are
+the 0.724 m-radius K pair; the diamond is closed and four check rails render.
+The remaining acute defect was an exact 180-degree reversal at both ends: the
+point rails were on the approaches and the wings were inside the diamond. The
+0.10 m wing offset also accounted for approximately one railhead but not the
+configured 0.05 m flange slot. The K pieces remained solid full-width meshes.
+
+Rotated both acute frogs symmetrically so their points face inward and their
+wings face outward. Diamond-only wing placement now uses measured railhead
+width plus plan flangeway width; all existing non-diamond vee assemblies keep
+their legacy 0.10 m offset. Rebuilt each obtuse/K frog from its two measured
+physical rails: two copies of each rail are mesh-clipped to opposite sides of
+the other route's actual wheel-flange guide, so the omitted 0.05 m bands form
+four physical flange openings instead of cosmetic marks. Added
+`[DiamondAcuteFrog]` and `[DiamondFlangewayFrog]` diagnostics.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Deployment succeeded and the built/deployed DLL
+SHA-256 hashes match. A full game restart and visual inspection of both mirrored
+acute assemblies and both relieved K frogs are required. Next: Claude reviews
+the implementation and proposal; the user performs the third live render.

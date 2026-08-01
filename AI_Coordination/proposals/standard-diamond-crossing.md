@@ -59,9 +59,13 @@ map needs to opt into or out of a geometrically ambiguous case.
 5. Suppress or split only the ordinary rendered segment proxies in that
    window. Do not split or reconnect the native train graph.
 6. Classify the four physical intersections by their radius from the crossing
-   center: the distant pair are outward-facing acute V-frogs and the near pair
-   are obtuse/K frogs. Build the K frogs from two opposed point/elbow rails plus
-   all four short wing continuations. Select one check rail per running rail.
+   center: the distant pair are inward-facing acute V-frogs and the near pair
+   are obtuse/K frogs. At each acute frog, put the point rail on the diamond
+   side and the wing rails on the approach side, separated by one railhead plus
+   the configured flangeway. Build each K frog by clipping both measured
+   physical rails to opposite sides of the other route's wheel-flange guide;
+   the omitted guide bands form the four required relieved paths. Select one
+   check rail per running rail.
 7. Build replacement ties while retaining the two source roadbeds and
    continuous route colliders.
 8. Retain the original continuous segment traversal and block ownership.
@@ -121,11 +125,28 @@ sent all four physical intersections through one isolated generic crossing
 builder. It never assigned the required two acute and two obtuse roles.
 Additionally, planned obtuse-frog wing spans at this shallow angle are shorter
 than the renderer's general 0.35 m rail-piece cutoff, so several required
-connections were silently discarded. The corrective renderer uses outward
-V-frog assemblies for the acute pair, the compiler's two obtuse point/elbow
-pieces and four short wings for each K frog, a 0.05 m minimum only for those
-measured diamond components, and one farthest-out check rail per physical
-running rail.
+connections were silently discarded. The first corrective renderer assigned
+acute and obtuse roles and retained the required short pieces, closing the
+diamond, but its acute direction and frog-head manufacture were still wrong.
+
+## Second custom-render evidence
+
+The user's `2026-07-31 22:31:58` overview confirms that the first role fix
+closed the long diamond and emitted both K-frog locations. The matching fresh
+log identifies `frog:3` and `frog:0` as the outer acute pair at 5.572 m radius,
+and `frog:1` and `frog:2` as the inner K pair at 0.724 m radius. It also confirms
+four selected check rails.
+
+The `22:38:46` close-up then identifies the remaining acute error exactly: the
+point rail is on the approach side and the wings are on the diamond side. Both
+ends must be rotated 180 degrees, so the two acute noses face inward and the
+wings face outward. The close-up and the supplied railway diagram also show
+that the former 0.10 m wing offset allowed the railheads to touch; it did not
+include the 0.05 m wheel-flange slot. The corrected acute renderer uses the
+measured `RailHeadWidth + FlangewayWidth` separation. The K renderer no longer
+uses solid full-width point/elbow meshes: each physical rail is split on both
+sides of the crossing route's measured flange guide, leaving an actual 0.05 m
+relieved band through the frog.
 
 ## Open disagreements
 
