@@ -76,10 +76,14 @@ Current state:
 - Both ordinary segment renderers clip rails and ties through the measured
   envelope; one deterministic owner renders the fixed rails, crossing points,
   guards, and the two route tie beds.
-- The EF&A graph's straight-endpoint fixture scan finds the likely pictured
-  pair `SCollieElaRework_ibsa` / `SCollieCoalTrack_mapf` at 26.2 degrees, plus
-  three other isolated same-grade candidates. The exact live curve results
-  must be confirmed after a full game restart.
+- The pictured runtime fixture is `SCollieDillsboro_7kkq` /
+  `SDillsYard2_uvlz` at 14.79 degrees. Its first live plan was valid with four
+  intersections/frogs, but the first renderer incorrectly treated all four as
+  identical generic crossings and suppressed sub-0.35 m wing pieces.
+- The correction classifies the two distant intersections as outward-facing
+  acute V-frogs, builds the two inner intersections as K frogs from the planned
+  point/elbow and short wing rails, and selects one check rail per running rail.
+  A restarted visual pass is pending.
 
 ### `dual.narrow-branch-joins-main`: `NCustom_0ifg` / `NCustom_kvg2`
 

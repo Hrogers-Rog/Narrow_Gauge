@@ -17,6 +17,7 @@ namespace NarrowGaugeMod
         private const float OverlapSampleSpacing = 0.08f;
         private const float MinimumOverlapLength = 0.18f;
         private const float MinimumRailPieceLength = 0.35f;
+        private const float MinimumPieceLengthForDiamondHardware = 0.05f;
         private const float OwnershipSeamOverlap = 0.12f;
         private const float TieOverlapTolerance = 1.0f;
         private const float TieOwnershipMargin = 0.35f;
@@ -442,21 +443,57 @@ namespace NarrowGaugeMod
                 }
 
                 int frogIndex = 0;
-                foreach (FrogCandidate frog in plan.Frogs.Where(item =>
-                    item.Intersection.Kind == RailIntersectionKind.CrossingFrogCandidate))
+                FrogCandidate[] crossingFrogs = plan.Frogs.Where(item =>
+                    item.Intersection.Kind == RailIntersectionKind.CrossingFrogCandidate).ToArray();
+                bool resolvedDiamondRoles = TryClassifyDiamondFrogs(
+                    crossingFrogs,
+                    crossingHome,
+                    out HashSet<FrogCandidate> acuteFrogs);
+                foreach (FrogCandidate frog in crossingFrogs)
                 {
-                    CreateCrossingFrogAssembly(
-                        builder,
-                        root,
-                        analysis,
-                        frog,
-                        Array.Empty<SwitchBladePlan>(),
-                        crossingHome,
-                        "CrossingFrog-" + frogIndex++);
+                    if (resolvedDiamondRoles && acuteFrogs.Contains(frog))
+                    {
+                        CreateVeeFrogAssembly(
+                            builder,
+                            root,
+                            analysis,
+                            OrientDiamondAcuteFrog(frog, crossingHome),
+                            Array.Empty<SwitchBladePlan>(),
+                            crossingHome,
+                            "AcuteFrog-" + frogIndex++);
+                    }
+                    else if (resolvedDiamondRoles)
+                    {
+                        CreateDiamondObtuseFrogAssembly(
+                            builder,
+                            root,
+                            analysis,
+                            plan,
+                            frog,
+                            crossingHome,
+                            "ObtuseFrog-" + frogIndex++);
+                    }
+                    else
+                    {
+                        CreateCrossingFrogAssembly(
+                            builder,
+                            root,
+                            analysis,
+                            frog,
+                            Array.Empty<SwitchBladePlan>(),
+                            crossingHome,
+                            "CrossingFrog-" + frogIndex++);
+                    }
                 }
 
                 int guardIndex = 0;
-                foreach (GuardRailPlan guard in plan.GuardRails)
+                GuardRailPlan[] checkRails = SelectDiamondCheckRails(
+                    plan.GuardRails,
+                    crossingHome);
+                Main.Log(
+                    $"[DiamondCheckRails] id={analysis.Definition.Id} " +
+                    $"candidates={plan.GuardRails.Count} selected={checkRails.Length}.");
+                foreach (GuardRailPlan guard in checkRails)
                 {
                     CreateRail(
                         builder,
@@ -470,6 +507,174 @@ namespace NarrowGaugeMod
                         _ => 1f);
                 }
             }
+        }
+
+        private static bool TryClassifyDiamondFrogs(
+            IReadOnlyList<FrogCandidate> frogs,
+            Vector3 crossingHome,
+            out HashSet<FrogCandidate> acuteFrogs)
+        {
+            acuteFrogs = new HashSet<FrogCandidate>();
+            if (frogs.Count != 4)
+            {
+                return false;
+            }
+
+            (FrogCandidate Frog, float Radius)[] ordered = frogs
+                .Select(frog => (
+                    Frog: frog,
+                    Radius: HorizontalDistance(
+                        frog.Intersection.Position,
+                        crossingHome)))
+                .OrderByDescending(item => item.Radius)
+                .ToArray();
+            if (ordered[1].Radius <= ordered[2].Radius * 1.15f)
+            {
+                // At or near a square crossing, acute and obtuse roles collapse
+                // to the same geometry. Keep the symmetric generic crossing path.
+                return false;
+            }
+
+            acuteFrogs.Add(ordered[0].Frog);
+            acuteFrogs.Add(ordered[1].Frog);
+            Main.Log(
+                $"[DiamondFrogRoles] acute={ordered[0].Frog.Id},{ordered[1].Frog.Id} " +
+                $"outerRadius={ordered[1].Radius:0.000} " +
+                $"obtuse={ordered[2].Frog.Id},{ordered[3].Frog.Id} " +
+                $"innerRadius={ordered[2].Radius:0.000}.");
+            return true;
+        }
+
+        private static FrogCandidate OrientDiamondAcuteFrog(
+            FrogCandidate frog,
+            Vector3 crossingHome)
+        {
+            Vector3 outward = frog.Intersection.Position - crossingHome;
+            outward.y = 0f;
+            if (outward.sqrMagnitude <= 0.0001f)
+            {
+                outward = frog.NoseDirection;
+            }
+
+            outward.Normalize();
+            return new FrogCandidate(
+                frog.Id,
+                frog.Intersection,
+                outward,
+                -outward,
+                frog.Handedness,
+                frog.RailHeadSetback,
+                frog.FlangewaySetback,
+                frog.CutHalfLength,
+                frog.OwnerRouteId,
+                frog.CrossingRouteId,
+                frog.ProtectedRouteId);
+        }
+
+        private static void CreateDiamondObtuseFrogAssembly(
+            TrackObjectBuilder builder,
+            GameObject root,
+            SpecialWorkAnalysis analysis,
+            SpecialWorkMeshPlan plan,
+            FrogCandidate frog,
+            Vector3 crossingHome,
+            string name)
+        {
+            RailPiece[] pointAndElbowRails = plan.FrogPieces
+                .Where(piece =>
+                    string.Equals(
+                        piece.SourcePlanId,
+                        frog.Id,
+                        StringComparison.OrdinalIgnoreCase)
+                    && IsObtuseFrogPiece(piece, frog))
+                .ToArray();
+            WingRailPlan[] wings = plan.WingRails
+                .Where(wing => string.Equals(
+                    wing.FrogId,
+                    frog.Id,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (pointAndElbowRails.Length != 2 || wings.Length != 4)
+            {
+                Main.Warn(
+                    $"[DiamondFrogRoles] {name} fallback: expected 2 K rails and 4 wings, " +
+                    $"derived {pointAndElbowRails.Length} and {wings.Length}.");
+                CreateGenericCrossingPoints(
+                    builder,
+                    root,
+                    analysis,
+                    frog,
+                    Array.Empty<SwitchBladePlan>(),
+                    crossingHome,
+                    name + "-Fallback");
+                return;
+            }
+
+            int wingIndex = 0;
+            foreach (WingRailPlan wing in wings)
+            {
+                CreateRail(
+                    builder,
+                    root,
+                    CorrectMeasuredRailRenderFrame(
+                        analysis,
+                        wing.SourceRail.Id,
+                        wing.Curve),
+                    crossingHome,
+                    name + "-Wing-" + wingIndex++,
+                    _ => 1f,
+                    minimumLength: MinimumPieceLengthForDiamondHardware);
+            }
+
+            int pointIndex = 0;
+            foreach (RailPiece piece in pointAndElbowRails)
+            {
+                CreateRail(
+                    builder,
+                    root,
+                    piece.Curve,
+                    crossingHome,
+                    name + "-KRail-" + pointIndex++,
+                    _ => 1f,
+                    minimumLength: MinimumPieceLengthForDiamondHardware);
+            }
+        }
+
+        private static bool IsObtuseFrogPiece(
+            RailPiece piece,
+            FrogCandidate frog)
+        {
+            Vector3 first = piece.Curve.Head.point - frog.Intersection.Position;
+            Vector3 second = piece.Curve.Tail.point - frog.Intersection.Position;
+            first.y = 0f;
+            second.y = 0f;
+            return first.sqrMagnitude > 0.0001f
+                && second.sqrMagnitude > 0.0001f
+                && Vector3.Dot(first.normalized, second.normalized) < 0f;
+        }
+
+        private static GuardRailPlan[] SelectDiamondCheckRails(
+            IReadOnlyList<GuardRailPlan> guards,
+            Vector3 crossingHome)
+        {
+            return guards
+                .GroupBy(
+                    guard => guard.OppositeRunningRail.Id,
+                    StringComparer.OrdinalIgnoreCase)
+                .Select(group => group
+                    .OrderByDescending(guard => HorizontalDistance(
+                        guard.Curve.LinePointAtDistance(guard.Curve.Length * 0.5f).point,
+                        crossingHome))
+                    .First())
+                .OrderBy(guard => guard.OppositeRunningRail.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        private static float HorizontalDistance(Vector3 first, Vector3 second)
+        {
+            first.y = 0f;
+            second.y = 0f;
+            return Vector3.Distance(first, second);
         }
 
         public static void AddAdditionalHardware(
@@ -1147,11 +1352,12 @@ namespace NarrowGaugeMod
             LineCurve worldCurve,
             Vector3 switchHome,
             string name,
-            Func<int, float> profile)
+            Func<int, float> profile,
+            float minimumLength = MinimumRailPieceLength)
         {
             if (worldCurve == null
                 || worldCurve.Points.Count() < 2
-                || worldCurve.Length < MinimumRailPieceLength)
+                || worldCurve.Length < minimumLength)
             {
                 return;
             }

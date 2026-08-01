@@ -103,7 +103,9 @@ dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true
 - Isolated same-grade intersections between two ordinary standard-gauge
   segments are compiled automatically as fixed `crossing.diamond` work. The
   source routes remain graph-disconnected; only their rail and tie rendering is
-  replaced through the measured crossing envelope.
+  replaced through the measured crossing envelope. Skew diamonds classify the
+  four physical intersections as two outward acute V-frogs and two inner
+  obtuse/K frogs.
 - Generated ghost rails, roadbed, masks, and bumpers are hidden. A generated
   ghost switch is visible only when it owns a real narrow-to-dual transition.
 - `DualGaugeLinkRegistry.CanBridgeCoupling(...)` is the future cross-family

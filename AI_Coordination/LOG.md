@@ -3685,3 +3685,31 @@ pictured pair `SCollieElaRework_ibsa` / `SCollieCoalTrack_mapf` at 26.2 degrees.
 curve analysis and visual acceptance require a full game restart. Next: Claude
 reviews the user-directed implementation and proposal, then the user verifies
 the EF&A diamond in game.
+
+### [Codex] 2026-07-31 22:25 - Correct acute and obtuse diamond frog anatomy
+
+Reviewed the user's first custom-render screenshot against the supplied diamond
+diagram and the fresh runtime log. Corrected the previous fixture inference:
+the pictured crossing is `SCollieDillsboro_7kkq` / `SDillsYard2_uvlz`, detected
+at 14.79 degrees. The runtime plan is valid with four rails, four physical
+intersections/frogs, twelve fixed pieces, sixteen planned wings, six guard
+candidates, and no blades. Discovery, both ownership clips, replacement ties,
+and one deterministic hardware owner all worked; the failure was inside the
+frog renderer.
+
+The original crossing renderer incorrectly sent all four intersections through
+the same isolated generic point builder. It also reused the ordinary 0.35 m
+minimum rail length even though this shallow diamond's required obtuse-frog
+wing continuations are roughly 0.18-0.30 m, so required connections were
+silently discarded. Implemented diamond-specific role and hardware rendering:
+the distant intersection pair becomes outward-facing acute V-frogs; the near
+pair becomes obtuse/K frogs using the compiler's two opposed point/elbow rails
+and all four planned short wings. Only these measured diamond components use a
+0.05 m minimum. Guard selection now keeps the farthest candidate on each of the
+four physical running rails instead of rendering all six generic candidates.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors, and the deployed DLL hash matches the output. A full
+game restart and second screenshot/log pass are required. Next: verify
+`[DiamondFrogRoles]`, `[DiamondCheckRails]`, the two acute V ends, both K frogs,
+and closure of the central diamond.

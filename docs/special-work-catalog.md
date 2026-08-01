@@ -77,7 +77,9 @@ use a turnout truth table.
 ordinary standard-gauge segments. Discovery rejects shared endpoints,
 grade-separated routes, angles below 8 degrees, crossings without enough lead
 for all four physical frogs, and nearby compound crossing zones. The native
-segments are never connected to each other at the geometric intersection.
+segments are never connected to each other at the geometric intersection. A
+skew diamond renders two outer acute V-frogs, two inner obtuse/K frogs, and one
+derived check rail per running rail.
 
 ## Stub Switches
 

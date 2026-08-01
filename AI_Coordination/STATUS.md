@@ -1,43 +1,40 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-31 22:04
+Last updated by: Codex - 2026-07-31 22:25
 
-## Current phase: EF&A standard-gauge diamond implemented, live verification pending
+## Current phase: EF&A diamond frog topology corrected, second visual pending
 
-At the user's explicit direction, generic standard-gauge fixed-diamond support
-is implemented and deployed. It uses **zero ghost nodes**: four logical ports
-and two continuous, graph-disconnected routes. The geometric intersection does
-not become a native graph connection.
+The first live custom render proved automatic discovery, plan validation,
+ordinary rail/tie clipping, and single-owner rendering work. The exact pictured
+fixture is `SCollieDillsboro_7kkq` / `SDillsYard2_uvlz` at 14.79 degrees. Its
+plan is valid: four rails, four intersections/frogs, twelve fixed pieces,
+six guard candidates, and zero blades.
 
-`StandardCrossingDiscovery` detects isolated same-grade ordinary standard
-segment pairs, rejects shared endpoints, grade separations, angles below 8
-degrees, insufficient approach lead, and overlapping compound zones, then
-feeds the existing `crossing.diamond` geometry compiler. Both segment renderers
-clip ordinary rails/ties through the measured envelope; one deterministic owner
-renders the fixed pieces, four crossing frogs, guards, and two tie beds.
+The first renderer missed the physical diamond anatomy: it treated all four
+rail intersections as identical isolated crossing points instead of two acute
+frogs and two obtuse/K frogs. It also applied the ordinary 0.35 m minimum rail
+length to required K-frog wings only about 0.18-0.30 m long, silently dropping
+them. The screenshot shows the resulting disconnected/open center.
 
-The installed EF&A graph's straight-endpoint fixture scan finds four candidates
-passing the same filters. The likely pictured pair is
-`SCollieElaRework_ibsa` / `SCollieCoalTrack_mapf` at 26.2 degrees. Runtime curve
-results will be visible through `[CrossingDiscovery]`, plan validation, segment
-clip, tie clip, and `[CrossingBuild]` log entries after a full restart.
+The deployed correction classifies the two distant frog positions as outward
+acute V-frogs and the near pair as obtuse/K frogs. Each K frog uses the
+compiler's two point/elbow pieces plus all four short wing rails. Check rails
+are reduced from six collision-filter candidates to one farthest-out candidate
+per physical running rail (four total when all rail groups are present).
 
 Build/deploy succeeded with 0 warnings and 0 errors; deployed and output DLL
-hashes match. `proposals/standard-diamond-crossing.md` remains Draft because
-the coordination protocol still requires Claude review even though the user
-directed implementation immediately.
+hashes match. A full restart is required to load the corrected DLL.
 
 ## Next turn
 
-Claude: review the actual generic discovery, ownership clipping, and crossing
-hardware diff plus `proposals/standard-diamond-crossing.md`. Agree or record a
-specific disagreement. Do not replace it with EF&A ID special cases. User:
-restart Railroader and inspect the EF&A crossing plus fresh log evidence.
+Claude: review the acute/obtuse role correction and the actual diff plus
+`proposals/standard-diamond-crossing.md`. User: fully restart Railroader and
+inspect the same Dillsboro diamond. Fresh log evidence should include
+`[DiamondFrogRoles]` and `[DiamondCheckRails]`.
 
 ## Open questions / blockers
 
-- The likely pictured EF&A pair is inferred from geometry, not yet confirmed by
-  a restarted runtime log/camera inspection.
+- The second corrected render has not yet received visual acceptance.
 - Automatic discovery intentionally rejects ambiguous compound zones. Explicit
   `segmentA`/`segmentB` authoring remains a possible later escape hatch.
 - Prior Nove/7n90, vdlt/g832, culling, and related manual-verification items

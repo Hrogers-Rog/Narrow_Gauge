@@ -58,10 +58,13 @@ map needs to opt into or out of a geometrically ambiguous case.
    lead margin, to define the special-work window.
 5. Suppress or split only the ordinary rendered segment proxies in that
    window. Do not split or reconnect the native train graph.
-6. Build the four crossing-frog assemblies, wing/point continuations, derived
-   guard rails, and replacement ties. Retain the two source roadbeds and
+6. Classify the four physical intersections by their radius from the crossing
+   center: the distant pair are outward-facing acute V-frogs and the near pair
+   are obtuse/K frogs. Build the K frogs from two opposed point/elbow rails plus
+   all four short wing continuations. Select one check rail per running rail.
+7. Build replacement ties while retaining the two source roadbeds and
    continuous route colliders.
-7. Retain the original continuous segment traversal and block ownership.
+8. Retain the original continuous segment traversal and block ownership.
 
 The implemented renderer attaches the shared crossing object to the
 lexicographically first participating segment. Both segment descriptors still
@@ -104,6 +107,25 @@ points, guards, or special-work tie treatment. The immediately preceding
 analyzed special-work objects, none with a crossing preset. This confirms the
 failure is the absent segment-pair discovery/render path, not a four-node
 topology mistake or a rejected generated plan.
+
+## First custom-render evidence
+
+The user's `2026-07-31 22:16:29` screenshot and matching `Player.log` confirm
+that discovery, validation, ownership clipping, and single-owner rendering all
+ran for `SCollieDillsboro_7kkq` / `SDillsYard2_uvlz` at 14.79 degrees. The plan
+was valid with four physical intersections, four frogs, twelve fixed pieces,
+six guard candidates, and no blades.
+
+The visible geometry nevertheless missed the prototype because the renderer
+sent all four physical intersections through one isolated generic crossing
+builder. It never assigned the required two acute and two obtuse roles.
+Additionally, planned obtuse-frog wing spans at this shallow angle are shorter
+than the renderer's general 0.35 m rail-piece cutoff, so several required
+connections were silently discarded. The corrective renderer uses outward
+V-frog assemblies for the acute pair, the compiler's two obtuse point/elbow
+pieces and four short wings for each K frog, a 0.05 m minimum only for those
+measured diamond components, and one farthest-out check rail per physical
+running rail.
 
 ## Open disagreements
 
