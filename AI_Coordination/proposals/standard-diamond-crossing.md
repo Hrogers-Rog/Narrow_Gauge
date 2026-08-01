@@ -231,21 +231,27 @@ sign but is recalibrated to the target stock's native kink magnitude.
 
 ## K-guard flangeway calibration
 
-The user's next restart accepts the centered inward-facing guards but reports
-that their gap to the frog rail remains slightly too large. The intended narrow
-K-frog construction is `RailHeadWidth + FlangewayWidth`: 0.076 + 0.050 =
-0.126 m between rail centers, leaving 0.050 m clear between railhead edges.
-The diamond already used those constants, but placed the guard indirectly from
-the outside stock rail by `Gauge.Standard.Inside - GuardCenterOffset` =
-1.309 m. At an angled K crossing that indirect full-gauge relationship can
-leave more than 0.126 m to the actual point rail.
+The user's next restart accepted the centered inward-facing guards but reported
+that their gap to the frog rail remained slightly too large. The intended
+narrow K-frog construction is `RailHeadWidth + FlangewayWidth`: 0.076 + 0.050
+= 0.126 m between rail centers, leaving 0.050 m clear between railhead edges.
 
-The guard center is now fitted directly to the nearer of the K frog's two
-measured rail centerlines. The complete five-station guard translates as one
-rigid curve until its center station is exactly 0.126 m from that rail. This
-does not alter its paired inward-facing shape, kink, length, or wings. Runtime
-diagnostics report the pre-fit center distance, final center distance, and
-edge-to-edge clearance.
+The first calibration attempt fitted the guard center to the nearer complete
+route-rail centerline. Fresh runtime evidence falsifies that method. It measured
+the accepted guard at 1.164/1.162 m from those rails and moved it to 0.126 m,
+a roughly 1.04 m translation through the frog. The resulting
+`guardShapeShift=1.157m` explains why the user saw the accepted guards turned
+back around. Neither complete route curve represents the generated K point-rail
+profile at the working flangeway.
+
+That fitter and its `guardCenterBefore`/`guardCenter`/`guardClear` diagnostics
+are removed. The exact pre-fit centered cross-paired guard curves are restored,
+with their 1.309 m native offset and inward-facing wing geometry unchanged.
+The 0.076 + 0.050 = 0.126 m nominal rule remains authoritative. A future visual
+clearance adjustment must reference the generated point rail and rendered
+railhead profile, then apply only a small rigid lateral translation to the
+accepted guard; it must never select a full route centerline or derive a new
+guard direction.
 
 ## Hard K-stock knuckle rendering
 

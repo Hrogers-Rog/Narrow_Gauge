@@ -1,8 +1,8 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-31 23:54
+Last updated by: Codex - 2026-07-31 23:58
 
-## Current phase: EF&A K stock renders as a hard knuckle
+## Current phase: accepted EF&A K-guard orientation restored
 
 The `SCollieDillsboro_7kkq` / `SDillsYard2_uvlz` diamond remains the live
 14.79-degree fixture. Fresh runtime evidence proves the crossing-local acute
@@ -34,16 +34,23 @@ wings. Guard curves remain in crossing-local coordinates to avoid large-world
 float loss. New diagnostics report `guardCrossPaired=1` and the center-to-center
 `guardShapeShift` rather than the rejected whole-frog `guardSwap`.
 
-The user's current restart confirms the guards are centered correctly and the
-signed kink diagnostics are exact (`10.244/-10.244` and `10.268/-10.268`). The
-remaining visual defect is a slightly excessive guard-to-point-rail gap. The
-narrow K-frog rule and diamond parameters are nominally identical: 0.076 m
-railhead plus 0.050 m clear flangeway equals 0.126 m center spacing. The prior
-diamond placement reached that value indirectly from the outside stock rail
-using `1.435 - 0.126 = 1.309 m`, which does not guarantee 0.126 m against an
-angled K point rail. The current renderer measures the nearest actual point
-rail at the guard center and shifts the whole guard to exactly 0.126 m.
-Diagnostics now report `guardCenterBefore`, `guardCenter`, and `guardClear`.
+The user's accepted restart confirms the guards were centered correctly and
+the signed kink diagnostics were exact (`10.244/-10.244` and
+`10.268/-10.268`). The only requested change was the slightly excessive
+guard-to-point-rail gap. The following direct-fit attempt was invalid: fresh
+runtime records show it measured 1.164/1.162 m from each guard to a complete
+route rail, then translated each guard to 0.126 m. That roughly 1.04 m move
+crossed the frog and destroyed the already accepted orientation. Those are
+not the generated K point rails and cannot calibrate this flangeway.
+
+The invalid fitter and its misleading diagnostics are now removed. The exact
+accepted centered, cross-paired guard curves are restored, including their
+inward-facing wings and `1.309 m` native offset. The nominal narrow-K rule
+remains unchanged: 0.076 m railhead plus 0.050 m clear flangeway equals
+0.126 m center spacing. Any later millimetric visual-gap correction must be
+measured against the generated point-rail profile, never against either full
+route centerline, and must translate the accepted guard rigidly without
+recomputing its shape or direction.
 
 The user's `23:49:32` close-up identifies a separate render-frame defect in
 the continuous K stock. Its logical curve already contains only start, center
@@ -56,22 +63,25 @@ zero-length transition between them forms one sharp knuckle while the two
 physical spans remain perfectly straight. Logical geometry stays at three
 stations; diagnostics report four render stations and `hardKink=1`.
 
-Build/deploy succeeded with 0 warnings and 0 errors; deployed and output DLL
-SHA-256 hashes match. A full restart is required to load the corrected DLL.
+Build/deploy succeeded with 0 warnings and 0 errors. Output and deployed DLL
+SHA-256 hashes both equal
+`161E015639AF1CB60C2ACF21258D3E1A5C2A0A2648D48691B697719547084A97`.
+A full restart is required to load the corrected DLL.
 
 ## Next turn
 
-Claude: review the hard-knuckle render frames and direct point-rail flangeway
-fit in `proposals/standard-diamond-crossing.md`. User: fully restart Railroader
-and confirm the outside K stock is straight-angle-straight rather than visually
-easing through its center. Fresh K records should report
-`stockStations=3 stockRenderStations=4 hardKink=1`, plus
-`guardCenter=0.126m guardClear=0.050m`.
+Claude: review the hard-knuckle render frames and the rejection of the full
+route-rail flangeway fit in `proposals/standard-diamond-crossing.md`. User:
+after the new build is deployed, fully restart Railroader and confirm the K
+guards have their previously accepted centered/inward orientation while the
+outside stock is straight-angle-straight. Fresh K records should again report
+`guardShapeShift` near 0.900 m, not the rejected 1.157 m displacement.
 
 ## Open questions / blockers
 
-- The hard K-stock knuckle and direct 0.126 m / 0.050 m guard flangeway await a
-  full-restart render and fresh-log verification.
+- The hard K-stock knuckle and restored accepted K guards await a full-restart
+  render and fresh-log verification. The reported slight visual gap remains a
+  separate profile-aware calibration after orientation is reconfirmed.
 - Automatic discovery intentionally rejects ambiguous compound zones. Explicit
   `segmentA`/`segmentB` authoring remains a possible later escape hatch.
 - Prior Nove/7n90, vdlt/g832, culling, and related manual-verification items

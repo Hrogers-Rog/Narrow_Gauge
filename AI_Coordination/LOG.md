@@ -3948,3 +3948,29 @@ the original three-station curve. Diagnostics now report
 0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
 `0908B72BC28DA162DBF1AAA02A0BB5D67003A03A74E63C873D09A9EAB1F52FF5`.
 A full restart is required to verify the sharp rendered knuckle.
+
+### [Codex] 2026-07-31 23:58 - Restore the accepted K-guard orientation
+
+The user correctly reported that the preceding gap-only change turned the
+guards back around even though their placement and inward-facing wings had
+already been accepted. Fresh runtime diagnostics identify the exact failure:
+the direct fitter measured `guardCenterBefore=1.164/1.162m`, forced both to
+`0.126m`, and changed `guardShapeShift` from the accepted roughly 0.900 m to
+1.157 m. It had selected the complete route rail rather than the generated K
+point rail, so each supposed flangeway adjustment translated a guard by about
+1.04 m through its frog.
+
+Removed `FitDiamondGuardFlangeway`, its full-route nearest-rail helper, and the
+misleading gap diagnostics. Both native guards and both rendered K assemblies
+now use the exact previously accepted centered, cross-paired guard curves. This
+restores their inward-facing wings and original direction without altering the
+guard shape. The valid 0.076 m railhead + 0.050 m flangeway = 0.126 m nominal
+rule remains in place. A future visual-gap calibration must use the generated
+point-rail/profile geometry and only rigidly translate the already accepted
+guard. The separate four-frame hard-knuckle stock rendering remains enabled.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`161E015639AF1CB60C2ACF21258D3E1A5C2A0A2648D48691B697719547084A97`.
+A full restart is required to verify the restored orientation and retained hard
+stock knuckle.
