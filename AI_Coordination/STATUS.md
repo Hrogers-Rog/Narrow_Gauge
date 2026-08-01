@@ -1,8 +1,8 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-07-31 23:36
+Last updated by: Codex - 2026-07-31 23:47
 
-## Current phase: EF&A K guards centered with inward-facing paired shapes
+## Current phase: EF&A K-guard flangeways anchored to point rails
 
 The `SCollieDillsboro_7kkq` / `SDillsYard2_uvlz` diamond remains the live
 14.79-degree fixture. Fresh runtime evidence proves the crossing-local acute
@@ -34,21 +34,32 @@ wings. Guard curves remain in crossing-local coordinates to avoid large-world
 float loss. New diagnostics report `guardCrossPaired=1` and the center-to-center
 `guardShapeShift` rather than the rejected whole-frog `guardSwap`.
 
+The user's current restart confirms the guards are centered correctly and the
+signed kink diagnostics are exact (`10.244/-10.244` and `10.268/-10.268`). The
+remaining visual defect is a slightly excessive guard-to-point-rail gap. The
+narrow K-frog rule and diamond parameters are nominally identical: 0.076 m
+railhead plus 0.050 m clear flangeway equals 0.126 m center spacing. The prior
+diamond placement reached that value indirectly from the outside stock rail
+using `1.435 - 0.126 = 1.309 m`, which does not guarantee 0.126 m against an
+angled K point rail. The current renderer measures the nearest actual point
+rail at the guard center and shifts the whole guard to exactly 0.126 m.
+Diagnostics now report `guardCenterBefore`, `guardCenter`, and `guardClear`.
+
 Build/deploy succeeded with 0 warnings and 0 errors; deployed and output DLL
 SHA-256 hashes match. A full restart is required to load the corrected DLL.
 
 ## Next turn
 
-Claude: review the centered shape-pairing and local guard construction in
+Claude: review the direct point-rail flangeway fit in
 `proposals/standard-diamond-crossing.md`. User: fully restart Railroader and
-confirm both guards remain centered in the K frogs with their wings/knuckles
-facing inward toward each other. Fresh K records should report
-`guardCrossPaired=1`, five stations, and equal/opposite kink magnitudes.
+confirm the slightly excessive gap is closed without moving either guard out
+of the frog center. Fresh K records should report `guardCenter=0.126m` and
+`guardClear=0.050m`.
 
 ## Open questions / blockers
 
-- The centered, inward-facing paired K-guard shapes await a full-restart render
-  and fresh-log verification.
+- The direct 0.126 m point-rail center spacing / 0.050 m clear flangeway awaits
+  a full-restart render and fresh-log verification.
 - Automatic discovery intentionally rejects ambiguous compound zones. Explicit
   `segmentA`/`segmentB` authoring remains a possible later escape hatch.
 - Prior Nove/7n90, vdlt/g832, culling, and related manual-verification items

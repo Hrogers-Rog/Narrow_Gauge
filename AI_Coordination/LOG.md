@@ -3902,3 +3902,26 @@ slightly different 10.244/10.268-degree angles between K frogs. The final
 build/deploy again succeeded with 0 warnings and 0 errors; both DLL SHA-256
 hashes are
 `C60887E527CE0799B5FAC69F5080495D9166D407C70C8469EBE9AEB55509BE94`.
+
+### [Codex] 2026-07-31 23:47 - Match the narrow K-frog flangeway directly
+
+The user's fresh restart accepts the guard locations and inward-facing wings.
+The new diagnostics also prove both target kink angles are exact:
+`10.244/-10.244` and `10.268/-10.268`. The remaining report is a slightly
+excessive visible gap. Source comparison confirms the narrow K frog and this
+diamond already share the same nominal rule: 0.076 m railhead plus 0.050 m
+flangeway equals 0.126 m rail-center separation and 0.050 m clear gap.
+
+The error is therefore anchoring rather than the configured gap. The diamond
+previously translated from its outside stock by `1.435 - 0.126 = 1.309 m`,
+assuming the angled point rail remained an exact full gauge away. Added a
+direct final fit against the nearer measured K point-rail centerline. The
+whole five-station guard shifts rigidly until its center is exactly 0.126 m
+from that rail, preserving location anatomy, paired direction, kink, wings,
+and length. Added `guardCenterBefore`, `guardCenter`, and `guardClear`
+diagnostics; the expected final values are 0.126 m and 0.050 m.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`360040EF1AFB8271A4CB385D49A930E41AC664965215F03455158634D0733855`.
+A full restart is required to verify the direct flangeway fit.

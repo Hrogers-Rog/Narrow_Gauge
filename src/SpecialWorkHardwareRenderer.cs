@@ -465,10 +465,16 @@ namespace NarrowGaugeMod
                         crossingHome,
                         out LineCurve nativeStock))
                     {
-                        nativeKGuards[obtuseFrog] = BuildDiamondKinkedGuardRail(
-                            nativeStock,
+                        nativeKGuards[obtuseFrog] = FitDiamondGuardFlangeway(
+                            BuildDiamondKinkedGuardRail(
+                                nativeStock,
+                                crossingHome,
+                                plan.Parameters),
                             crossingHome,
-                            plan.Parameters);
+                            obtuseFrog,
+                            plan.Parameters.GuardCenterOffset,
+                            out _,
+                            out _);
                     }
                 }
                 foreach (FrogCandidate frog in crossingFrogs)
@@ -2160,11 +2166,21 @@ namespace NarrowGaugeMod
                 name + "-ContinuousOutsideStock",
                 _ => 1f,
                 minimumLength: MinimumPieceLengthForDiamondHardware);
-            LineCurve nativeGuard = BuildDiamondKinkedGuardRail(
-                outsideStock,
+            LineCurve nativeGuard = FitDiamondGuardFlangeway(
+                BuildDiamondKinkedGuardRail(
+                    outsideStock,
+                    crossingHome,
+                    plan.Parameters),
                 crossingHome,
-                plan.Parameters);
+                frog,
+                plan.Parameters.GuardCenterOffset,
+                out float nativeGuardSeparationBefore,
+                out _);
             LineCurve kinkedGuard = pairedGuard ?? nativeGuard;
+            float guardCenterSeparation = DiamondGuardCenterSeparation(
+                kinkedGuard,
+                crossingHome,
+                frog);
             CreateRail(
                 builder,
                 root,
@@ -2218,6 +2234,9 @@ namespace NarrowGaugeMod
                 $"stockLength={outsideStock.Length:0.000}m " +
                 $"guardLength={kinkedGuard.Length:0.000}m " +
                 $"guardOffset={Gauge.Standard.Inside - plan.Parameters.GuardCenterOffset:0.000}m " +
+                $"guardCenterBefore={nativeGuardSeparationBefore:0.000}m " +
+                $"guardCenter={guardCenterSeparation:0.000}m " +
+                $"guardClear={Mathf.Max(0f, guardCenterSeparation - plan.Parameters.RailHeadWidth):0.000}m " +
                 $"guardCrossPaired={(pairedGuard != null ? 1 : 0)} " +
                 $"guardShapeShift={guardShapeShift:0.000}m " +
                 $"guardExtensions={plan.Parameters.GuardLeadLength:0.000}/{plan.Parameters.GuardTrailLength:0.000}m " +
@@ -2369,6 +2388,92 @@ namespace NarrowGaugeMod
                     Quaternion.LookRotation(direction, Vector3.up));
             }
             return new LineCurve(points, hand);
+        }
+
+        private static LineCurve FitDiamondGuardFlangeway(
+            LineCurve localGuard,
+            Vector3 crossingHome,
+            FrogCandidate frog,
+            float desiredCenterSeparation,
+            out float separationBefore,
+            out float separationAfter)
+        {
+            LinePoint[] guardPoints = localGuard.Points.ToArray();
+            if (guardPoints.Length < 3)
+            {
+                separationBefore = 0f;
+                separationAfter = 0f;
+                return localGuard;
+            }
+
+            Vector3 guardCenter = guardPoints[guardPoints.Length / 2].point
+                + crossingHome;
+            Vector3 nearestRailPoint = NearestDiamondRailPoint(
+                frog,
+                guardCenter,
+                out separationBefore);
+            Vector3 awayFromRail = guardCenter - nearestRailPoint;
+            awayFromRail.y = 0f;
+            if (awayFromRail.sqrMagnitude <= 0.0001f)
+            {
+                separationAfter = separationBefore;
+                return localGuard;
+            }
+
+            Vector3 adjustment = awayFromRail.normalized
+                * (desiredCenterSeparation - separationBefore);
+            LineCurve adjusted = new LineCurve(
+                guardPoints.Select(point => new LinePoint(
+                    point.point + adjustment,
+                    point.Rotation)),
+                localGuard.hand);
+            separationAfter = DiamondGuardCenterSeparation(
+                adjusted,
+                crossingHome,
+                frog);
+            return adjusted;
+        }
+
+        private static float DiamondGuardCenterSeparation(
+            LineCurve localGuard,
+            Vector3 crossingHome,
+            FrogCandidate frog)
+        {
+            LinePoint[] points = localGuard.Points.ToArray();
+            if (points.Length < 3)
+            {
+                return 0f;
+            }
+
+            Vector3 center = points[points.Length / 2].point + crossingHome;
+            NearestDiamondRailPoint(frog, center, out float separation);
+            return separation;
+        }
+
+        private static Vector3 NearestDiamondRailPoint(
+            FrogCandidate frog,
+            Vector3 point,
+            out float horizontalSeparation)
+        {
+            LineCurve[] rails =
+            {
+                frog.Intersection.RailA.Curve,
+                frog.Intersection.RailB.Curve
+            };
+            Vector3 nearest = point;
+            horizontalSeparation = float.MaxValue;
+            foreach (LineCurve rail in rails)
+            {
+                Vector3 candidate = rail.LinePointAtDistance(
+                    rail.DistanceTo(point)).point;
+                float separation = HorizontalDistance(point, candidate);
+                if (separation < horizontalSeparation)
+                {
+                    horizontalSeparation = separation;
+                    nearest = candidate;
+                }
+            }
+            return nearest;
         }
 
         private static LineCurve BuildDiamondKinkedGuardRail(

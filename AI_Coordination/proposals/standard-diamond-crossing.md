@@ -229,6 +229,24 @@ large-world float loss in the reflected kink. Because the two measured K
 angles differ slightly, the recentered shape retains its paired inward-facing
 sign but is recalibrated to the target stock's native kink magnitude.
 
+## K-guard flangeway calibration
+
+The user's next restart accepts the centered inward-facing guards but reports
+that their gap to the frog rail remains slightly too large. The intended narrow
+K-frog construction is `RailHeadWidth + FlangewayWidth`: 0.076 + 0.050 =
+0.126 m between rail centers, leaving 0.050 m clear between railhead edges.
+The diamond already used those constants, but placed the guard indirectly from
+the outside stock rail by `Gauge.Standard.Inside - GuardCenterOffset` =
+1.309 m. At an angled K crossing that indirect full-gauge relationship can
+leave more than 0.126 m to the actual point rail.
+
+The guard center is now fitted directly to the nearer of the K frog's two
+measured rail centerlines. The complete five-station guard translates as one
+rigid curve until its center station is exactly 0.126 m from that rail. This
+does not alter its paired inward-facing shape, kink, length, or wings. Runtime
+diagnostics report the pre-fit center distance, final center distance, and
+edge-to-edge clearance.
+
 ## Open disagreements
 
 (none)
