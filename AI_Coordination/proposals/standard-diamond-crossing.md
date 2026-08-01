@@ -62,10 +62,12 @@ map needs to opt into or out of a geometrically ambiguous case.
    center: the distant pair are inward-facing acute V-frogs and the near pair
    are obtuse/K frogs. At each acute frog, put the point rail on the diamond
    side and the wing rails on the approach side, separated by one railhead plus
-   the configured flangeway. Build each K frog by clipping both measured
-   physical rails to opposite sides of the other route's wheel-flange guide;
-   the omitted guide bands form the four required relieved paths. Select one
-   check rail per running rail.
+   the configured flangeway. Build each K frog from two opposing point rails
+   relieved against the measured wheel-flange guides and one outside
+   stock/knuckle rail. Join that outside rail's two planned wing spans through
+   its outer obtuse piece and extrude the result as one uninterrupted mesh.
+   Select one approach check rail per running rail and retain the two additional
+   central K-frog guards.
 7. Build replacement ties while retaining the two source roadbeds and
    continuous route colliders.
 8. Retain the original continuous segment traversal and block ownership.
@@ -143,10 +145,26 @@ ends must be rotated 180 degrees, so the two acute noses face inward and the
 wings face outward. The close-up and the supplied railway diagram also show
 that the former 0.10 m wing offset allowed the railheads to touch; it did not
 include the 0.05 m wheel-flange slot. The corrected acute renderer uses the
-measured `RailHeadWidth + FlangewayWidth` separation. The K renderer no longer
-uses solid full-width point/elbow meshes: each physical rail is split on both
-sides of the crossing route's measured flange guide, leaving an actual 0.05 m
-relieved band through the frog.
+measured `RailHeadWidth + FlangewayWidth` separation.
+
+## Third custom-render evidence
+
+Fresh `[DiamondAcuteFrog]` diagnostics and the user's `22:46:37` close-up show
+the acute orientation correction loaded. The `22:49:14` K-frog close-up shows
+that the two opposing tapered point rails are now correct, but also isolates a
+new construction error: the outside stock/knuckle rail appears as two cut
+halves. The user's `22:48:37` prototype image shows the required result—those
+halves are one continuous bent rail around the two point tips. The same live
+log reports six derived guard candidates but only four selected, matching the
+user's observation that the two central K-frog guards are absent.
+
+The corrected K renderer keeps only the two enclosed-diamond halves as relieved
+point rails. It chooses the outward one of the compiler's two obtuse pieces,
+matches its endpoints to the two measured wing spans, orders all three curves,
+removes duplicate seam points, recalculates frames, and extrudes the complete
+outside stock rail once. Guard selection still keeps the four farthest approach
+checks, then adds the two remaining candidates nearest the diamond center as
+the K-frog guards.
 
 ## Open disagreements
 

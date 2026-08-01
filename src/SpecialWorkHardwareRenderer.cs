@@ -489,10 +489,12 @@ namespace NarrowGaugeMod
                 int guardIndex = 0;
                 GuardRailPlan[] checkRails = SelectDiamondCheckRails(
                     plan.GuardRails,
-                    crossingHome);
+                    crossingHome,
+                    out int kGuardCount);
                 Main.Log(
                     $"[DiamondCheckRails] id={analysis.Definition.Id} " +
-                    $"candidates={plan.GuardRails.Count} selected={checkRails.Length}.");
+                    $"candidates={plan.GuardRails.Count} selected={checkRails.Length} " +
+                    $"kGuards={kGuardCount}.");
                 foreach (GuardRailPlan guard in checkRails)
                 {
                     CreateRail(
@@ -701,9 +703,10 @@ namespace NarrowGaugeMod
 
         private static GuardRailPlan[] SelectDiamondCheckRails(
             IReadOnlyList<GuardRailPlan> guards,
-            Vector3 crossingHome)
+            Vector3 crossingHome,
+            out int kGuardCount)
         {
-            return guards
+            GuardRailPlan[] approachChecks = guards
                 .GroupBy(
                     guard => guard.OppositeRunningRail.Id,
                     StringComparer.OrdinalIgnoreCase)
@@ -714,6 +717,15 @@ namespace NarrowGaugeMod
                     .First())
                 .OrderBy(guard => guard.OppositeRunningRail.Id, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+            GuardRailPlan[] kGuards = guards
+                .Where(guard => !approachChecks.Contains(guard))
+                .OrderBy(guard => HorizontalDistance(
+                    guard.Curve.LinePointAtDistance(guard.Curve.Length * 0.5f).point,
+                    crossingHome))
+                .Take(2)
+                .ToArray();
+            kGuardCount = kGuards.Length;
+            return approachChecks.Concat(kGuards).ToArray();
         }
 
         private static float HorizontalDistance(Vector3 first, Vector3 second)
@@ -1989,8 +2001,64 @@ namespace NarrowGaugeMod
                 return false;
             }
 
-            int renderedPieces = 0;
-            renderedPieces += CreateDiamondFlangewayRailPair(
+            RailPiece[] obtusePieces = plan.FrogPieces
+                .Where(piece =>
+                    string.Equals(
+                        piece.SourcePlanId,
+                        frog.Id,
+                        StringComparison.OrdinalIgnoreCase)
+                    && IsObtuseFrogPiece(piece, frog))
+                .ToArray();
+            WingRailPlan[] wings = plan.WingRails
+                .Where(wing => string.Equals(
+                    wing.FrogId,
+                    frog.Id,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (obtusePieces.Length != 2 || wings.Length != 4)
+            {
+                Main.Warn(
+                    $"[DiamondFlangewayFrog] {name} fallback: expected two " +
+                    $"obtuse pieces and four wings, derived " +
+                    $"{obtusePieces.Length}/{wings.Length}.");
+                return false;
+            }
+
+            Vector3 outward = frog.Intersection.Position - crossingHome;
+            outward.y = 0f;
+            if (outward.sqrMagnitude <= 0.0001f)
+            {
+                outward = frog.NoseDirection;
+            }
+            outward.Normalize();
+            RailPiece outsideStockPiece = obtusePieces
+                .OrderByDescending(piece => DiamondFrogPieceSideScore(
+                    piece,
+                    frog.Intersection.Position,
+                    outward))
+                .First();
+            if (!TryBuildContinuousDiamondStockRail(
+                outsideStockPiece,
+                wings,
+                out LineCurve outsideStock))
+            {
+                Main.Warn(
+                    $"[DiamondFlangewayFrog] {name} fallback: could not join " +
+                    $"outside stock rail '{outsideStockPiece.Id}' to its wings.");
+                return false;
+            }
+
+            CreateRail(
+                builder,
+                root,
+                outsideStock,
+                crossingHome,
+                name + "-ContinuousOutsideStock",
+                _ => 1f,
+                minimumLength: MinimumPieceLengthForDiamondHardware);
+
+            int renderedPoints = 0;
+            renderedPoints += CreateDiamondFlangewayPointRail(
                 builder,
                 root,
                 analysis,
@@ -2001,7 +2069,7 @@ namespace NarrowGaugeMod
                 plan.Parameters.FlangewayWidth,
                 crossingHome,
                 name + "-RailA");
-            renderedPieces += CreateDiamondFlangewayRailPair(
+            renderedPoints += CreateDiamondFlangewayPointRail(
                 builder,
                 root,
                 analysis,
@@ -2023,12 +2091,121 @@ namespace NarrowGaugeMod
                     : 0f;
             Main.Log(
                 $"[DiamondFlangewayFrog] name={name} role={role} " +
-                $"pieces={renderedPieces} flangeway={plan.Parameters.FlangewayWidth:0.000} " +
+                $"pointRails={renderedPoints} " +
+                $"continuousStock=1 " +
+                $"flangeway={plan.Parameters.FlangewayWidth:0.000} " +
                 $"inwardDot={inwardDot:0.000}.");
-            return renderedPieces == 4;
+            return renderedPoints == 2;
         }
 
-        private static int CreateDiamondFlangewayRailPair(
+        private static float DiamondFrogPieceSideScore(
+            RailPiece piece,
+            Vector3 frogPosition,
+            Vector3 outward)
+        {
+            Vector3 closest = piece.Curve.Points
+                .OrderBy(point => HorizontalDistance(point.point, frogPosition))
+                .First()
+                .point;
+            Vector3 offset = closest - frogPosition;
+            offset.y = 0f;
+            return Vector3.Dot(offset, outward);
+        }
+
+        private static bool TryBuildContinuousDiamondStockRail(
+            RailPiece stockPiece,
+            IReadOnlyList<WingRailPlan> wings,
+            out LineCurve continuous)
+        {
+            continuous = null!;
+            WingRailPlan? headWing = wings
+                .OrderBy(wing => DistanceFromCurveEndToPoint(
+                    wing.Curve,
+                    stockPiece.Curve.Head.point))
+                .FirstOrDefault();
+            WingRailPlan? tailWing = wings
+                .Where(wing => wing != headWing)
+                .OrderBy(wing => DistanceFromCurveEndToPoint(
+                    wing.Curve,
+                    stockPiece.Curve.Tail.point))
+                .FirstOrDefault();
+            if (headWing == null
+                || tailWing == null
+                || DistanceFromCurveEndToPoint(
+                    headWing.Curve,
+                    stockPiece.Curve.Head.point) > PhysicalOverlapTolerance
+                || DistanceFromCurveEndToPoint(
+                    tailWing.Curve,
+                    stockPiece.Curve.Tail.point) > PhysicalOverlapTolerance)
+            {
+                return false;
+            }
+
+            LineCurve first = OrientCurveEndToward(
+                headWing.Curve,
+                stockPiece.Curve.Head.point,
+                endAtTarget: true);
+            LineCurve last = OrientCurveEndToward(
+                tailWing.Curve,
+                stockPiece.Curve.Tail.point,
+                endAtTarget: false);
+            var points = new List<LinePoint>();
+            AppendCurvePoints(points, first);
+            AppendCurvePoints(points, stockPiece.Curve);
+            AppendCurvePoints(points, last);
+            if (points.Count < 4)
+            {
+                return false;
+            }
+
+            continuous = NormalizeRenderFrames(
+                new LineCurve(points, first.hand),
+                preserveProfileCenter: false);
+            return continuous.Length >= MinimumPieceLengthForDiamondHardware;
+        }
+
+        private static float DistanceFromCurveEndToPoint(
+            LineCurve curve,
+            Vector3 point)
+        {
+            return Mathf.Min(
+                HorizontalDistance(curve.Head.point, point),
+                HorizontalDistance(curve.Tail.point, point));
+        }
+
+        private static LineCurve OrientCurveEndToward(
+            LineCurve curve,
+            Vector3 target,
+            bool endAtTarget)
+        {
+            bool headIsCloser = HorizontalDistance(curve.Head.point, target)
+                <= HorizontalDistance(curve.Tail.point, target);
+            bool reverse = endAtTarget ? headIsCloser : !headIsCloser;
+            return reverse
+                ? ReverseRailCurvePreservingProfileSide(curve)
+                : curve;
+        }
+
+        private static void AppendCurvePoints(
+            ICollection<LinePoint> destination,
+            LineCurve source)
+        {
+            foreach (LinePoint point in source.Points)
+            {
+                LinePoint? previous = destination.Count > 0
+                    ? destination.Last()
+                    : (LinePoint?)null;
+                if (previous.HasValue
+                    && HorizontalDistance(previous.Value.point, point.point) <= 0.005f)
+                {
+                    continue;
+                }
+
+                destination.Add(point);
+            }
+        }
+
+        private static int CreateDiamondFlangewayPointRail(
             TrackObjectBuilder builder,
             GameObject root,
             SpecialWorkAnalysis analysis,
@@ -2062,30 +2239,24 @@ namespace NarrowGaugeMod
                 return 0;
             }
 
-            // Two copies of the measured running rail are clipped to opposite
-            // sides of the other route's flange guide. Their union is the frog
-            // casting while the omitted band is the true wheel-flange slot.
-            // Doing this for both physical rails produces the four relieved
-            // paths required through an obtuse/K frog.
+            // Only the rail half on the enclosed-diamond side becomes a point
+            // rail. The opposite half is part of the single unbroken outside
+            // stock/knuckle rail assembled above; clipping both halves was the
+            // visible break reported in the live K-frog close-up.
+            Vector3 keepPoint = HorizontalDistance(target.Head.point, crossingHome)
+                <= HorizontalDistance(target.Tail.point, crossingHome)
+                    ? target.Head.point
+                    : target.Tail.point;
             CreateFlangewayCutFrogRail(
                 builder,
                 root,
                 target,
                 new[] { crossingFlangeGuide },
-                target.Head.point,
+                keepPoint,
                 flangewayWidth,
                 crossingHome,
-                name + "-Before");
-            CreateFlangewayCutFrogRail(
-                builder,
-                root,
-                target,
-                new[] { crossingFlangeGuide },
-                target.Tail.point,
-                flangewayWidth,
-                crossingHome,
-                name + "-After");
-            return 2;
+                name + "-Point");
+            return 1;
         }
 
         private static void CreateCompoundVeeFrogAssembly(

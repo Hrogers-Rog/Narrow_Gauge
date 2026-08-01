@@ -3739,3 +3739,30 @@ four physical flange openings instead of cosmetic marks. Added
 SHA-256 hashes match. A full game restart and visual inspection of both mirrored
 acute assemblies and both relieved K frogs are required. Next: Claude reviews
 the implementation and proposal; the user performs the third live render.
+
+### [Codex] 2026-07-31 22:52 - Join K stock rails and restore K guards
+
+Reviewed the user's `22:46:37` K close-up, the supplied correct `22:48:37`
+prototype, the current `22:49:14` comparison, and matching fresh diagnostics.
+The user explicitly accepted the two tapered point rails at each K frog. The
+remaining rail on the outside was wrong because the first flangeway pass kept
+both clipped physical-rail halves; the correct obtuse crossing joins those two
+approaches through one outward knuckle/stock curve without a break. The log
+also showed six guard candidates but only four selected, confirming the two
+central K guards were filtered out by the previous one-per-running-rail rule.
+
+Kept the two enclosed-diamond clipped halves as the accepted point rails. For
+each K frog, the renderer now selects the outward obtuse planned piece, matches
+its two endpoints to their exact wing spans, orients the three curves in travel
+order, removes duplicate seam points, rebuilds their frames, and extrudes the
+result once as `ContinuousOutsideStock`. The other obtuse piece is not rendered
+as a second stock rail because it occupies the accepted point side. Guard
+selection now preserves the four farthest approach checks and adds the two
+remaining candidates nearest crossing center as K-frog guards. New diagnostics
+report point/continuous-stock counts and `kGuards` explicitly.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. The built and deployed DLL SHA-256 hashes match. A
+full restart is required; expected evidence is `pointRails=2 continuousStock=1`
+twice and `selected=6 kGuards=2` once. Next: Claude reviews the change, while
+the user visually checks both continuous K stock rails and the two new guards.
