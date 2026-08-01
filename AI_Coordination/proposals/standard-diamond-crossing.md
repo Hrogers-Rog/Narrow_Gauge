@@ -79,10 +79,11 @@ map needs to opt into or out of a geometrically ambiguous case.
    angle in the opposite signed direction. Extend both ends and use the
    established narrow-gauge check-rail wing geometry on each tip: 0.35 m at 10
    degrees away from the frog line. This yields wing-straight-reverse
-   kink-straight-wing construction. Cross-pair the finished guards between the
-   two obtuse frogs: the guard shaped from either K stock is translated to the
-   other K location. This puts the upper-derived guard at the lower K and the
-   lower-derived guard at the upper K, as required by the crossing anatomy.
+   kink-straight-wing construction. Both guards remain centered in their native
+   K-frog locations. Cross-pair only their SHAPES: recenter the guard derived
+   from either K stock on the other guard's native center station. This retains
+   both correct locations while making the two knuckles and end wings face
+   inward toward one another.
 7. Build replacement ties while retaining the two source roadbeds and
    continuous route colliders.
 8. Retain the original continuous segment traversal and block ownership.
@@ -212,12 +213,21 @@ log simultaneously proves all other calibration inputs loaded:
 `guardStations=5`, `guardLength=3.043/3.056 m`, `guardOffset=1.309 m`, and two
 selected K guards.
 
-The renderer now treats the obtuse frogs as an explicit pair. It constructs
-each guard in crossing-local coordinates and then translates the finished
-curve by the vector from its source obtuse intersection to the paired obtuse
-intersection. Keeping the output curve local to the crossing also removes the
-large-world float loss which left the nominally reflected kinks a few
-hundredths of a degree short.
+The first attempted pair correction translated each complete guard by the
+vector between the two obtuse intersections. The user's `23:33:15` screenshot
+proves that was wrong: it placed both guards entirely outside the trackwork.
+The guards must remain in the middle of their respective K frogs and face
+inward toward each other.
+
+The corrected renderer constructs both native guards in crossing-local
+coordinates, uses each native center station as an immutable target anchor,
+and translates only the paired guard SHAPE onto that anchor. Therefore the
+upper-derived shape occupies the lower guard's centered position and the
+lower-derived shape occupies the upper guard's centered position without the
+extra two-gauge displacement. Keeping the output local also removes the
+large-world float loss in the reflected kink. Because the two measured K
+angles differ slightly, the recentered shape retains its paired inward-facing
+sign but is recalibrated to the target stock's native kink magnitude.
 
 ## Open disagreements
 

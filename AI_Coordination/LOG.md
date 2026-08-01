@@ -3872,3 +3872,33 @@ K diagnostics.
 0 warnings and 0 errors. The output and deployed DLL SHA-256 hashes both equal
 `F61FDC6C385F0296272254C274A4A3312ECC1EB7C1C80BE0EFFBDEF20409480C`.
 A full restart is required to load and visually verify the paired placement.
+
+### [Codex] 2026-07-31 23:36 - Center the paired K-guard shapes
+
+The user's `23:33:15` screenshot disproves the previous whole-frog translation:
+both five-station guards landed completely outside the trackwork. The user
+clarified the intended anatomy unambiguously. Each guard must stay centered in
+its own K-frog assembly, but the upper and lower guard shapes must exchange so
+their knuckles and both end wings face inward toward one another.
+
+Replaced the rejected intersection-to-intersection translation with a
+center-anchored shape exchange. The renderer first constructs the native local
+guard for both obtuse frogs. For each target it takes the other guard's complete
+five-station shape and translates it only by the difference between the source
+and target guard center stations. This preserves both correct center locations,
+all accepted dimensions, and the paired guard's rotations/wing direction while
+leaving stock and point rails unchanged. Diagnostics now report
+`guardCrossPaired` and `guardShapeShift`; the rejected `guardSwap` is removed.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`E58A5ED072262A7BD91D00E1D1A4017AA7A90BF0431A327B8DED6DC8124732C2`.
+A full restart is required to verify the centered inward-facing render.
+
+Before final deployment, the recentering step was also made to preserve the
+paired shape's inward-facing signed direction while recalibrating its kink
+magnitude to the native target guard. This avoids exchanging the fixture's
+slightly different 10.244/10.268-degree angles between K frogs. The final
+build/deploy again succeeded with 0 warnings and 0 errors; both DLL SHA-256
+hashes are
+`C60887E527CE0799B5FAC69F5080495D9166D407C70C8469EBE9AEB55509BE94`.

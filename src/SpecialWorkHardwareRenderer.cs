@@ -456,6 +456,21 @@ namespace NarrowGaugeMod
                 FrogCandidate[] obtuseFrogs = resolvedDiamondRoles
                     ? crossingFrogs.Where(frog => !acuteFrogs.Contains(frog)).ToArray()
                     : Array.Empty<FrogCandidate>();
+                var nativeKGuards = new Dictionary<FrogCandidate, LineCurve>();
+                foreach (FrogCandidate obtuseFrog in obtuseFrogs)
+                {
+                    if (TryBuildDiamondOutsideStockRail(
+                        plan,
+                        obtuseFrog,
+                        crossingHome,
+                        out LineCurve nativeStock))
+                    {
+                        nativeKGuards[obtuseFrog] = BuildDiamondKinkedGuardRail(
+                            nativeStock,
+                            crossingHome,
+                            plan.Parameters);
+                    }
+                }
                 foreach (FrogCandidate frog in crossingFrogs)
                 {
                     if (resolvedDiamondRoles && acuteFrogs.Contains(frog))
@@ -471,14 +486,25 @@ namespace NarrowGaugeMod
                     }
                     else if (resolvedDiamondRoles)
                     {
-                        // The two obtuse guards cross-pair: the rail shaped at
-                        // either K belongs at the other K location.
+                        // Cross-pair the guard SHAPES while retaining each
+                        // native guard center. The upper-derived shape belongs
+                        // at the lower target and vice versa, but neither guard
+                        // should leave the center of its target K assembly.
                         FrogCandidate? pairedObtuseFrog = obtuseFrogs
                             .FirstOrDefault(candidate => candidate != frog);
-                        Vector3 guardSwapOffset = pairedObtuseFrog == null
-                            ? Vector3.zero
-                            : pairedObtuseFrog.Intersection.Position
-                                - frog.Intersection.Position;
+                        LineCurve? pairedGuard = null;
+                        float guardShapeShift = 0f;
+                        if (pairedObtuseFrog != null
+                            && nativeKGuards.TryGetValue(frog, out LineCurve targetGuard)
+                            && nativeKGuards.TryGetValue(
+                                pairedObtuseFrog,
+                                out LineCurve sourceGuard))
+                        {
+                            pairedGuard = RecenterDiamondGuardShape(
+                                sourceGuard,
+                                targetGuard,
+                                out guardShapeShift);
+                        }
                         if (CreateDiamondObtuseFrogAssembly(
                             builder,
                             root,
@@ -486,7 +512,8 @@ namespace NarrowGaugeMod
                             plan,
                             frog,
                             crossingHome,
-                            guardSwapOffset,
+                            pairedGuard,
+                            guardShapeShift,
                             "ObtuseFrog-" + frogIndex++))
                         {
                             renderedKGuardCount++;
@@ -634,7 +661,8 @@ namespace NarrowGaugeMod
             SpecialWorkMeshPlan plan,
             FrogCandidate frog,
             Vector3 crossingHome,
-            Vector3 guardSwapOffset,
+            LineCurve? pairedGuard,
+            float guardShapeShift,
             string name)
         {
             if (CreateDiamondFlangewayFrogAssembly(
@@ -644,7 +672,8 @@ namespace NarrowGaugeMod
                 plan,
                 frog,
                 crossingHome,
-                guardSwapOffset,
+                pairedGuard,
+                guardShapeShift,
                 name,
                 "obtuse-k"))
             {
@@ -2095,7 +2124,8 @@ namespace NarrowGaugeMod
             SpecialWorkMeshPlan plan,
             FrogCandidate frog,
             Vector3 crossingHome,
-            Vector3 guardSwapOffset,
+            LineCurve? pairedGuard,
+            float guardShapeShift,
             string name,
             string role)
         {
@@ -2110,50 +2140,15 @@ namespace NarrowGaugeMod
                 return false;
             }
 
-            RailPiece[] obtusePieces = plan.FrogPieces
-                .Where(piece =>
-                    string.Equals(
-                        piece.SourcePlanId,
-                        frog.Id,
-                        StringComparison.OrdinalIgnoreCase)
-                    && IsObtuseFrogPiece(piece, frog))
-                .ToArray();
-            WingRailPlan[] wings = plan.WingRails
-                .Where(wing => string.Equals(
-                    wing.FrogId,
-                    frog.Id,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToArray();
-            if (obtusePieces.Length != 2 || wings.Length != 4)
-            {
-                Main.Warn(
-                    $"[DiamondFlangewayFrog] {name} fallback: expected two " +
-                    $"obtuse pieces and four wings, derived " +
-                    $"{obtusePieces.Length}/{wings.Length}.");
-                return false;
-            }
-
-            Vector3 outward = frog.Intersection.Position - crossingHome;
-            outward.y = 0f;
-            if (outward.sqrMagnitude <= 0.0001f)
-            {
-                outward = frog.NoseDirection;
-            }
-            outward.Normalize();
-            RailPiece outsideStockPiece = obtusePieces
-                .OrderByDescending(piece => DiamondFrogPieceSideScore(
-                    piece,
-                    frog.Intersection.Position,
-                    outward))
-                .First();
-            if (!TryBuildContinuousDiamondStockRail(
-                outsideStockPiece,
-                wings,
+            if (!TryBuildDiamondOutsideStockRail(
+                plan,
+                frog,
+                crossingHome,
                 out LineCurve outsideStock))
             {
                 Main.Warn(
-                    $"[DiamondFlangewayFrog] {name} fallback: could not join " +
-                    $"outside stock rail '{outsideStockPiece.Id}' to its wings.");
+                    $"[DiamondFlangewayFrog] {name} fallback: could not resolve " +
+                    "its continuous outside stock rail.");
                 return false;
             }
 
@@ -2165,11 +2160,11 @@ namespace NarrowGaugeMod
                 name + "-ContinuousOutsideStock",
                 _ => 1f,
                 minimumLength: MinimumPieceLengthForDiamondHardware);
-            LineCurve kinkedGuard = BuildDiamondKinkedGuardRail(
+            LineCurve nativeGuard = BuildDiamondKinkedGuardRail(
                 outsideStock,
                 crossingHome,
-                guardSwapOffset,
                 plan.Parameters);
+            LineCurve kinkedGuard = pairedGuard ?? nativeGuard;
             CreateRail(
                 builder,
                 root,
@@ -2223,7 +2218,8 @@ namespace NarrowGaugeMod
                 $"stockLength={outsideStock.Length:0.000}m " +
                 $"guardLength={kinkedGuard.Length:0.000}m " +
                 $"guardOffset={Gauge.Standard.Inside - plan.Parameters.GuardCenterOffset:0.000}m " +
-                $"guardSwap={HorizontalDistance(Vector3.zero, guardSwapOffset):0.000}m " +
+                $"guardCrossPaired={(pairedGuard != null ? 1 : 0)} " +
+                $"guardShapeShift={guardShapeShift:0.000}m " +
                 $"guardExtensions={plan.Parameters.GuardLeadLength:0.000}/{plan.Parameters.GuardTrailLength:0.000}m " +
                 $"guardWings={DiamondKGuardWingLength:0.000}m@{DiamondKGuardWingAngleDegrees:0.0}deg " +
                 $"flangeway={plan.Parameters.FlangewayWidth:0.000} " +
@@ -2231,10 +2227,153 @@ namespace NarrowGaugeMod
             return renderedPoints == 2;
         }
 
+        private static bool TryBuildDiamondOutsideStockRail(
+            SpecialWorkMeshPlan plan,
+            FrogCandidate frog,
+            Vector3 crossingHome,
+            out LineCurve outsideStock)
+        {
+            outsideStock = null!;
+            RailPiece[] obtusePieces = plan.FrogPieces
+                .Where(piece =>
+                    string.Equals(
+                        piece.SourcePlanId,
+                        frog.Id,
+                        StringComparison.OrdinalIgnoreCase)
+                    && IsObtuseFrogPiece(piece, frog))
+                .ToArray();
+            WingRailPlan[] wings = plan.WingRails
+                .Where(wing => string.Equals(
+                    wing.FrogId,
+                    frog.Id,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (obtusePieces.Length != 2 || wings.Length != 4)
+            {
+                return false;
+            }
+
+            Vector3 outward = frog.Intersection.Position - crossingHome;
+            outward.y = 0f;
+            if (outward.sqrMagnitude <= 0.0001f)
+            {
+                outward = frog.NoseDirection;
+            }
+            outward.Normalize();
+            RailPiece outsideStockPiece = obtusePieces
+                .OrderByDescending(piece => DiamondFrogPieceSideScore(
+                    piece,
+                    frog.Intersection.Position,
+                    outward))
+                .First();
+            return TryBuildContinuousDiamondStockRail(
+                outsideStockPiece,
+                wings,
+                out outsideStock);
+        }
+
+        private static LineCurve RecenterDiamondGuardShape(
+            LineCurve sourceGuard,
+            LineCurve targetGuard,
+            out float shapeShift)
+        {
+            LinePoint[] sourcePoints = sourceGuard.Points.ToArray();
+            LinePoint[] targetPoints = targetGuard.Points.ToArray();
+            if (sourcePoints.Length < 3 || targetPoints.Length < 3)
+            {
+                shapeShift = 0f;
+                return targetGuard;
+            }
+
+            Vector3 sourceCenter = sourcePoints[sourcePoints.Length / 2].point;
+            Vector3 targetCenter = targetPoints[targetPoints.Length / 2].point;
+            Vector3 centerOffset = targetCenter - sourceCenter;
+            shapeShift = HorizontalDistance(Vector3.zero, centerOffset);
+            Vector3[] recentered = sourcePoints
+                .Select(point => point.point + centerOffset)
+                .ToArray();
+
+            // Retain the paired guard's inward-facing sign, but calibrate its
+            // magnitude to the stock/guard angle at this target K frog.
+            float sourceKink = HorizontalSignedKinkAngleDegrees(sourceGuard);
+            float targetMagnitude = Mathf.Abs(
+                HorizontalSignedKinkAngleDegrees(targetGuard));
+            float desiredKink = sourceKink < 0f ? -targetMagnitude : targetMagnitude;
+            float correction = desiredKink - sourceKink;
+            LineCurve firstCandidate = BuildRecenteredDiamondGuard(
+                recentered,
+                correction,
+                sourceGuard.hand);
+            LineCurve secondCandidate = BuildRecenteredDiamondGuard(
+                recentered,
+                -correction,
+                sourceGuard.hand);
+            return Mathf.Abs(
+                    HorizontalSignedKinkAngleDegrees(firstCandidate) - desiredKink)
+                <= Mathf.Abs(
+                    HorizontalSignedKinkAngleDegrees(secondCandidate) - desiredKink)
+                    ? firstCandidate
+                    : secondCandidate;
+        }
+
+        private static LineCurve BuildRecenteredDiamondGuard(
+            IReadOnlyList<Vector3> sourcePoints,
+            float kinkCorrectionDegrees,
+            Hand hand)
+        {
+            int middle = sourcePoints.Count / 2;
+            Vector3 center = sourcePoints[middle];
+            Quaternion firstRotation = Quaternion.Euler(
+                0f,
+                -kinkCorrectionDegrees * 0.5f,
+                0f);
+            Quaternion secondRotation = Quaternion.Euler(
+                0f,
+                kinkCorrectionDegrees * 0.5f,
+                0f);
+            Vector3[] positions = sourcePoints
+                .Select((point, index) => index < middle
+                    ? center + firstRotation * (point - center)
+                    : index > middle
+                        ? center + secondRotation * (point - center)
+                        : center)
+                .ToArray();
+            Vector3[] directions = new Vector3[positions.Length - 1];
+            for (int index = 0; index < directions.Length; index++)
+            {
+                directions[index] = positions[index + 1] - positions[index];
+                directions[index].y = 0f;
+                directions[index].Normalize();
+            }
+
+            var points = new LinePoint[positions.Length];
+            for (int index = 0; index < positions.Length; index++)
+            {
+                Vector3 direction;
+                if (index == 0)
+                {
+                    direction = directions[0];
+                }
+                else if (index == positions.Length - 1)
+                {
+                    direction = directions[directions.Length - 1];
+                }
+                else
+                {
+                    direction = (
+                        directions[index - 1]
+                        + directions[index]).normalized;
+                }
+                points[index] = new LinePoint(
+                    positions[index],
+                    Quaternion.LookRotation(direction, Vector3.up));
+            }
+            return new LineCurve(points, hand);
+        }
+
         private static LineCurve BuildDiamondKinkedGuardRail(
             LineCurve outsideStock,
             Vector3 crossingHome,
-            Vector3 guardSwapOffset,
             SpecialWorkGeometryParameters parameters)
         {
             LinePoint[] points = outsideStock.Points
@@ -2261,7 +2400,6 @@ namespace NarrowGaugeMod
                 parameters.GuardCenterOffset,
                 Gauge.Standard.Inside - parameters.GuardCenterOffset);
             Vector3 translation = acrossGauge * transverseOffset;
-            Vector3 localSwapOffset = guardSwapOffset;
             Vector3 start = points[0].point + translation;
             Vector3 end = points[points.Length - 1].point + translation;
             Vector3 sourceKink = stockKink + translation;
@@ -2324,11 +2462,6 @@ namespace NarrowGaugeMod
             Vector3 endWingTip = endWorkingHeel
                 + outgoing * endWingLength
                 + endFlareSide * endLateralFlare;
-            startWingTip += localSwapOffset;
-            startWorkingHeel += localSwapOffset;
-            mirroredKink += localSwapOffset;
-            endWorkingHeel += localSwapOffset;
-            endWingTip += localSwapOffset;
             Vector3 startWingDirection = startWorkingHeel - startWingTip;
             Vector3 endWingDirection = endWingTip - endWorkingHeel;
             startWingDirection.y = 0f;
