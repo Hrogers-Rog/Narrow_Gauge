@@ -19,6 +19,12 @@ implemented/accepted runtime path. `SpecialWorkAuthoring` only supports one
 `anchorNode`; a generic diamond needs explicit segment-pair authoring and a
 segment-pair discovery/compile adapter.
 
+The user's second screenshot live-confirms the fallback: two complete vanilla
+rail/tie beds overlap with no crossing points or guards. `Player-prev.log`
+loads the preset catalog but produces only the 13 pre-existing dual-gauge
+analyses and no crossing plan. No node placement can activate code that does
+not yet exist.
+
 ## Next turn
 
 Claude: review `proposals/standard-diamond-crossing.md` against the current

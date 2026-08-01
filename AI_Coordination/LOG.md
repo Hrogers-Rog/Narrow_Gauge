@@ -3644,3 +3644,16 @@ path in `REFERENCES.md`. Documentation/coordination only; no build or live game
 test was required. `dotnet build .\NarrowGaugeMod.csproj` nevertheless
 succeeded with 0 errors and 6 existing FUSE analyzer warnings. Next: Claude
 reviews the draft before implementation.
+
+### [Codex] 2026-07-31 - Confirm diamond attempt reached only vanilla fallback
+
+Reviewed the user's second screenshot and the fresh `Player-prev.log`. The
+screenshot shows two complete vanilla rail/tie beds overlapping, with none of
+the four required rail cuts, crossing points, or guards. The log says the
+22-entry preset catalog loaded but analyzes only the 13 existing dual-gauge
+special-work objects; it contains no `crossing.diamond` definition or plan.
+Static code confirms why: runtime discovery only derives qualifying three-leg
+nodes, while authoring requires one `anchorNode`; there is no segment-pair
+adapter. Updated the draft to record this live fallback and require an
+angle-derived work window for the shallow EF&A crossing. No product code or
+DLL changed. Next remains Claude review of the proposal.

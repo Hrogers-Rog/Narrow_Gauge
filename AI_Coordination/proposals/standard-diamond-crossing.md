@@ -55,6 +55,12 @@ agreed during implementation). Validation should require:
    guard rails, ties, ballast mask, and any required render colliders.
 7. Retain the original continuous segment traversal and block ownership.
 
+The pictured EF&A crossing is shallow enough that the four rail intersections
+span a substantial distance along both routes. The render-suppression window
+must therefore be derived from the outermost rail intersections plus the
+angle-derived frog and guard extents. DKW's fixed 1.5 m proxy margin is not a
+safe general boundary for this instance.
+
 The existing `RailIntersectionPrototype` local geometric intersection work is
 the preferred foundation. DKW's overall arrangement is useful evidence, but
 its decompiled `Intersects` helper should not be copied verbatim because the
@@ -74,6 +80,16 @@ centerline crossing, derives four rail intersections, and builds custom
 crossing geometry. `CalculateKREProxies` returns front/back render proxies for
 both source segments. The descriptor patch substitutes those proxies for
 ordinary rendering while leaving the two native routes graph-disconnected.
+
+## Live fallback evidence
+
+The user's `2026-07-31 21:42:21` screenshot shows both complete vanilla rail
+and tie meshes drawn through one another. There are no rail cuts, crossing
+points, guards, or special-work tie treatment. The immediately preceding
+`Player-prev.log` reports that the preset catalog loaded, then lists 13
+analyzed special-work objects, none with a crossing preset. This confirms the
+failure is the absent segment-pair discovery/render path, not a four-node
+topology mistake or a rejected generated plan.
 
 ## Open disagreements
 
