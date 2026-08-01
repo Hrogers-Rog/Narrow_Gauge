@@ -453,6 +453,9 @@ namespace NarrowGaugeMod
                     crossingFrogs,
                     crossingHome,
                     out HashSet<FrogCandidate> acuteFrogs);
+                FrogCandidate[] obtuseFrogs = resolvedDiamondRoles
+                    ? crossingFrogs.Where(frog => !acuteFrogs.Contains(frog)).ToArray()
+                    : Array.Empty<FrogCandidate>();
                 foreach (FrogCandidate frog in crossingFrogs)
                 {
                     if (resolvedDiamondRoles && acuteFrogs.Contains(frog))
@@ -468,6 +471,14 @@ namespace NarrowGaugeMod
                     }
                     else if (resolvedDiamondRoles)
                     {
+                        // The two obtuse guards cross-pair: the rail shaped at
+                        // either K belongs at the other K location.
+                        FrogCandidate? pairedObtuseFrog = obtuseFrogs
+                            .FirstOrDefault(candidate => candidate != frog);
+                        Vector3 guardSwapOffset = pairedObtuseFrog == null
+                            ? Vector3.zero
+                            : pairedObtuseFrog.Intersection.Position
+                                - frog.Intersection.Position;
                         if (CreateDiamondObtuseFrogAssembly(
                             builder,
                             root,
@@ -475,6 +486,7 @@ namespace NarrowGaugeMod
                             plan,
                             frog,
                             crossingHome,
+                            guardSwapOffset,
                             "ObtuseFrog-" + frogIndex++))
                         {
                             renderedKGuardCount++;
@@ -622,6 +634,7 @@ namespace NarrowGaugeMod
             SpecialWorkMeshPlan plan,
             FrogCandidate frog,
             Vector3 crossingHome,
+            Vector3 guardSwapOffset,
             string name)
         {
             if (CreateDiamondFlangewayFrogAssembly(
@@ -631,6 +644,7 @@ namespace NarrowGaugeMod
                 plan,
                 frog,
                 crossingHome,
+                guardSwapOffset,
                 name,
                 "obtuse-k"))
             {
@@ -2081,6 +2095,7 @@ namespace NarrowGaugeMod
             SpecialWorkMeshPlan plan,
             FrogCandidate frog,
             Vector3 crossingHome,
+            Vector3 guardSwapOffset,
             string name,
             string role)
         {
@@ -2153,12 +2168,13 @@ namespace NarrowGaugeMod
             LineCurve kinkedGuard = BuildDiamondKinkedGuardRail(
                 outsideStock,
                 crossingHome,
+                guardSwapOffset,
                 plan.Parameters);
             CreateRail(
                 builder,
                 root,
                 kinkedGuard,
-                crossingHome,
+                Vector3.zero,
                 name + "-KinkedGuard",
                 _ => 1f,
                 minimumLength: MinimumPieceLengthForDiamondHardware);
@@ -2207,6 +2223,7 @@ namespace NarrowGaugeMod
                 $"stockLength={outsideStock.Length:0.000}m " +
                 $"guardLength={kinkedGuard.Length:0.000}m " +
                 $"guardOffset={Gauge.Standard.Inside - plan.Parameters.GuardCenterOffset:0.000}m " +
+                $"guardSwap={HorizontalDistance(Vector3.zero, guardSwapOffset):0.000}m " +
                 $"guardExtensions={plan.Parameters.GuardLeadLength:0.000}/{plan.Parameters.GuardTrailLength:0.000}m " +
                 $"guardWings={DiamondKGuardWingLength:0.000}m@{DiamondKGuardWingAngleDegrees:0.0}deg " +
                 $"flangeway={plan.Parameters.FlangewayWidth:0.000} " +
@@ -2217,16 +2234,22 @@ namespace NarrowGaugeMod
         private static LineCurve BuildDiamondKinkedGuardRail(
             LineCurve outsideStock,
             Vector3 crossingHome,
+            Vector3 guardSwapOffset,
             SpecialWorkGeometryParameters parameters)
         {
-            LinePoint[] points = outsideStock.Points.ToArray();
+            LinePoint[] points = outsideStock.Points
+                .Select(point => new LinePoint(
+                    point.point - crossingHome,
+                    point.Rotation))
+                .ToArray();
+            LineCurve localStock = new LineCurve(points, outsideStock.hand);
             if (points.Length < 3)
             {
-                return outsideStock;
+                return localStock;
             }
 
             Vector3 stockKink = points[points.Length / 2].point;
-            Vector3 acrossGauge = crossingHome - stockKink;
+            Vector3 acrossGauge = -stockKink;
             acrossGauge.y = 0f;
             if (acrossGauge.sqrMagnitude <= 0.0001f)
             {
@@ -2238,6 +2261,7 @@ namespace NarrowGaugeMod
                 parameters.GuardCenterOffset,
                 Gauge.Standard.Inside - parameters.GuardCenterOffset);
             Vector3 translation = acrossGauge * transverseOffset;
+            Vector3 localSwapOffset = guardSwapOffset;
             Vector3 start = points[0].point + translation;
             Vector3 end = points[points.Length - 1].point + translation;
             Vector3 sourceKink = stockKink + translation;
@@ -2245,7 +2269,7 @@ namespace NarrowGaugeMod
             chord.y = 0f;
             if (chord.sqrMagnitude <= 0.0001f)
             {
-                return outsideStock;
+                return localStock;
             }
 
             Vector3 kinkOffset = sourceKink - start;
@@ -2261,7 +2285,7 @@ namespace NarrowGaugeMod
             if (incoming.sqrMagnitude <= 0.0001f
                 || outgoing.sqrMagnitude <= 0.0001f)
             {
-                return outsideStock;
+                return localStock;
             }
 
             incoming.Normalize();
@@ -2300,6 +2324,11 @@ namespace NarrowGaugeMod
             Vector3 endWingTip = endWorkingHeel
                 + outgoing * endWingLength
                 + endFlareSide * endLateralFlare;
+            startWingTip += localSwapOffset;
+            startWorkingHeel += localSwapOffset;
+            mirroredKink += localSwapOffset;
+            endWorkingHeel += localSwapOffset;
+            endWingTip += localSwapOffset;
             Vector3 startWingDirection = startWorkingHeel - startWingTip;
             Vector3 endWingDirection = endWingTip - endWorkingHeel;
             startWingDirection.y = 0f;

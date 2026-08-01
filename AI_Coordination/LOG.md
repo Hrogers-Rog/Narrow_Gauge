@@ -3847,3 +3847,28 @@ precision loss while retaining the fixed measured heel connections.
 0 warnings and 0 errors. The output and deployed DLLs both have SHA-256
 `E65165EA3E974B8203994F1725E7F3700A90AFF6B5CC16EF160438FB7BA0CD80`.
 A full Railroader restart is required for visual and fresh-log verification.
+
+### [Codex] 2026-07-31 23:29 - Cross-pair the two diamond K guards
+
+Reviewed the user's `23:22:26` full-restart screenshot and matching fresh log.
+The exact +0.500-degree V correction is now proven by `14.782 -> 15.282` and
+`14.760 -> 15.260`. Both extended five-station K guards also loaded at
+3.043/3.056 m with 1.309 m transverse offset and the requested two
+0.35 m/10-degree wings. The screenshot isolates the remaining fault as pair
+assignment: the complete upper guard belongs at the lower obtuse frog and the
+complete lower guard belongs at the upper obtuse frog.
+
+The crossing renderer now collects the two non-acute frogs as a pair. For each
+K assembly it derives the accepted guard shape, then translates the complete
+five-station curve by the vector from that source K intersection to the other
+K intersection. This literally swaps upper and lower guard curves while
+leaving their stock rails and point rails unchanged. Guard construction and
+rendering now remain relative to crossing home instead of round-tripping
+through 21-km world coordinates; this should also eliminate the remaining
+0.023/0.046-degree float loss in the reflected kink. Added `guardSwap` to the
+K diagnostics.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. The output and deployed DLL SHA-256 hashes both equal
+`F61FDC6C385F0296272254C274A4A3312ECC1EB7C1C80BE0EFFBDEF20409480C`.
+A full restart is required to load and visually verify the paired placement.
