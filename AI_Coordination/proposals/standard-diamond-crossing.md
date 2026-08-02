@@ -61,11 +61,13 @@ map needs to opt into or out of a geometrically ambiguous case.
 6. Classify the four physical intersections by their radius from the crossing
    center: the distant pair are inward-facing acute V-frogs and the near pair
    are obtuse/K frogs. At each acute frog, put the point rail on the diamond
-   side and the wing rails on the approach side. Put each wing bend between
-   the two frog heels, measured from the opposite frog rail back toward the
-   source rail, so the paired throats converge beside the V point rather than
-   spreading outside it. Match the K guards' flangeway: 0.076 m railhead plus
-   0.050 m clear opening, or 0.126 m between rendered profile centers. Open
+   side and the wing rails on the approach side. The source rails have already
+   exchanged sides where they intersect at the acute point, so terminate each
+   wing beyond the opposite frog heel, continuing on the same outside side from
+   which that source wing approaches. Do not move either target back between
+   the heels; that exchanges the source sides a second time and crosses the two
+   wing rails. Match the K guards' flangeway: 0.076 m railhead plus 0.050 m clear
+   opening, or 0.126 m between rendered profile centers. Open
    the rendered acute V by 0.5 degrees relative
    to its theoretical heel-to-intersection chords by setting the nose back on
    the V bisector; keep both measured heel connections fixed. Build each K frog
@@ -247,14 +249,17 @@ untouched, so the exact source +0.500-degree V opening remains unchanged.
 Generic/compound V frogs do not opt into this mesh-frame correction.
 
 For each diamond wing, the renderer computes the frog and source railhead
-profile centers, but places the desired bend on the segment from the opposite
-frog heel back toward the source heel. This inward-side choice is the material
-anatomy correction shown by the user's `09:36` reference; the previous outward
-side produced the widely spread throats in the `09:35` screenshot. The endpoint
-center/frame solve now targets 0.126 m rendered-profile separation, leaving the
-same 0.050 m visible flangeway as the guards. Runtime evidence is exposed as
-`[VeeFrogHeelAlignment] centerShift=0`, `[VeeWingGap] side=inward`, and the
-reported rendered separation/clearance.
+profile centers and targets 0.126 m rendered-profile separation, leaving the
+same 0.050 m visible flangeway as the guards. The first side correction placed
+that target from the opposite frog heel back toward the source heel. The user's
+fresh `09:53` screenshot proves this was a crossed assignment: because the two
+source rails already exchange sides at the acute intersection, moving both
+targets between the heels makes them exchange sides again. The corrected target
+starts at the opposite frog profile and continues away from the source profile,
+preserving the wing's outside approach side without changing its calibrated
+flangeway. Runtime evidence is exposed as `[VeeFrogHeelAlignment]
+centerShift=0`, `[VeeWingGap] side=outside`, and the reported rendered
+separation/clearance.
 
 ## Paired K-guard evidence
 

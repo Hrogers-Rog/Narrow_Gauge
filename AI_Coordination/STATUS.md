@@ -1,53 +1,47 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-08-02 09:46
+Last updated by: Codex - 2026-08-02 09:59
 
-## Current phase: diamond V throats moved inward and heel centerlines restored
+## Current phase: crossed diamond V wings restored to their outside sides
 
-The user's fresh `09:35` screenshot falsified the first rendered-profile wing
-solve. Its 0.100 m distance was correct only numerically: the target was placed
-beyond the opposite frog heel, so the two wing bends spread outward. The
-`09:36` prototype establishes that both bends belong between the frog heels,
-converging close beside the V point. The user also specified that these wing
-slots use the same 0.050 m visible flangeway as the guards, not the native
-switch's 0.024 m slot.
+The user's `09:53` full-restart screenshot proves the preceding inward-target
+correction crossed WingA and WingB through one another. Fresh diagnostics
+confirm that build otherwise loaded as intended: both acute frogs retained
+their exact +0.500-degree openings, zero-shift heel mesh correction, and
+0.126 m rendered wing separation / 0.050 m visible flangeway.
 
-The diamond-only wing solver now walks from the opposite frog profile back
-toward the source profile. It targets `RailHeadWidth + FlangewayWidth` =
-0.076 + 0.050 = 0.126 m between rendered profile centers. Generic switch,
-compound V, and narrow-branch paths retain their existing 0.100 m default and
-do not opt into this solve. Fresh diagnostics should report
-`[VeeWingGap] side=inward profileSeparation=0.126m visibleFlangeway=0.050m`
-and the same dimensions in `[DiamondAcuteFrog]`.
+The crossed result came from overlooking that the two source rails have already
+exchanged physical sides at the acute intersection. Each wing approaches on
+the outside side associated with the opposite frog heel. Moving its target from
+that heel back between the two heels makes the source paths exchange sides a
+second time. The diamond-only target is therefore restored beyond the opposite
+frog profile, away from the source profile. This preserves each wing's outside
+approach side while retaining the user-specified 0.126/0.050 m profile spacing.
+Fresh logs should report `[VeeWingGap] side=outside` for all four wings.
 
-The user's `09:39` heel close-up also shows that shifting the frog heel to
-compensate for `BuildFrogMesh`'s chord frame created a centerline step where the
-V casting meets the stock rail. Both V heel points are now left exactly on the
-source stock-rail centerlines. A diamond-only post-mesh pass rotates the two
-terminal rail-profile rings and their end caps about those fixed heel points
-from the frog chord frames into the actual stock-rail render frames. The nose
-ring is untouched, preserving the exact +0.500-degree V opening. The expected
-diagnostic is `[VeeFrogHeelAlignment] centerShift=0.0000m ...`.
+The terminal V-frog mesh-frame correction is unchanged. Both frog heel centers
+remain exactly on their stock-rail centerlines, the first/last profile rings and
+end caps rotate into the stock render frames, and the nose ring is untouched.
 
 `dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
 0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
-`4C7D751128A64B78467FEC4F582F7421AECC53BF829A04026805BD04FF3EADC0`.
-Railroader PID 41584 began at 09:31:56, before this 09:48 deployment, so a full
+`597CEF376F02A8D24224A4A85DEE7375D8F596E472E900760C160EB4538B4C09`.
+Railroader PID 23660 began at 09:50:46, before this 09:58 deployment, so a full
 restart is required before visual verification.
 
 ## Next turn
 
-User: fully restart Railroader and inspect both acute V frogs. Confirm that the
-paired wing bends now converge beside each V point, their clear slots match the
-K guards, and both frog-to-stock heel seams are centered and flush.
+User: fully restart Railroader and confirm that both V-wing pairs remain on
+their outside sides without crossing, while retaining the guard-matched wing
+flangeway and flush frog-to-stock heel seams.
 
-Claude: review the inward rendered-profile target and terminal mesh-ring frame
-correction in `proposals/standard-diamond-crossing.md`, particularly that the
-mesh edit is diamond-only and leaves the nose ring/+0.500-degree V angle intact.
+Claude: review the corrected outside-side target in
+`proposals/standard-diamond-crossing.md` and the unchanged terminal mesh-ring
+frame correction.
 
 ## Open questions / blockers
 
-- The inward-throat/zero-center-shift build awaits full-restart visual and log
+- The non-crossing outside-target build awaits full-restart visual/log
   verification.
 - The second discovered diamond `crossing:SDillsYard2_rdhn:Setp` (18.68 deg)
   still derives only 3 of 4 frogs and falls back to generic crossing points.

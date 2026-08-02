@@ -4503,3 +4503,28 @@ exact +0.500-degree V opening. `[VeeFrogHeelAlignment]` now reports
 `4C7D751128A64B78467FEC4F582F7421AECC53BF829A04026805BD04FF3EADC0`.
 Railroader PID 41584 began at 09:31:56, before the 09:48 deployment, so the
 new geometry requires a full restart and in-game visual/log verification.
+
+### [Codex] 2026-08-02 09:59 - Undo the crossed V-wing side assignment
+
+The user's `09:53` screenshot from the freshly restarted 09:50 process proves
+the preceding inward-target solve crossed the two V wings through one another.
+The corresponding live log confirms that this was specifically a side error,
+not a stale build or dimension error: all four wings reported `side=inward`,
+0.126 m rendered profile separation and 0.050 m visible flangeway; both frogs
+also retained `centerShift=0`, their terminal frame corrections, and exact
++0.500-degree V openings.
+
+The source rails already exchange physical sides at their acute intersection.
+WingA therefore approaches on the outside side of the opposite B heel, and
+WingB on the outside side of the opposite A heel. Moving either target back
+between the heels makes the paths exchange sides a second time. Restored the
+target vector from the opposite frog profile away from the source profile.
+This removes the crossing while keeping the accepted guard-matched 0.126 m
+center separation / 0.050 m clear opening and leaving the heel mesh-frame fix
+untouched. Fresh logs should report `side=outside`.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`597CEF376F02A8D24224A4A85DEE7375D8F596E472E900760C160EB4538B4C09`.
+Railroader PID 23660 began at 09:50:46, before the 09:58 deployment, so the
+new assembly requires another full restart for visual/log verification.

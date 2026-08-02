@@ -2203,25 +2203,27 @@ namespace NarrowGaugeMod
                 Vector3 frogProfileCenter = ProfileCenter(
                     oppositeHeel,
                     oppositeRail.Curve.hand);
-                // Each bend belongs BETWEEN the two frog heels. Starting at
-                // the opposite/frog profile, walk back toward the source heel;
-                // walking the other way puts both bends outside the throat and
-                // spreads the wing rails apart.
-                Vector3 towardSourceProfile = sourceProfileCenter - frogProfileCenter;
-                towardSourceProfile.y = 0f;
-                if (towardSourceProfile.sqrMagnitude <= 0.0001f)
+                // The source rails have already exchanged sides at the acute
+                // intersection. Each wing therefore terminates beyond the
+                // OPPOSITE frog heel, continuing on the same outside side from
+                // which it approaches. Moving the target back between the two
+                // heels makes WingA and WingB exchange sides a second time and
+                // visibly cross one another.
+                Vector3 awayFromSourceProfile = frogProfileCenter - sourceProfileCenter;
+                awayFromSourceProfile.y = 0f;
+                if (awayFromSourceProfile.sqrMagnitude <= 0.0001f)
                 {
-                    towardSourceProfile = -outward;
+                    awayFromSourceProfile = outward;
                 }
 
                 Vector3 desiredWingProfileCenter = frogProfileCenter
-                    + towardSourceProfile.normalized * wingCenterSeparation;
+                    + awayFromSourceProfile.normalized * wingCenterSeparation;
                 kinkTarget = desiredWingProfileCenter;
                 // The rail-only profile is offset half a head from its curve,
                 // with the side selected by Hand. Solve the endpoint center and
                 // frame together so the RENDERED railhead centers, rather than
                 // the abstract curve points, finish at the requested guard-like
-                // flangeway on the inward side of the throat.
+                // flangeway on the wing's non-crossing outside side.
                 for (int iteration = 0; iteration < 8; iteration++)
                 {
                     kinkDirection = kinkTarget - wing.Tail.point;
@@ -2249,7 +2251,7 @@ namespace NarrowGaugeMod
                     actualWingProfileCenter);
                 Main.Log(
                     $"[VeeWingGap] name={name} " +
-                    $"side=inward " +
+                    $"side=outside " +
                     $"profileSeparation={renderedSeparation:0.000}m " +
                     $"visibleFlangeway={Mathf.Max(0f, renderedSeparation - Gauge.Standard.HeadWidth):0.000}m.");
             }
