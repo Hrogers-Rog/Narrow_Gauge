@@ -1,6 +1,6 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-08-02 08:25
+Last updated by: Codex - 2026-08-02 08:27
 
 ## Current phase: EF&A acute V frogs use the base-game switch flangeway
 
@@ -32,6 +32,13 @@ They build together with this V-frog correction.
 `dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
 0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
 `E5EA223758EE239BC3B2D9BD243699FA33AB5F62F9421DF26BA52A83D6D9A5BF`.
+
+The current `Player.log` is not a verification run. `Railroader.exe` started
+at 07:55:27, before the corrected DLL was deployed at 08:25:09, and its two
+acute records still report the old `wingSeparation=0.126 flangeway=0.050`
+format. This proves the running process still holds the preceding assembly in
+memory. Codex did not close it because doing so could discard the user's live
+session.
 
 ## Next turn
 

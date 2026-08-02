@@ -4382,3 +4382,18 @@ position and shape unchanged.
 0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
 `E5EA223758EE239BC3B2D9BD243699FA33AB5F62F9421DF26BA52A83D6D9A5BF`.
 A full restart and visual comparison with a base-game switch remain required.
+
+### [Codex] 2026-08-02 08:27 - Restart audit still shows the prior assembly
+
+Checked the live process and both Railroader logs after deployment.
+`Railroader.exe` started at 07:55:27, while the corrected DLL was written at
+08:25:09. `Player.log` continues to report
+`wingSeparation=0.126 flangeway=0.050` for both acute frogs, using the old log
+format rather than the new `visibleFlangeway` field. Those records therefore
+prove the process still has the previous assembly loaded; they do not
+contradict or verify the 0.100 m correction. The deployed hash remains
+`E5EA223758EE239BC3B2D9BD243699FA33AB5F62F9421DF26BA52A83D6D9A5BF`.
+
+No code changed. A full user-controlled game exit and restart is still needed;
+Codex did not terminate the running process because that could lose the
+current session.
