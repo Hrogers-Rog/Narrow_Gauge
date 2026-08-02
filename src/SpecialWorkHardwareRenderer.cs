@@ -1908,7 +1908,7 @@ namespace NarrowGaugeMod
             Mesh mesh = NarrowGaugeTrackBuilder.BuildFrogMesh(points, Gauge.Standard);
             if (alignRenderedProfiles)
             {
-                float maximumVertexCorrection = AlignVeeFrogHeelMeshFrames(
+                float maximumVertexCorrection = MatchVeeFrogHeelMeshToStockProfiles(
                     mesh,
                     points,
                     frog.Intersection.RailA.Curve.hand,
@@ -1916,6 +1916,7 @@ namespace NarrowGaugeMod
                 Main.Log(
                     $"[VeeFrogHeelAlignment] name={name} " +
                     $"centerShift=0.0000m " +
+                    $"exactStockProfile=1 " +
                     $"maxVertexCorrection={maximumVertexCorrection:0.0000}m " +
                     $"renderAngle={HorizontalVeeAngleDegrees(points[0].point, points[1].point, points[2].point):0.000}deg.");
             }
@@ -2040,7 +2041,7 @@ namespace NarrowGaugeMod
                     : Vector3.Angle(first, second);
         }
 
-        private static float AlignVeeFrogHeelMeshFrames(
+        private static float MatchVeeFrogHeelMeshToStockProfiles(
             Mesh mesh,
             IReadOnlyList<LinePoint> points,
             Hand handA,
@@ -2065,14 +2066,6 @@ namespace NarrowGaugeMod
             LinePoint last = firstIsA ? points[2] : points[0];
             Hand firstHand = firstIsA ? handA : handB;
             Hand lastHand = firstIsA ? handB : handA;
-            Quaternion frogFirstFrame = Quaternion.LookRotation(
-                points[1].point - first.point,
-                up);
-            Quaternion frogLastFrame = Quaternion.LookRotation(
-                last.point - points[1].point,
-                up);
-            Quaternion stockFirstFrame = StockRailRenderFrame(first, firstHand);
-            Quaternion stockLastFrame = StockRailRenderFrame(last, lastHand);
 
             Vector3[] vertices = mesh.vertices;
             Vector3[] normals = mesh.normals;
@@ -2082,61 +2075,124 @@ namespace NarrowGaugeMod
                 ? remainingVertexCount / 2
                 : 0;
             float maximumCorrection = 0f;
-            RotateRange(
-                0,
-                RailProfileVertexCount,
-                first.point,
-                stockFirstFrame * Quaternion.Inverse(frogFirstFrame));
-            RotateRange(
-                RailProfileVertexCount * 2,
-                RailProfileVertexCount,
-                last.point,
-                stockLastFrame * Quaternion.Inverse(frogLastFrame));
-            if (capVertexCount > 0)
+            Mesh firstReference = BuildHeelStockReference(first, firstHand);
+            Mesh lastReference = BuildHeelStockReference(last, lastHand);
+            try
             {
-                RotateRange(
-                    pathVertexCount,
-                    capVertexCount,
-                    first.point,
-                    stockFirstFrame * Quaternion.Inverse(frogFirstFrame));
-                RotateRange(
-                    pathVertexCount + capVertexCount,
-                    capVertexCount,
-                    last.point,
-                    stockLastFrame * Quaternion.Inverse(frogLastFrame));
-            }
-
-            mesh.vertices = vertices;
-            if (normals.Length == vertices.Length)
-            {
-                mesh.normals = normals;
-            }
-            mesh.RecalculateBounds();
-            return maximumCorrection;
-
-            void RotateRange(int start, int count, Vector3 pivot, Quaternion rotation)
-            {
-                int end = Mathf.Min(start + count, vertices.Length);
-                for (int index = Mathf.Max(0, start); index < end; index++)
+                bool matchedFirst = CopyReferenceHeel(
+                    firstReference,
+                    firstHand,
+                    frogRingStart: 0,
+                    frogCapStart: pathVertexCount);
+                bool matchedLast = CopyReferenceHeel(
+                    lastReference,
+                    lastHand,
+                    frogRingStart: RailProfileVertexCount * 2,
+                    frogCapStart: pathVertexCount + capVertexCount);
+                if (!matchedFirst || !matchedLast)
                 {
-                    Vector3 original = vertices[index];
-                    vertices[index] = pivot + rotation * (original - pivot);
+                    Main.Log(
+                        "[VeeFrogHeelAlignment] Exact stock-profile copy was skipped " +
+                        "because the generated mesh layout was unexpected.");
+                    return 0f;
+                }
+
+                mesh.vertices = vertices;
+                if (normals.Length == vertices.Length)
+                {
+                    mesh.normals = normals;
+                }
+                mesh.RecalculateBounds();
+                return maximumCorrection;
+            }
+            finally
+            {
+                UnityEngine.Object.Destroy(firstReference);
+                UnityEngine.Object.Destroy(lastReference);
+            }
+
+            Mesh BuildHeelStockReference(LinePoint heel, Hand hand)
+            {
+                Vector3 direction = heel.Rotation * Vector3.forward;
+                LinePoint adjacent = new LinePoint(
+                    heel.point + direction * 0.1f,
+                    heel.Rotation);
+                return NarrowGaugeTrackBuilder.BuildStockRailMesh(
+                    new LineCurve(new[] { heel, adjacent }, hand),
+                    Vector3.zero,
+                    Gauge.Standard,
+                    _ => 1f);
+            }
+
+            bool CopyReferenceHeel(
+                Mesh reference,
+                Hand hand,
+                int frogRingStart,
+                int frogCapStart)
+            {
+                Vector3[] referenceVertices = reference.vertices;
+                Vector3[] referenceNormals = reference.normals;
+                int referencePathVertexCount = RailProfileVertexCount * 2;
+                int referenceRemaining = referenceVertices.Length - referencePathVertexCount;
+                int referenceCapVertexCount = referenceRemaining >= 0
+                    && referenceRemaining % 2 == 0
+                        ? referenceRemaining / 2
+                        : 0;
+                if (capVertexCount <= 0
+                    || referenceCapVertexCount != capVertexCount
+                    || frogRingStart < 0
+                    || frogRingStart + RailProfileVertexCount > vertices.Length
+                    || frogCapStart < 0
+                    || frogCapStart + capVertexCount > vertices.Length)
+                {
+                    return false;
+                }
+
+                // BuildStockRailMesh reverses Hand.Left curves. The heel is
+                // therefore its second ring/cap for Left and its first for Right.
+                int referenceRingStart = hand == Hand.Left
+                    ? RailProfileVertexCount
+                    : 0;
+                int referenceCapStart = referencePathVertexCount
+                    + (hand == Hand.Left ? referenceCapVertexCount : 0);
+                CopyRange(
+                    referenceVertices,
+                    referenceNormals,
+                    referenceRingStart,
+                    frogRingStart,
+                    RailProfileVertexCount);
+                CopyRange(
+                    referenceVertices,
+                    referenceNormals,
+                    referenceCapStart,
+                    frogCapStart,
+                    capVertexCount);
+                return true;
+            }
+
+            void CopyRange(
+                Vector3[] sourceVertices,
+                Vector3[] sourceNormals,
+                int sourceStart,
+                int destinationStart,
+                int count)
+            {
+                for (int offset = 0; offset < count; offset++)
+                {
+                    Vector3 original = vertices[destinationStart + offset];
+                    Vector3 replacement = sourceVertices[sourceStart + offset];
+                    vertices[destinationStart + offset] = replacement;
                     maximumCorrection = Mathf.Max(
                         maximumCorrection,
-                        Vector3.Distance(original, vertices[index]));
-                    if (normals.Length == vertices.Length)
+                        Vector3.Distance(original, replacement));
+                    if (normals.Length == vertices.Length
+                        && sourceNormals.Length == sourceVertices.Length)
                     {
-                        normals[index] = rotation * normals[index];
+                        normals[destinationStart + offset] =
+                            sourceNormals[sourceStart + offset];
                     }
                 }
             }
-        }
-
-        private static Quaternion StockRailRenderFrame(LinePoint point, Hand hand)
-        {
-            return hand == Hand.Left
-                ? point.Rotation * Quaternion.Euler(0f, 180f, 0f)
-                : point.Rotation;
         }
 
         private static void CreateVeeWingRail(

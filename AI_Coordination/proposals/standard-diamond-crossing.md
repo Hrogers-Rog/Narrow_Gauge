@@ -246,12 +246,20 @@ The first attempted correction moved each frog heel center to compensate for
 the profile-frame difference. The user's `09:39` close-up falsified that
 approach: it merely converted the frame discrepancy into a visible centerline
 step at the stock-rail handoff. The corrected renderer keeps both frog heel
-points exactly coincident with their stock-rail centerlines. After
-`BuildFrogMesh` creates the V, a diamond-only mesh pass rotates the first/last
-profile rings and their end caps about those fixed heel points from the
-frog-chord frames into the actual stock-rail render frames. The nose ring is
-untouched, so the exact source +0.500-degree V opening remains unchanged.
-Generic/compound V frogs do not opt into this mesh-frame correction.
+points exactly coincident with their stock-rail centerlines. The first
+post-mesh correction rotated the frog's terminal rings and caps into the
+calculated stock frames. The user's `10:27` close-up showed that this reduced
+but did not eliminate the small lateral step: reproducing the stock builder's
+frame was still only an approximation of its finished terminal cross-section.
+
+The final diamond-only pass builds a temporary two-station stock rail through
+each heel with the same `BuildStockRailMesh` path used by the adjoining fixed
+rail. It copies that mesh's exact heel profile ring, end-cap vertices, and
+normals onto the frog terminal. The frog center points and nose ring remain
+untouched, so the exact source +0.500-degree V opening is preserved. The
+user's fresh `10:45` screenshot shows the lateral railhead step removed; the
+remaining thin horizontal mark is the boundary between the separate frog and
+stock end caps. Generic/compound V frogs do not opt into this profile copy.
 
 For each diamond wing, the renderer computes the frog and source railhead
 profile centers and targets 0.126 m rendered-profile separation, leaving the
@@ -288,6 +296,12 @@ straight line along the flangeway, while the leading rail reaches all the way to
 its real bend. Generic V paths retain the original fixed-setback construction.
 `[VeeWingGap]` now also reports `bendSetback`, `straightWing=1`, and
 `straightError`, expected to be 0.0000 m.
+
+The user accepted this construction as perfect after a full restart. Fresh
+runtime diagnostics measured `bendSetback=0.196-0.199m`, retained
+`profileSeparation=0.126m` / `visibleFlangeway=0.050m`, and reported
+`straightError=0.0000-0.0004m` across all four wings. These values are now the
+accepted baseline and must not be disturbed by heel-seam work.
 
 ## Paired K-guard evidence
 

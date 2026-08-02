@@ -4568,3 +4568,34 @@ interpolated expressions in the new diagnostic and was corrected by computing
 `AF7A97800D5B9B164AEFD55E32D87B5F11F6F1028781CC99BCFCB27EBC5B7A46`.
 Railroader PID 37144 began at 10:01:19, before the 10:14 deployment, so a full
 restart is required for visual/log verification.
+
+### [Codex] 2026-08-02 10:47 - Match V-frog heels to exact stock profiles
+
+The user restarted the straight-flange-path build and accepted the rebuilt V
+wings as perfect. Fresh diagnostics establish the accepted baseline:
+`side=outside`, 0.126 m profile separation, 0.050 m visible flangeway,
+0.196-0.199 m solved bend setbacks, and 0.0000-0.0004 m straight error. Both
+acute V castings also retained their exact +0.500-degree opening.
+
+The user's subsequent `10:27` close-up isolated one remaining slight lateral
+step at the V-frog-to-stock-rail heel. Although the preceding pass rotated the
+frog terminal into the calculated stock frame, independently reconstructing
+that frame did not guarantee an identical finished terminal cross-section.
+Replaced the approximate rotation with the base game's actual stock extrusion:
+for each heel the renderer builds a temporary two-station
+`BuildStockRailMesh`, then copies its exact terminal 21-vertex profile ring,
+end cap, and normals onto the frog mesh. The frog center points, nose, V angle,
+and accepted wing curves are untouched. The fresh `10:45` screenshot shows the
+lateral railhead step removed; the remaining transverse hairline is the
+boundary between the two separate end caps.
+
+The first compile caught an invalid `Main.LogWarning` call; changing it to the
+mod's existing `Main.Log` API resolved it. The final
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`E352BFC06FF60844DF0F993CEE0C210E2AC18922A2522683C31E43A6BAA23C09`.
+Railroader editor PID 44044 started at 10:42:31 after deployment. Fresh logs
+report `exactStockProfile=1` on both acute frogs while preserving all accepted
+wing diagnostics. Claude should review the exact terminal-copy isolation; the
+user can decide whether the harmless internal end-cap hairline should also be
+suppressed.
