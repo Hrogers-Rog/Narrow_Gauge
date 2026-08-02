@@ -1,51 +1,56 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-08-02 10:47
+Last updated by: Codex - 2026-08-02 11:56
 
-## Current phase: diamond V-frog heel profiles exactly matched
+## Current phase: fixed-running diamond handoff render-matched
 
-The user accepted the rebuilt straight V wings as perfect. Fresh runtime
-diagnostics preserve the accepted geometry on all four wings:
+The user's debug-labeled `11:23` close-up corrected the target of the reported
+misalignment. It is not a V-frog heel seam. It is the outer ownership handoff
+between custom `FixedRunning crossing-b:right` and the normal stock rail on
+`SDillsYard2_uvlz`.
 
-- `side=outside`
-- `profileSeparation=0.126m` / `visibleFlangeway=0.050m`
-- solved `bendSetback=0.196-0.199m`
-- `straightWing=1` / `straightError=0.0000-0.0004m`
-- exact +0.500-degree diamond V opening
+The cause was two incompatible render curves for one authored Bezier:
 
-The remaining `10:27` close-up isolated a slight lateral step where the V-frog
-heel met the adjoining fixed stock rail. The previous post-mesh frame rotation
-reproduced the stock orientation mathematically, but did not guarantee an
-identical finished terminal cross-section.
+- automatic crossing discovery approximated the world-space curve with its
+  finer analysis settings and rebuilt reversed frames from horizontal chords;
+- the normal segment renderer subtracts `EndPoint1`, approximates locally with
+  the base game's `0.5/16/40` settings, and retains the Bezier frames.
 
-The diamond-only heel pass now builds a temporary two-station reference with
-the base game's actual `BuildStockRailMesh` path and copies its exact heel
-profile ring, end-cap vertices, and normals onto each frog terminal. It does
-not move the frog centers or nose and does not touch the accepted wing paths.
-The full-restart `10:45` screenshot shows the lateral railhead step removed;
-only the thin boundary between the separate stock and frog end caps remains.
+At the roughly 21.7-km map coordinate, the resulting parallel rail offsets did
+not have identical terminal positions/frames. This was especially visible on
+route B because its authored curve runs B-to-A and the discovery path had
+reconstructed its reversed frames.
+
+`StandardCrossingDiscovery` now builds automatic-diamond routes from the exact
+local-origin approximation used by `SwitchGeometry.MakeTrackLineSegments`. If
+the authored curve is reversed, each stored rotation receives an exact local
+180-degree yaw instead of being reconstructed from a chord. Logical right then
+coincides exactly with the normal renderer's physical left rail (and logical
+left with physical right). No frog, wing, guard, or flangeway renderer code was
+changed this turn.
 
 `dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
 0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
-`E352BFC06FF60844DF0F993CEE0C210E2AC18922A2522683C31E43A6BAA23C09`.
-Railroader editor PID 44044 started at 10:42:31 after deployment. Fresh logs
-confirm `exactStockProfile=1` for both acute frogs and retain all accepted wing
-diagnostics.
+`54A6B5FACFA252BDF274AAA7493835C34679C674E321ABF1DDCAB32D7895EE59`.
+Railroader editor PID 12032 started at 11:46:52 after deployment. Fresh logs
+confirm the target diamond remains valid with 12 fixed rails and four frogs.
+All four accepted wings retain `side=outside`, 0.126/0.050 m separation,
+`straightWing=1`, and 0.0000-0.0004 m straight error.
+
+The user visually inspected the fresh build and confirmed the
+`FixedRunning crossing-b:right` handoff is fixed. The editor was closed after
+that successful check.
 
 ## Next turn
 
-Claude: review the exact stock-profile terminal copy and the accepted straight
-V-wing implementation in `proposals/standard-diamond-crossing.md`.
-
-User: confirm whether the remaining hairline end-cap boundary is acceptable.
-If it should be invisible too, the next isolated change is internal-cap
-suppression/overlap, not another centerline or wing adjustment.
+Claude: review the render-matched automatic-crossing curve in
+`StandardCrossingDiscovery.cs` and the corrected diagnosis in
+`proposals/standard-diamond-crossing.md`.
 
 ## Open questions / blockers
 
-- The separate frog/stock meshes still show a thin transverse end-cap boundary;
-  the lateral terminal-profile misalignment is corrected.
-- The second discovered diamond `crossing:SDillsYard2_rdhn:Setp` (18.68 deg)
-  still derives only 3 of 4 frogs and falls back to generic crossing points.
+- The second discovered diamond `crossing:SDillsYard2_rdhn:Setp` (now measured
+  near 18.7 degrees) still derives only 3 of 4 frogs and falls back to generic
+  crossing points.
 - Prior Nove/7n90, vdlt/g832, culling, and related manual-verification items
   remain recorded in `LOG.md` and were not changed by this fix.

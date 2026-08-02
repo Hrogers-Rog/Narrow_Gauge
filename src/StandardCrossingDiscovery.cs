@@ -115,10 +115,7 @@ namespace NarrowGaugeMod
         {
             try
             {
-                LineCurve curve = SpecialWorkRuntimeDiscovery.OrientedSegmentCurve(
-                    segment,
-                    segment.a,
-                    towardNode: false);
+                LineCurve curve = BuildRenderMatchedAtoBCurve(segment);
                 if (curve.Length < EndpointClearance * 2f + 0.5f)
                 {
                     return null;
@@ -145,6 +142,39 @@ namespace NarrowGaugeMod
                     $"'{segment?.id ?? "<null>"}': {ex.Message}");
                 return null;
             }
+        }
+
+        private static LineCurve BuildRenderMatchedAtoBCurve(TrackSegment segment)
+        {
+            // Segment stock rails are rendered from a local-origin Bezier using
+            // SwitchGeometry.MakeTrackLineSegments. Reproduce that exact
+            // approximation here so the diamond's fixed rails have identical
+            // stations and frames at the ownership handoff.
+            Vector3 origin = segment.Curve.EndPoint1;
+            LineCurve renderedCurve = new LineCurve(
+                    segment.Curve
+                        .OffsetBy(-origin)
+                        .Approximate(1.000005f, 0.5f, 16, 40f),
+                    Hand.Left)
+                .Offset(origin);
+            if (DualGaugeSharedRailRegistry.CurveRunsAtoB(segment))
+            {
+                return renderedCurve;
+            }
+
+            // Reverse the stored frames exactly rather than rebuilding them
+            // from sampled horizontal chords. A 180-degree local yaw preserves
+            // the source curve's grade/up frame and makes the logical right
+            // offset coincide with the normal renderer's physical left rail
+            // (and vice versa) when the authored Bezier runs B-to-A.
+            Quaternion reverse = Quaternion.Euler(0f, 180f, 0f);
+            LinePoint[] reversed = renderedCurve.Points
+                .Reverse()
+                .Select(point => new LinePoint(
+                    point.point,
+                    point.Rotation * reverse))
+                .ToArray();
+            return new LineCurve(reversed, Hand.Left);
         }
 
         private static bool BoundsOverlap(

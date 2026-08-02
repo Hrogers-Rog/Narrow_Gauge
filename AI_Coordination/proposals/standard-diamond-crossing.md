@@ -370,6 +370,38 @@ second use only its outgoing orientation, with the zero-length center bridge
 forming the one hard angle. The guard compiler continues to consume the
 original three-station logical stock curve.
 
+## Fixed-running ownership seam
+
+The user's `11:23` debug-labeled close-up corrects the preceding seam
+diagnosis. The remaining mismatch is not at a V-frog heel. It is the outer
+handoff from custom `FixedRunning crossing-b:right` to the normal stock rail
+that continues beyond the diamond ownership window. Frog, wing, and K-guard
+geometry must remain unchanged while this boundary is corrected.
+
+The two rails currently originate from different approximations of the same
+authored Bezier. Automatic crossing discovery calls
+`OrientedSegmentCurve`, which approximates the world-space segment with
+`Approximate(1.000005, 0.25, 16, 20)`. The base-game segment renderer first
+subtracts `EndPoint1`, then calls `SwitchGeometry.MakeTrackLineSegments`,
+whose approximation is `Approximate(1.000005, 0.5, 16, 40)` in that local
+coordinate frame. Their parallel offsets therefore do not have identical
+positions and frames at the ownership overlap, particularly at the pictured
+roughly 21.7-km world coordinate.
+
+For automatically discovered standard diamonds, the route centerline must be
+the exact render-space approximation: subtract `EndPoint1`, use the base-game
+`0.5/16/40` sampling, restore the world offset, and only then orient the point
+order from segment A to B while rotating each exact reversed frame by a local
+180-degree yaw. This makes the
+compiler's `crossing-a/b:left/right` rails and the normal segment's L/R rails
+come from the same source stations. It is a general fixed-diamond correction;
+other authored special-work discovery retains its existing finer analysis
+curve.
+
+The user's visual check of the fresh `11:46` editor build confirmed that this
+fix aligns `FixedRunning crossing-b:right` with its connecting stock rail.
+The render-matched handoff is accepted.
+
 ## Open disagreements
 
 (none)

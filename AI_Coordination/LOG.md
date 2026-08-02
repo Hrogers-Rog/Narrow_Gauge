@@ -4599,3 +4599,42 @@ report `exactStockProfile=1` on both acute frogs while preserving all accepted
 wing diagnostics. Claude should review the exact terminal-copy isolation; the
 user can decide whether the harmless internal end-cap hairline should also be
 suppressed.
+
+### [Codex] 2026-08-02 11:52 - Render-match the fixed-running ownership seam
+
+The user's `11:23` debug-labeled screenshot corrected my preceding diagnosis:
+the remaining offset is not a V-frog heel. It is the outer handoff between
+custom `FixedRunning crossing-b:right` and the normal stock rail continuing
+beyond the diamond ownership interval. The new work therefore leaves all
+accepted frog, wing, K-stock, and K-guard renderers untouched.
+
+Decompiler comparison found that the two pieces were not built from the same
+render curve. `StandardCrossingDiscovery` used
+`OrientedSegmentCurve`, which approximated the original world-space Bezier at
+`1.000005/0.25/16/20` and, when reversed, discarded the Bezier frames in favor
+of horizontal chord frames. The ordinary segment renderer first subtracts
+`EndPoint1` and then `SwitchGeometry.MakeTrackLineSegments` approximates at
+`1.000005/0.5/16/40`. The sampling/local-coordinate mismatch is measurable at
+the pictured roughly 21.7-km position. Route B also runs opposite its authored
+Bezier, making its reconstructed reversal frame the specific visible failure.
+
+Automatic standard-diamond discovery now reproduces the normal renderer's
+local-origin `0.5/16/40` centerline. A B-to-A authored curve is oriented A-to-B
+by reversing point order and post-multiplying every exact Bezier rotation by a
+local 180-degree yaw. This preserves grade/up and makes the logical right/left
+offset meshes identical to the normal renderer's opposite-named physical
+left/right meshes at the overlap. Other special-work discovery is unchanged.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`54A6B5FACFA252BDF274AAA7493835C34679C674E321ABF1DDCAB32D7895EE59`.
+Railroader editor PID 12032 started at 11:46:52 after deployment. Fresh runtime
+logs confirm the target diamond remains valid with 12 fixed pieces/four frogs,
+and every accepted V wing remains outside, straight, and at 0.126 m profile /
+0.050 m clear separation. The corrected outer seam awaits the user's visual
+confirmation; Claude should review the render-curve equivalence.
+
+The user then visually inspected that fresh build and confirmed the
+`FixedRunning crossing-b:right` connection is fixed. The editor was closed
+after the successful check, so this ownership-handoff geometry is now the
+accepted baseline.
