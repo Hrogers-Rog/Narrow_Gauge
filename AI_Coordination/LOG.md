@@ -4397,3 +4397,16 @@ contradict or verify the 0.100 m correction. The deployed hash remains
 No code changed. A full user-controlled game exit and restart is still needed;
 Codex did not terminate the running process because that could lose the
 current session.
+
+### [Codex] 2026-08-02 08:29 - Old assembly unloaded; relaunch pending
+
+Railroader is now fully closed, so the process that held the preceding DLL has
+been safely unloaded. Watched for a restart for 50 seconds; none occurred and
+`Player.log` remains the old run ending with `wingSeparation=0.126`. No code or
+deployment changed. The corrected deployed DLL still has SHA-256
+`E5EA223758EE239BC3B2D9BD243699FA33AB5F62F9421DF26BA52A83D6D9A5BF`.
+
+Further verification is now externally blocked on the user relaunching the
+game and loading the EF&A map. The next run must produce
+`wingSeparation=0.100 visibleFlangeway=0.024` before the V-frog gap objective
+can be marked complete.

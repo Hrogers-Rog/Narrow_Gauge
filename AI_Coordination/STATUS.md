@@ -1,6 +1,6 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-08-02 08:27
+Last updated by: Codex - 2026-08-02 08:29
 
 ## Current phase: EF&A acute V frogs use the base-game switch flangeway
 
@@ -37,8 +37,9 @@ The current `Player.log` is not a verification run. `Railroader.exe` started
 at 07:55:27, before the corrected DLL was deployed at 08:25:09, and its two
 acute records still report the old `wingSeparation=0.126 flangeway=0.050`
 format. This proves the running process still holds the preceding assembly in
-memory. Codex did not close it because doing so could discard the user's live
-session.
+memory. Railroader is now fully closed, so that old assembly has been safely
+unloaded. A 50-second watch did not observe a restart; fresh verification is
+therefore waiting only on the user launching the game and loading the map.
 
 ## Next turn
 
@@ -53,8 +54,9 @@ diff now that the turn collision has ended.
 
 ## Open questions / blockers
 
-- The requested V-frog clearance has source/decompile/build evidence but still
-  requires a full-restart in-game visual check before it is considered proven.
+- The requested V-frog clearance has source/decompile/build evidence but is
+  blocked on the user relaunching Railroader and loading the map for the
+  required in-game visual/log verification.
 - The second discovered diamond `crossing:SDillsYard2_rdhn:Setp` (18.68 deg)
   still derives only 3 of 4 frogs and falls back to generic crossing points.
 - Automatic discovery intentionally rejects ambiguous compound zones. An
