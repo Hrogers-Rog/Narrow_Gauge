@@ -4469,3 +4469,37 @@ reference and leave profile alignment disabled.
 0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
 `FACD55AB258D5492298738B7F4BEAA618CAD52F510EB74F3F939CBE7D5FF8F21`.
 The current game process predates deployment, so a full restart is required.
+
+### [Codex] 2026-08-02 09:46 - Converge V-wing throats and restore heel centerlines
+
+Fresh runtime evidence from the 09:31-started process loaded the preceding
+profile-aligned assembly and reported 0.100/0.024 m for all four wing slots.
+The user's `09:35` screenshot proved that the solve chose the wrong side of the
+frog heel: it put each wing target beyond the opposite profile and therefore
+spread both bend points outside the throat. The `09:36` prototype shows the
+required anatomy unambiguously—both bends lie between the frog heels and
+converge close beside the V point. The user additionally specified that the
+wing clear opening must equal the guards' 0.050 m flangeway.
+
+Changed the diamond-only wing solve to start at the opposite frog profile and
+move back toward the source profile. The requested rendered-profile separation
+is now `RailHeadWidth + FlangewayWidth` = 0.126 m, leaving 0.050 m clear between
+0.076 m railheads. Generic V paths retain their 0.100 m default. Diagnostics
+now include `side=inward` and should report 0.126/0.050 m after restart.
+
+The user's `09:39` close-up also falsified the preceding frog-heel position
+compensation. Moving the hidden heel point to account for the chord-derived
+frog frame left a visible centerline step where the V casting meets the stock
+rail. Removed that position solve. Both heel points now remain exactly on their
+source rails. Because decompiled `BuildFrogMesh` still discards the supplied
+heel rotations, a diamond-only post-mesh pass rotates the first/last 21-vertex
+profile rings and both end caps about the fixed heel centers into the actual
+`BuildStockRailMesh` frames. The nose ring is not modified, preserving the
+exact +0.500-degree V opening. `[VeeFrogHeelAlignment]` now reports
+`centerShift=0.0000m` and the maximum terminal-vertex rotation displacement.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`4C7D751128A64B78467FEC4F582F7421AECC53BF829A04026805BD04FF3EADC0`.
+Railroader PID 41584 began at 09:31:56, before the 09:48 deployment, so the
+new geometry requires a full restart and in-game visual/log verification.

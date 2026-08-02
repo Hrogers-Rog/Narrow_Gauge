@@ -642,10 +642,10 @@ namespace NarrowGaugeMod
             FrogCandidate inwardFrog = OrientDiamondAcuteFrog(frog, crossingHome);
             // These are explicit common crossings, not symmetric rail-on-rail
             // cuts: the vee/point belongs on the inside of the diamond and the
-            // two wing rails belong on the outside. Match SwitchGeometry's
-            // 0.1 m frog-to-wing center separation exactly; using railhead plus
-            // the generic 0.05 m flangeway here opens the visible slot wider
-            // than a base-game switch.
+            // two wing rails belong on the outside. The wing flangeway must
+            // match the guards: one 0.076 m railhead plus 0.050 m clear opening.
+            float wingCenterSeparation =
+                plan.Parameters.RailHeadWidth + plan.Parameters.FlangewayWidth;
             CreateVeeFrogAssembly(
                 builder,
                 root,
@@ -654,16 +654,16 @@ namespace NarrowGaugeMod
                 Array.Empty<SwitchBladePlan>(),
                 crossingHome,
                 name,
-                BaseGameSwitchFrogRailSeparation,
+                wingCenterSeparation,
                 DiamondAcuteFrogAngleCorrectionDegrees,
                 hardenWingKink: true,
                 alignRenderedProfiles: true);
             Main.Log(
                 $"[DiamondAcuteFrog] name={name} direction=inward " +
                 $"wingSeparation=" +
-                $"{BaseGameSwitchFrogRailSeparation:0.000} " +
+                $"{wingCenterSeparation:0.000} " +
                 $"visibleFlangeway=" +
-                $"{BaseGameSwitchFrogRailSeparation - plan.Parameters.RailHeadWidth:0.000} " +
+                $"{wingCenterSeparation - plan.Parameters.RailHeadWidth:0.000} " +
                 $"profileAligned=1 " +
                 $"wingHardKink=1 " +
                 $"angleCorrection={DiamondAcuteFrogAngleCorrectionDegrees:0.000}deg.");
@@ -1883,9 +1883,6 @@ namespace NarrowGaugeMod
                 localHeelA,
                 localTheoreticalNose,
                 localHeelB);
-            float targetVeeAngle = Mathf.Min(
-                sourceVeeAngle + veeAngleAdjustmentDegrees,
-                175f);
             Vector3 localRenderNose = OpenVeeFrogNoseByDegrees(
                 localHeelA,
                 localTheoreticalNose,
@@ -1899,60 +1896,6 @@ namespace NarrowGaugeMod
                     Quaternion.LookRotation(noseSide, Vector3.up)),
                 new LinePoint(localHeelB, heelB.Rotation)
             };
-            float heelProfileCorrection = 0f;
-            if (alignRenderedProfiles)
-            {
-                Vector3 desiredHeelProfileA = ProfileCenter(
-                        heelA,
-                        frog.Intersection.RailA.Curve.hand)
-                    - switchHome;
-                Vector3 desiredHeelProfileB = ProfileCenter(
-                        heelB,
-                        frog.Intersection.RailB.Curve.hand)
-                    - switchHome;
-
-                // BuildFrogMesh discards the supplied heel rotations and
-                // reconstructs them from each heel-to-nose chord. Iterate the
-                // render-only heel compensation and the requested V opening
-                // together so the final profiles meet the source rails while
-                // the included angle remains exact.
-                for (int iteration = 0; iteration < 8; iteration++)
-                {
-                    points[1] = new LinePoint(
-                        localRenderNose,
-                        Quaternion.LookRotation(noseSide, Vector3.up));
-                    points = AlignVeeFrogHeelProfileCenters(
-                        points,
-                        desiredHeelProfileA,
-                        desiredHeelProfileB,
-                        out heelProfileCorrection);
-                    float compensatedSourceAngle = HorizontalVeeAngleDegrees(
-                        points[0].point,
-                        localTheoreticalNose,
-                        points[2].point);
-                    localRenderNose = OpenVeeFrogNoseByDegrees(
-                        points[0].point,
-                        localTheoreticalNose,
-                        points[2].point,
-                        Mathf.Max(0f, targetVeeAngle - compensatedSourceAngle));
-                }
-
-                points[1] = new LinePoint(
-                    localRenderNose,
-                    Quaternion.LookRotation(noseSide, Vector3.up));
-                points = AlignVeeFrogHeelProfileCenters(
-                    points,
-                    desiredHeelProfileA,
-                    desiredHeelProfileB,
-                    out heelProfileCorrection);
-                heelProfileCorrection = Mathf.Max(
-                    HorizontalDistance(localHeelA, points[0].point),
-                    HorizontalDistance(localHeelB, points[2].point));
-                Main.Log(
-                    $"[VeeFrogHeelAlignment] name={name} " +
-                    $"maxCorrection={heelProfileCorrection:0.0000}m " +
-                    $"renderAngle={HorizontalVeeAngleDegrees(points[0].point, points[1].point, points[2].point):0.000}deg.");
-            }
             if (NeedsMeasuredRailFrameCorrection(analysis))
             {
                 points = NormalizeRenderFrames(
@@ -1963,6 +1906,19 @@ namespace NarrowGaugeMod
             }
 
             Mesh mesh = NarrowGaugeTrackBuilder.BuildFrogMesh(points, Gauge.Standard);
+            if (alignRenderedProfiles)
+            {
+                float maximumVertexCorrection = AlignVeeFrogHeelMeshFrames(
+                    mesh,
+                    points,
+                    frog.Intersection.RailA.Curve.hand,
+                    frog.Intersection.RailB.Curve.hand);
+                Main.Log(
+                    $"[VeeFrogHeelAlignment] name={name} " +
+                    $"centerShift=0.0000m " +
+                    $"maxVertexCorrection={maximumVertexCorrection:0.0000}m " +
+                    $"renderAngle={HorizontalVeeAngleDegrees(points[0].point, points[1].point, points[2].point):0.000}deg.");
+            }
             NarrowGaugeTrackBuilder.CreateMeshObject(builder, mesh, name, root);
 
             if (veeAngleAdjustmentDegrees > 0.0001f)
@@ -2084,58 +2040,103 @@ namespace NarrowGaugeMod
                     : Vector3.Angle(first, second);
         }
 
-        private static LinePoint[] AlignVeeFrogHeelProfileCenters(
-            IReadOnlyList<LinePoint> source,
-            Vector3 desiredProfileCenterA,
-            Vector3 desiredProfileCenterB,
-            out float maximumCorrection)
+        private static float AlignVeeFrogHeelMeshFrames(
+            Mesh mesh,
+            IReadOnlyList<LinePoint> points,
+            Hand handA,
+            Hand handB)
         {
-            maximumCorrection = 0f;
-            if (source == null || source.Count != 3)
+            if (mesh == null
+                || points == null
+                || points.Count != 3
+                || mesh.vertexCount < RailProfileVertexCount * 3)
             {
-                return source?.ToArray() ?? Array.Empty<LinePoint>();
+                return 0f;
             }
 
-            Vector3 originalA = source[0].point;
-            Vector3 originalB = source[2].point;
-            Vector3 heelA = originalA;
-            Vector3 heelB = originalB;
-            Vector3 nose = source[1].point;
-            Vector3 up = source[1].Rotation * Vector3.up;
-            float profileOffset = Gauge.Standard.HeadWidth * 0.5f;
+            Vector3 up = points[1].Rotation * Vector3.up;
+            bool firstIsA = Vector3.Dot(
+                    Vector3.Cross(
+                        points[0].point - points[1].point,
+                        points[2].point - points[1].point),
+                    up)
+                < 0f;
+            LinePoint first = firstIsA ? points[0] : points[2];
+            LinePoint last = firstIsA ? points[2] : points[0];
+            Hand firstHand = firstIsA ? handA : handB;
+            Hand lastHand = firstIsA ? handB : handA;
+            Quaternion frogFirstFrame = Quaternion.LookRotation(
+                points[1].point - first.point,
+                up);
+            Quaternion frogLastFrame = Quaternion.LookRotation(
+                last.point - points[1].point,
+                up);
+            Quaternion stockFirstFrame = StockRailRenderFrame(first, firstHand);
+            Quaternion stockLastFrame = StockRailRenderFrame(last, lastHand);
 
-            // BuildFrogMesh chooses its traversal from this same winding test
-            // and always places MakeRailOnlyProfile on local +X. Reproduce that
-            // endpoint frame calculation, then move only the render centerline
-            // enough for the resulting railhead center to land on the adjacent
-            // stock rail's already-rendered profile center.
-            for (int iteration = 0; iteration < 6; iteration++)
+            Vector3[] vertices = mesh.vertices;
+            Vector3[] normals = mesh.normals;
+            int pathVertexCount = RailProfileVertexCount * 3;
+            int remainingVertexCount = vertices.Length - pathVertexCount;
+            int capVertexCount = remainingVertexCount >= 0 && remainingVertexCount % 2 == 0
+                ? remainingVertexCount / 2
+                : 0;
+            float maximumCorrection = 0f;
+            RotateRange(
+                0,
+                RailProfileVertexCount,
+                first.point,
+                stockFirstFrame * Quaternion.Inverse(frogFirstFrame));
+            RotateRange(
+                RailProfileVertexCount * 2,
+                RailProfileVertexCount,
+                last.point,
+                stockLastFrame * Quaternion.Inverse(frogLastFrame));
+            if (capVertexCount > 0)
             {
-                bool firstIsA = Vector3.Dot(
-                        Vector3.Cross(heelA - nose, heelB - nose),
-                        up)
-                    < 0f;
-                Quaternion frameA = Quaternion.LookRotation(
-                    firstIsA ? nose - heelA : heelA - nose,
-                    up);
-                Quaternion frameB = Quaternion.LookRotation(
-                    firstIsA ? heelB - nose : nose - heelB,
-                    up);
-                heelA = desiredProfileCenterA
-                    - frameA * Vector3.right * profileOffset;
-                heelB = desiredProfileCenterB
-                    - frameB * Vector3.right * profileOffset;
+                RotateRange(
+                    pathVertexCount,
+                    capVertexCount,
+                    first.point,
+                    stockFirstFrame * Quaternion.Inverse(frogFirstFrame));
+                RotateRange(
+                    pathVertexCount + capVertexCount,
+                    capVertexCount,
+                    last.point,
+                    stockLastFrame * Quaternion.Inverse(frogLastFrame));
             }
 
-            maximumCorrection = Mathf.Max(
-                HorizontalDistance(originalA, heelA),
-                HorizontalDistance(originalB, heelB));
-            return new[]
+            mesh.vertices = vertices;
+            if (normals.Length == vertices.Length)
             {
-                new LinePoint(heelA, source[0].Rotation),
-                source[1],
-                new LinePoint(heelB, source[2].Rotation)
-            };
+                mesh.normals = normals;
+            }
+            mesh.RecalculateBounds();
+            return maximumCorrection;
+
+            void RotateRange(int start, int count, Vector3 pivot, Quaternion rotation)
+            {
+                int end = Mathf.Min(start + count, vertices.Length);
+                for (int index = Mathf.Max(0, start); index < end; index++)
+                {
+                    Vector3 original = vertices[index];
+                    vertices[index] = pivot + rotation * (original - pivot);
+                    maximumCorrection = Mathf.Max(
+                        maximumCorrection,
+                        Vector3.Distance(original, vertices[index]));
+                    if (normals.Length == vertices.Length)
+                    {
+                        normals[index] = rotation * normals[index];
+                    }
+                }
+            }
+        }
+
+        private static Quaternion StockRailRenderFrame(LinePoint point, Hand hand)
+        {
+            return hand == Hand.Left
+                ? point.Rotation * Quaternion.Euler(0f, 180f, 0f)
+                : point.Rotation;
         }
 
         private static void CreateVeeWingRail(
@@ -2202,19 +2203,25 @@ namespace NarrowGaugeMod
                 Vector3 frogProfileCenter = ProfileCenter(
                     oppositeHeel,
                     oppositeRail.Curve.hand);
-                Vector3 profileOutward = frogProfileCenter - sourceProfileCenter;
-                profileOutward.y = 0f;
-                if (profileOutward.sqrMagnitude <= 0.0001f)
+                // Each bend belongs BETWEEN the two frog heels. Starting at
+                // the opposite/frog profile, walk back toward the source heel;
+                // walking the other way puts both bends outside the throat and
+                // spreads the wing rails apart.
+                Vector3 towardSourceProfile = sourceProfileCenter - frogProfileCenter;
+                towardSourceProfile.y = 0f;
+                if (towardSourceProfile.sqrMagnitude <= 0.0001f)
                 {
-                    profileOutward = outward;
+                    towardSourceProfile = -outward;
                 }
 
                 Vector3 desiredWingProfileCenter = frogProfileCenter
-                    + profileOutward.normalized * wingCenterSeparation;
+                    + towardSourceProfile.normalized * wingCenterSeparation;
+                kinkTarget = desiredWingProfileCenter;
                 // The rail-only profile is offset half a head from its curve,
                 // with the side selected by Hand. Solve the endpoint center and
                 // frame together so the RENDERED railhead centers, rather than
-                // the abstract curve points, finish exactly 0.100 m apart.
+                // the abstract curve points, finish at the requested guard-like
+                // flangeway on the inward side of the throat.
                 for (int iteration = 0; iteration < 8; iteration++)
                 {
                     kinkDirection = kinkTarget - wing.Tail.point;
@@ -2242,6 +2249,7 @@ namespace NarrowGaugeMod
                     actualWingProfileCenter);
                 Main.Log(
                     $"[VeeWingGap] name={name} " +
+                    $"side=inward " +
                     $"profileSeparation={renderedSeparation:0.000}m " +
                     $"visibleFlangeway={Mathf.Max(0f, renderedSeparation - Gauge.Standard.HeadWidth):0.000}m.");
             }

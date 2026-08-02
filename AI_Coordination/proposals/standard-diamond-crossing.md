@@ -61,9 +61,11 @@ map needs to opt into or out of a geometrically ambiguous case.
 6. Classify the four physical intersections by their radius from the crossing
    center: the distant pair are inward-facing acute V-frogs and the near pair
    are obtuse/K frogs. At each acute frog, put the point rail on the diamond
-   side and the wing rails on the approach side, separated by the base game's
-   0.100 m switch-frog center offset. With the 0.076 m standard railhead this
-   leaves the same approximately 0.024 m visible slot as a native switch. Open
+   side and the wing rails on the approach side. Put each wing bend between
+   the two frog heels, measured from the opposite frog rail back toward the
+   source rail, so the paired throats converge beside the V point rather than
+   spreading outside it. Match the K guards' flangeway: 0.076 m railhead plus
+   0.050 m clear opening, or 0.126 m between rendered profile centers. Open
    the rendered acute V by 0.5 degrees relative
    to its theoretical heel-to-intersection chords by setting the nose back on
    the V bisector; keep both measured heel connections fixed. Build each K frog
@@ -160,10 +162,7 @@ four selected check rails.
 The `22:38:46` close-up then identifies the remaining acute error exactly: the
 point rail is on the approach side and the wings are on the diamond side. Both
 ends must be rotated 180 degrees, so the two acute noses face inward and the
-wings face outward. The first correction also widened the center offset from
-0.100 m to `RailHeadWidth + FlangewayWidth` = 0.126 m. Later direct comparison
-with a native switch and the decompiled base-game construction proves that
-widening was incorrect; the base game itself uses 0.100 m.
+wings face outward.
 
 ## Third custom-render evidence
 
@@ -205,23 +204,21 @@ coordinates exhausted float precision. The current implementation subtracts
 crossing home before solving and building the V mesh, preserving the requested
 exact +0.500-degree delta in a small local coordinate frame.
 
-## Base-game acute-frog flangeway calibration
+## Acute-frog flangeway calibration
 
-The user's current close-up shows the clearance between each acute V point and
-its wing rail is visibly wider than on a base-game switch. The decompiled
-`Track/SwitchGeometry.cs` supplies the authoritative dimension: its
-`FlangewayWidth` constant is 0.100 m, and each switch wing/point curve appends
-its frog-end station exactly 0.100 m laterally from the corresponding frog
-point. This is a rail-center separation, not a 0.100 m clear opening.
+The decompiled base-game `Track/SwitchGeometry.cs` uses 0.100 m between its
+switch frog and wing curve points. That observation was initially applied to
+the diamond as a 0.100 m rendered-profile separation, leaving only 0.024 m
+clear between 0.076 m railheads. The user's `09:36` prototype reference and
+explicit correction establish a different requirement for this fixed diamond:
+the V-wing slot must be identical to its guards' 0.050 m clear flangeway.
 
-`CreateVeeFrogAssembly` was already modeled on that algorithm and defaults to
-0.100 m. Only `CreateDiamondAcuteFrogAssembly` overrode it with 0.126 m
-(`RailHeadWidth + FlangewayWidth`). The diamond now passes the same explicit
-0.100 m center separation as `SwitchGeometry`. With the standard 0.076 m
-railhead, the expected visible edge clearance is approximately 0.024 m. Frog
-orientation, the exact +0.500-degree V opening, wing hard-kink frames, and all
-K-frog geometry remain unchanged. `[DiamondAcuteFrog]` reports
-`wingSeparation=0.100 visibleFlangeway=0.024` for restart verification.
+The diamond therefore uses `RailHeadWidth + FlangewayWidth` = 0.126 m between
+the final rendered profile centers. The generic `CreateVeeFrogAssembly`
+default remains the base-game 0.100 m, so ordinary switch and compound paths
+do not change. `[DiamondAcuteFrog]` and `[VeeWingGap]` report
+`wingSeparation/profileSeparation=0.126` and `visibleFlangeway=0.050` for
+restart verification.
 
 ## Acute V-frog heel seam diagnosis
 
@@ -237,29 +234,27 @@ and reconstructs it with `LookRotation(renderNose - heel)`. The adjoining
 `BuildStockRailMesh` instead extrudes with the measured source-curve rotation.
 The diamond also moves `renderNose` to open the V by 0.500 degrees, so its
 heel-to-nose chord is intentionally not identical to the original rail tangent.
-`MakeRailOnlyProfile` offsets the asymmetric rail profile by half the 0.076 m
-railhead along each frame's local X. Therefore even coincident center points
-render slightly different railhead centers when those two frames differ,
-producing the photographed step.
 
-Changing the supplied frog heel rotations cannot fix this because
-`BuildFrogMesh` discards them. The current diamond-only renderer therefore
-reproduces `BuildFrogMesh`'s winding and endpoint-frame calculation, then
-iteratively shifts each render-only heel center so the frog profile center
-lands exactly on the adjoining stock rail's rendered profile center. It solves
-that compensation together with the nose setback so the final mesh retains the
-exact source +0.500-degree included angle. Generic/compound V frogs do not opt
-into this compensation.
+The first attempted correction moved each frog heel center to compensate for
+the profile-frame difference. The user's `09:39` close-up falsified that
+approach: it merely converted the frame discrepancy into a visible centerline
+step at the stock-rail handoff. The corrected renderer keeps both frog heel
+points exactly coincident with their stock-rail centerlines. After
+`BuildFrogMesh` creates the V, a diamond-only mesh pass rotates the first/last
+profile rings and their end caps about those fixed heel points from the
+frog-chord frames into the actual stock-rail render frames. The nose ring is
+untouched, so the exact source +0.500-degree V opening remains unchanged.
+Generic/compound V frogs do not opt into this mesh-frame correction.
 
-The same profile-side error explained why a 0.100 m CURVE-point offset still
-looked wider than a base-game switch. For each diamond wing, the renderer now
-computes the frog and source railhead profile centers, sets the desired wing
-profile center exactly 0.100 m beyond the frog profile center, and iterates the
-wing endpoint center/frame until `ProfileCenter` reaches that target. It uses
-`ReheadRenderFrame` from the wing's measured frame so reversed curves preserve
-their profile side. The resulting visible edge clearance is 0.100 - 0.076 =
-0.024 m. Runtime evidence is exposed as `[VeeFrogHeelAlignment]` and
-`[VeeWingGap] profileSeparation=0.100m visibleFlangeway=0.024m`.
+For each diamond wing, the renderer computes the frog and source railhead
+profile centers, but places the desired bend on the segment from the opposite
+frog heel back toward the source heel. This inward-side choice is the material
+anatomy correction shown by the user's `09:36` reference; the previous outward
+side produced the widely spread throats in the `09:35` screenshot. The endpoint
+center/frame solve now targets 0.126 m rendered-profile separation, leaving the
+same 0.050 m visible flangeway as the guards. Runtime evidence is exposed as
+`[VeeFrogHeelAlignment] centerShift=0`, `[VeeWingGap] side=inward`, and the
+reported rendered separation/clearance.
 
 ## Paired K-guard evidence
 
