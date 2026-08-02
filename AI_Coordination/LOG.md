@@ -4528,3 +4528,43 @@ untouched. Fresh logs should report `side=outside`.
 `597CEF376F02A8D24224A4A85DEE7375D8F596E472E900760C160EB4538B4C09`.
 Railroader PID 23660 began at 09:50:46, before the 09:58 deployment, so the
 new assembly requires another full restart for visual/log verification.
+
+### [Codex] 2026-08-02 10:15 - Build V wings on the straight flange path
+
+The user's `10:03/10:04` close-ups from the restarted 10:01 process confirm the
+outside-side assignment removed the crossing, but clarify that endpoint
+placement was never the complete wing solution. The existing method still cut
+the incoming source rail at the generic 0.45 m setback, retained every source
+spline station up to that arbitrary point, and moved only the far endpoint to
+the 0.126 m heel target. The working wing was therefore the chord from a fixed
+cutoff to a moved endpoint, not a rail laid straight along the frog flangeway.
+The incoming rail also stopped before the true bend, leaving the throat spread
+too far apart.
+
+Replaced that endpoint-only adjustment on the diamond path with a rendered-
+profile line solve. The new flange line passes through the accepted outside
+heel target and is parallel to the opposite V-frog leg. A 48-sample bracket
+followed by 24 bisection iterations finds where the incoming source rail's
+rendered profile actually intersects that line. The source slice now extends
+to this solved distance instead of 0.45 m. Its incoming terminal frame and a
+separate outgoing station share the same rendered profile center; the outgoing
+station and blunt endpoint use one identical line frame. Consequently the
+complete working wing is exactly straight and parallel to the frog leg while
+the leading rail reaches its real hard bend.
+
+The solve remains gated by the diamond's `alignRenderedProfileGap` option.
+Generic/compound/narrow V paths retain the original fixed setback. The outside
+side, 0.126 m rendered separation, 0.050 m clear opening, terminal frog-mesh
+heel frames, and +0.500-degree nose correction remain unchanged. Diagnostics
+add the solved `bendSetback`, `straightWing=1`, and `straightError` (expected
+0.0000 m). The legacy endpoint behavior remains only as a warned fallback if
+the source profile and flange line cannot be intersected.
+
+The first build attempt exposed only a C# 9 restriction on multiline
+interpolated expressions in the new diagnostic and was corrected by computing
+`straightError` before formatting. The final
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`AF7A97800D5B9B164AEFD55E32D87B5F11F6F1028781CC99BCFCB27EBC5B7A46`.
+Railroader PID 37144 began at 10:01:19, before the 10:14 deployment, so a full
+restart is required for visual/log verification.

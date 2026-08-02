@@ -67,7 +67,12 @@ map needs to opt into or out of a geometrically ambiguous case.
    which that source wing approaches. Do not move either target back between
    the heels; that exchanges the source sides a second time and crosses the two
    wing rails. Match the K guards' flangeway: 0.076 m railhead plus 0.050 m clear
-   opening, or 0.126 m between rendered profile centers. Open
+   opening, or 0.126 m between rendered profile centers. Construct the complete
+   working wing as one straight rendered-profile line parallel to its frog leg.
+   Extend the incoming source rail until its rendered profile intersects that
+   flange line; that solved intersection, not a fixed 0.45 m cutoff, is the hard
+   bend. Give the outgoing bend station and blunt endpoint the same flange-line
+   frame so moving the far endpoint cannot bow or skew the wing. Open
    the rendered acute V by 0.5 degrees relative
    to its theoretical heel-to-intersection chords by setting the nose back on
    the V bisector; keep both measured heel connections fixed. Build each K frog
@@ -260,6 +265,29 @@ preserving the wing's outside approach side without changing its calibrated
 flangeway. Runtime evidence is exposed as `[VeeFrogHeelAlignment]
 centerShift=0`, `[VeeWingGap] side=outside`, and the reported rendered
 separation/clearance.
+
+## Straight V-wing construction
+
+The user's `10:03/10:04` close-ups identify the remaining wing error more
+precisely than the earlier overview. The non-crossing target and final heel gap
+are correct, but the renderer still cuts the incoming source rail at a fixed
+0.45 m setback and moves only the far endpoint of the wing. That makes the
+working wing an arbitrary chord from the fixed cutoff to the corrected heel;
+it is neither a true straight flange path nor parallel to the frog leg. It also
+leaves the incoming portion too short, so the paired throats appear too far
+apart.
+
+The diamond-only path now defines an infinite rendered-profile flange line
+through the 0.126 m heel target, parallel to the opposite frog leg. It samples
+the incoming source rail's rendered profile and bisects the signed line-side
+root to find their actual intersection. The source slice extends to that solved
+distance. At the bend, one incoming frame ends the source rail and one outgoing
+frame begins the wing at the same rendered profile center; the blunt endpoint
+uses that identical outgoing frame. Thus the entire working wing is one exact
+straight line along the flangeway, while the leading rail reaches all the way to
+its real bend. Generic V paths retain the original fixed-setback construction.
+`[VeeWingGap]` now also reports `bendSetback`, `straightWing=1`, and
+`straightError`, expected to be 0.0000 m.
 
 ## Paired K-guard evidence
 

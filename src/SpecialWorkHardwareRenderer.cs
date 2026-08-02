@@ -2171,6 +2171,59 @@ namespace NarrowGaugeMod
                 0f,
                 sourceRail.Curve.Length);
             float boundaryDistance = bladeSideIsAfter ? afterDistance : beforeDistance;
+            Vector3 sourceProfileCenter = Vector3.zero;
+            Vector3 frogProfileCenter = Vector3.zero;
+            Vector3 desiredWingProfileCenter = Vector3.zero;
+            Vector3 flangeDirection = Vector3.zero;
+            bool straightFlangePath = false;
+            if (alignRenderedProfileGap)
+            {
+                sourceProfileCenter = ProfileCenter(
+                    sourceHeel,
+                    sourceRail.Curve.hand);
+                frogProfileCenter = ProfileCenter(
+                    oppositeHeel,
+                    oppositeRail.Curve.hand);
+                // The source rails have already exchanged sides at the acute
+                // intersection. The required flange line is therefore the
+                // straight line parallel to the opposite frog leg, offset past
+                // that leg on the source wing's existing outside side.
+                Vector3 awayFromSourceProfile = frogProfileCenter - sourceProfileCenter;
+                awayFromSourceProfile.y = 0f;
+                if (awayFromSourceProfile.sqrMagnitude <= 0.0001f)
+                {
+                    awayFromSourceProfile = oppositeHeel.point - sourceHeel.point;
+                    awayFromSourceProfile.y = 0f;
+                }
+
+                flangeDirection = oppositeHeel.point - frog.Intersection.Position;
+                flangeDirection.y = 0f;
+                if (awayFromSourceProfile.sqrMagnitude > 0.0001f
+                    && flangeDirection.sqrMagnitude > 0.0001f)
+                {
+                    desiredWingProfileCenter = frogProfileCenter
+                        + awayFromSourceProfile.normalized * wingCenterSeparation;
+                    flangeDirection.Normalize();
+                    straightFlangePath = TryFindProfileLineIntersection(
+                        sourceRail.Curve,
+                        sourceRail.Curve.hand,
+                        intersectionDistance,
+                        boundaryDistance,
+                        desiredWingProfileCenter,
+                        flangeDirection,
+                        out nearDistance,
+                        out _);
+                }
+
+                if (!straightFlangePath)
+                {
+                    Main.Warn(
+                        $"[VeeWingGap] name={name} could not intersect the " +
+                        "incoming rail with its straight flange path; using " +
+                        "the legacy endpoint solve.");
+                }
+            }
+
             LineCurve wing = bladeSideIsAfter
                 ? ReverseRailCurvePreservingProfileSide(
                     Slice(sourceRail.Curve, nearDistance, boundaryDistance))
@@ -2195,53 +2248,34 @@ namespace NarrowGaugeMod
             Quaternion kinkRotation = kinkDirection.sqrMagnitude > 0.0001f
                 ? Quaternion.LookRotation(kinkDirection.normalized, Vector3.up)
                 : oppositeHeel.Rotation;
-            if (alignRenderedProfileGap)
+            if (alignRenderedProfileGap && straightFlangePath)
             {
-                Vector3 sourceProfileCenter = ProfileCenter(
-                    sourceHeel,
-                    sourceRail.Curve.hand);
-                Vector3 frogProfileCenter = ProfileCenter(
-                    oppositeHeel,
-                    oppositeRail.Curve.hand);
-                // The source rails have already exchanged sides at the acute
-                // intersection. Each wing therefore terminates beyond the
-                // OPPOSITE frog heel, continuing on the same outside side from
-                // which it approaches. Moving the target back between the two
-                // heels makes WingA and WingB exchange sides a second time and
-                // visibly cross one another.
-                Vector3 awayFromSourceProfile = frogProfileCenter - sourceProfileCenter;
-                awayFromSourceProfile.y = 0f;
-                if (awayFromSourceProfile.sqrMagnitude <= 0.0001f)
+                Vector3 bendProfileCenter = ProfileCenter(wing.Tail, wing.hand);
+                Vector3 straightWingDirection = desiredWingProfileCenter - bendProfileCenter;
+                if (straightWingDirection.sqrMagnitude <= 0.0001f)
                 {
-                    awayFromSourceProfile = outward;
+                    return;
                 }
 
-                Vector3 desiredWingProfileCenter = frogProfileCenter
-                    + awayFromSourceProfile.normalized * wingCenterSeparation;
-                kinkTarget = desiredWingProfileCenter;
-                // The rail-only profile is offset half a head from its curve,
-                // with the side selected by Hand. Solve the endpoint center and
-                // frame together so the RENDERED railhead centers, rather than
-                // the abstract curve points, finish at the requested guard-like
-                // flangeway on the wing's non-crossing outside side.
-                for (int iteration = 0; iteration < 8; iteration++)
-                {
-                    kinkDirection = kinkTarget - wing.Tail.point;
-                    kinkDirection.y = 0f;
-                    if (kinkDirection.sqrMagnitude <= 0.0001f)
-                    {
-                        break;
-                    }
-
-                    kinkRotation = ReheadRenderFrame(
-                        wing.Tail.Rotation,
-                        kinkDirection.normalized);
-                    float profileOffset = wing.hand == Hand.Left
-                        ? -Gauge.Standard.HeadWidth * 0.5f
-                        : Gauge.Standard.HeadWidth * 0.5f;
-                    kinkTarget = desiredWingProfileCenter
-                        - kinkRotation * Vector3.right * profileOffset;
-                }
+                // Use one frame for the complete working wing. Its first and
+                // last rendered profile centers lie on the same flange line,
+                // so the rail from the bend through the blunt end is exactly
+                // straight and parallel to the frog leg. The separate outgoing
+                // bend station also gives the incoming rail its full length up
+                // to the true line intersection instead of moving only the far
+                // endpoint.
+                kinkRotation = ReheadRenderFrame(
+                    wing.Tail.Rotation,
+                    straightWingDirection.normalized);
+                float profileOffset = wing.hand == Hand.Left
+                    ? -Gauge.Standard.HeadWidth * 0.5f
+                    : Gauge.Standard.HeadWidth * 0.5f;
+                Vector3 outgoingBendTarget = bendProfileCenter
+                    - kinkRotation * Vector3.right * profileOffset;
+                kinkTarget = desiredWingProfileCenter
+                    - kinkRotation * Vector3.right * profileOffset;
+                wing.Add(new LinePoint(outgoingBendTarget, kinkRotation));
+                wing.Add(new LinePoint(kinkTarget, kinkRotation));
 
                 Vector3 actualWingProfileCenter = ProfileCenter(
                     new LinePoint(kinkTarget, kinkRotation),
@@ -2249,24 +2283,37 @@ namespace NarrowGaugeMod
                 float renderedSeparation = HorizontalDistance(
                     frogProfileCenter,
                     actualWingProfileCenter);
+                float straightError = Mathf.Max(
+                    HorizontalDistanceToLine(
+                        bendProfileCenter,
+                        desiredWingProfileCenter,
+                        flangeDirection),
+                    HorizontalDistanceToLine(
+                        actualWingProfileCenter,
+                        desiredWingProfileCenter,
+                        flangeDirection));
                 Main.Log(
                     $"[VeeWingGap] name={name} " +
                     $"side=outside " +
                     $"profileSeparation={renderedSeparation:0.000}m " +
-                    $"visibleFlangeway={Mathf.Max(0f, renderedSeparation - Gauge.Standard.HeadWidth):0.000}m.");
+                    $"visibleFlangeway={Mathf.Max(0f, renderedSeparation - Gauge.Standard.HeadWidth):0.000}m " +
+                    $"bendSetback={Mathf.Abs(nearDistance - intersectionDistance):0.000}m " +
+                    $"straightWing=1 " +
+                    $"straightError={straightError:0.0000}m.");
+            }
+            else
+            {
+                // Generic switch paths and the unlikely failed diamond-line
+                // fallback retain the established endpoint-only construction.
+                wing.Add(new LinePoint(kinkTarget, kinkRotation));
             }
 
-            // The appended kink point's frame must face along the kink itself.
-            // For the diamond path ReheadRenderFrame above also preserves the
-            // source profile side while solving the exact rendered flangeway.
-            // Generic switch paths retain their established LookRotation frame.
-            wing.Add(new LinePoint(kinkTarget, kinkRotation));
             LineCurve renderWing = CorrectMeasuredRailRenderFrame(
                 analysis,
                 sourceRail.Id,
                 wing,
                 preserveProfileCenter: !IsDualBothDiverge(analysis));
-            if (hardenWingKink)
+            if (hardenWingKink && !straightFlangePath)
             {
                 // Fixed diamond hardware only. The station before the appended
                 // kink still carries the source spline's tangent, so the wing
@@ -2729,6 +2776,123 @@ namespace NarrowGaugeMod
                 / determinant;
             intersection = firstOrigin + firstDirection * distance;
             return true;
+        }
+
+        private static bool TryFindProfileLineIntersection(
+            LineCurve curve,
+            Hand hand,
+            float firstDistance,
+            float secondDistance,
+            Vector3 lineOrigin,
+            Vector3 lineDirection,
+            out float curveDistance,
+            out Vector3 profileIntersection)
+        {
+            curveDistance = Mathf.Clamp(firstDistance, 0f, curve.Length);
+            profileIntersection = ProfileCenter(
+                curve.LinePointAtDistance(curveDistance),
+                hand);
+            lineDirection.y = 0f;
+            if (lineDirection.sqrMagnitude <= 0.0001f)
+            {
+                return false;
+            }
+
+            lineDirection.Normalize();
+            float start = Mathf.Clamp(Mathf.Min(firstDistance, secondDistance), 0f, curve.Length);
+            float end = Mathf.Clamp(Mathf.Max(firstDistance, secondDistance), 0f, curve.Length);
+            if (end - start <= 0.0001f)
+            {
+                return false;
+            }
+
+            const int sampleCount = 48;
+            float previousDistance = start;
+            Vector3 previousPoint = ProfileCenter(
+                curve.LinePointAtDistance(previousDistance),
+                hand);
+            float previousSide = SignedHorizontalLineSide(
+                previousPoint,
+                lineOrigin,
+                lineDirection);
+            if (Mathf.Abs(previousSide) <= 0.00001f)
+            {
+                curveDistance = previousDistance;
+                profileIntersection = previousPoint;
+                return true;
+            }
+
+            for (int sample = 1; sample <= sampleCount; sample++)
+            {
+                float currentDistance = Mathf.Lerp(start, end, (float)sample / sampleCount);
+                Vector3 currentPoint = ProfileCenter(
+                    curve.LinePointAtDistance(currentDistance),
+                    hand);
+                float currentSide = SignedHorizontalLineSide(
+                    currentPoint,
+                    lineOrigin,
+                    lineDirection);
+                if (Mathf.Abs(currentSide) <= 0.00001f)
+                {
+                    curveDistance = currentDistance;
+                    profileIntersection = currentPoint;
+                    return true;
+                }
+
+                if (previousSide * currentSide < 0f)
+                {
+                    float low = previousDistance;
+                    float high = currentDistance;
+                    float lowSide = previousSide;
+                    for (int iteration = 0; iteration < 24; iteration++)
+                    {
+                        float middle = (low + high) * 0.5f;
+                        Vector3 middlePoint = ProfileCenter(
+                            curve.LinePointAtDistance(middle),
+                            hand);
+                        float middleSide = SignedHorizontalLineSide(
+                            middlePoint,
+                            lineOrigin,
+                            lineDirection);
+                        if (Mathf.Abs(middleSide) <= 0.000001f)
+                        {
+                            low = middle;
+                            high = middle;
+                            break;
+                        }
+
+                        if (lowSide * middleSide <= 0f)
+                        {
+                            high = middle;
+                        }
+                        else
+                        {
+                            low = middle;
+                            lowSide = middleSide;
+                        }
+                    }
+
+                    curveDistance = (low + high) * 0.5f;
+                    profileIntersection = ProfileCenter(
+                        curve.LinePointAtDistance(curveDistance),
+                        hand);
+                    return true;
+                }
+
+                previousDistance = currentDistance;
+                previousSide = currentSide;
+            }
+
+            return false;
+        }
+
+        private static float SignedHorizontalLineSide(
+            Vector3 point,
+            Vector3 lineOrigin,
+            Vector3 lineDirection)
+        {
+            Vector3 offset = point - lineOrigin;
+            return lineDirection.x * offset.z - lineDirection.z * offset.x;
         }
 
         private static Vector3 ProjectOntoHorizontalLine(
