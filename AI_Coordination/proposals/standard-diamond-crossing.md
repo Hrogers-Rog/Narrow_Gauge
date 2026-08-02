@@ -243,12 +243,23 @@ render slightly different railhead centers when those two frames differ,
 producing the photographed step.
 
 Changing the supplied frog heel rotations cannot fix this because
-`BuildFrogMesh` discards them. A future fix should compensate the two frog heel
-positions by the difference between the adjoining rail's rendered profile
-center and the profile center implied by the frog's reconstructed chord frame,
-or use a custom frog mesh builder that preserves explicit heel frames. It must
-leave the 0.100 m wing set-out, +0.500-degree V opening, and shared centerline
-endpoints unchanged.
+`BuildFrogMesh` discards them. The current diamond-only renderer therefore
+reproduces `BuildFrogMesh`'s winding and endpoint-frame calculation, then
+iteratively shifts each render-only heel center so the frog profile center
+lands exactly on the adjoining stock rail's rendered profile center. It solves
+that compensation together with the nose setback so the final mesh retains the
+exact source +0.500-degree included angle. Generic/compound V frogs do not opt
+into this compensation.
+
+The same profile-side error explained why a 0.100 m CURVE-point offset still
+looked wider than a base-game switch. For each diamond wing, the renderer now
+computes the frog and source railhead profile centers, sets the desired wing
+profile center exactly 0.100 m beyond the frog profile center, and iterates the
+wing endpoint center/frame until `ProfileCenter` reaches that target. It uses
+`ReheadRenderFrame` from the wing's measured frame so reversed curves preserve
+their profile side. The resulting visible edge clearance is 0.100 - 0.076 =
+0.024 m. Runtime evidence is exposed as `[VeeFrogHeelAlignment]` and
+`[VeeWingGap] profileSeparation=0.100m visibleFlangeway=0.024m`.
 
 ## Paired K-guard evidence
 

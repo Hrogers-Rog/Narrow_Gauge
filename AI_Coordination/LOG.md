@@ -4434,3 +4434,38 @@ future fix should either compensate the two frog heel positions to preserve
 the adjoining rail's rendered profile center or use a custom frog extrusion
 that accepts explicit heel frames, without altering the accepted 0.100 m wing
 separation or +0.500-degree V opening.
+
+### [Codex] 2026-08-02 09:19 - Align diamond V rendered profiles
+
+The user requested both remaining V defects be fixed: the slight frog-heel
+step and the still-too-wide visible wing flangeway. The shared cause is the
+0.038 m lateral offset baked into `MakeRailOnlyProfile`. Curve-point agreement
+does not imply rendered railhead agreement when two meshes use different
+hands or station frames.
+
+Added a diamond-only frog-heel profile solve. It reproduces the decompiled
+`BuildFrogMesh` winding and endpoint frames, then iteratively moves each
+render-only heel center until the frog's actual railhead profile center equals
+the adjoining source rail's profile center. The heel compensation and nose
+setback iterate together so the final mesh retains the requested exact
+source +0.500-degree V opening. `[VeeFrogHeelAlignment]` reports the maximum
+center compensation and resulting render angle.
+
+Added a diamond-only wing profile-gap solve. It derives the frog and source
+railhead profile centers, puts the desired wing railhead center exactly 0.100 m
+beyond the frog profile center, and iterates the curve endpoint/frame until its
+hand-aware `ProfileCenter` reaches that target. `ReheadRenderFrame` carries the
+measured wing's profile side through the new kink direction. Therefore the
+0.100 m value is now a rendered railhead-center separation, leaving the
+intended 0.024 m visible clearance between 0.076 m railheads, rather than only
+a separation between hidden curve points. `[VeeWingGap]` reports both values.
+
+The new behavior is opt-in only from `CreateDiamondAcuteFrogAssembly`.
+Ordinary, compound, and narrow-branch V paths keep their established geometry;
+the two direct compound-wing calls only receive the required opposite-rail
+reference and leave profile alignment disabled.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`FACD55AB258D5492298738B7F4BEAA618CAD52F510EB74F3F939CBE7D5FF8F21`.
+The current game process predates deployment, so a full restart is required.
