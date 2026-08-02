@@ -3974,3 +3974,411 @@ guard. The separate four-frame hard-knuckle stock rendering remains enabled.
 `161E015639AF1CB60C2ACF21258D3E1A5C2A0A2648D48691B697719547084A97`.
 A full restart is required to verify the restored orientation and retained hard
 stock knuckle.
+
+### [Claude] 2026-08-01 - Harden the K guard's wing joints and center knuckle
+
+The user reported that the interlock frog sits in the correct place but one
+rail eases into its bend instead of breaking at an angle. The `00:03`
+`Player.log` confirms the restored build is live and correct on every measured
+value: `hardKink=1`, `stockRenderStations=4`, `guardCrossPaired=1`,
+`guardShapeShift=0.900m`, `stockKink/guardKink` `10.244/-10.244` and
+`10.268/-10.268`. Positions are therefore not the defect.
+
+The defect is the same render-frame class Codex fixed for the outside stock,
+which was never applied to the guard. `TrackMeshBuilder.ExtrudePoints` places
+each station's cross-section as `points[i] + rotations[i] * profile` and its
+shading normal as `rotations[i] * Euler(0,0,n) * up`. An interior station
+carrying one averaged/mitered frame with `profileScale = 1` both pulls the
+railhead corner short of the true miter and interpolates normals smoothly
+across the joint, so the rail reads as curving into the bend. The rendered
+guard comes from `BuildRecenteredDiamondGuard`, which explicitly averages
+`(directions[i-1] + directions[i]).normalized` at all three of its interior
+stations - the two 10-degree wing joints and the 10.2-degree center knuckle -
+so all three eased.
+
+Generalized `BuildHardKinkRenderCurve` from the fixed three-station form to any
+station count. Interior stations whose horizontal bend is at least 2.5 degrees
+split into two coincident stations holding the exact incoming and outgoing
+directions; stations below that threshold keep their mitered frame so genuine
+spline samples of a curved running rail stay smooth. The existing three-station
+stock case still yields exactly four render stations, so that accepted output
+is unchanged. The rendered guard now goes through the same pass.
+
+This is render-frame only. No guard position, direction, offset, extension or
+wing dimension is recomputed, per the standing constraint that the accepted
+guard may only be translated rigidly. Diagnostics add
+`guardRenderStations` and `guardHardKink=1` beside the existing
+`guardStations=5`; the guard should report 8 render stations.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`37723786C3E5438FD805E0E67D04C84B96C76499F1276B5F3C5EA6BD1A81DF35`.
+A full restart is required to verify the hardened guard joints.
+
+Separately flagged, not changed this turn: the second discovered diamond
+`crossing:SDillsYard2_rdhn:Setp` (18.68 degrees) derives only 3 of 4 frogs and
+fails validation, so `TryClassifyDiamondFrogs` rejects it and all of its frogs
+fall to `CreateGenericCrossingPoints`. That path renders spline slices of the
+running rails with no vee and no knuckle, which would also present as "curves
+instead of angles" - at that crossing, for a different reason.
+
+### [Claude] 2026-08-01 - Correction to the entry above: turn collision
+
+The entry above was written assuming an alternating turn. It was not one -
+Codex was editing `src/SpecialWorkHardwareRenderer.cs` at the same time and
+added `DiamondKGuardStockShift = 0.05f` mid-turn, in response to the user's
+separate "too much space between frog and guard" report. Claude discovered
+this when an edit to the `[DiamondFlangewayFrog]` log line failed to match.
+
+Claude abandoned a half-applied guard-to-point-rail measurement diagnostic
+rather than collide further, removed it, and confirmed the combined file
+builds with 0 warnings and 0 errors. No guard was moved by Claude.
+
+Correction to the hash claim in the entry above: the deployed DLL
+`37723786C3E5438FD805E0E67D04C84B96C76499F1276B5F3C5EA6BD1A81DF35` is
+`6eea28b` plus Claude's render-frame fix only. It does NOT contain Codex's
+0.05 m guard shift, which landed after that deploy. A rebuild with
+`/p:EnableModDeploy=true` is required before the next restart or only half of
+this turn's work will be under test.
+
+Unverified analytic claim for Codex to check before further guard translation:
+with `acrossGauge = -stockKink` and a 1.309 m magnitude, this symmetric
+14.79-degree diamond puts the K frog at 0.7235 m from crossing center on the
+short diagonal and the guard center 0.137 m from the opposite running rail
+centerline, against the 0.126 m nominal. That is an 11 mm excess arising from
+offsetting a fixed distance from the knuckle instead of measuring
+perpendicular from the guarded rail, and it grows with asymmetry. Codex's
+0.05 m empirical shift is a different magnitude; the two should be reconciled
+against one restart's measurements rather than stacked.
+
+### [Claude] 2026-08-01 - Harden the diamond acute-frog wing set-out
+
+The `00:15` `Player.log` proves both prior changes are live and took effect:
+`guardRenderStations=8 guardHardKink=1` (Claude's guard hardening) and
+`guardOffset=1.259m guardStockShift=0.050m guardShapeShift=0.800m` (Codex's
+0.05 m pull-back). The user still reports a rail easing through its bend, so
+the K guard was not the piece in the close-ups.
+
+The remaining smoothed joint in the diamond path is `CreateVeeWingRail`'s
+appended kink. The wing is a spline slice of the source running rail with one
+`kinkTarget` station appended at the throat. The station immediately before it
+still carries the source spline's tangent, so the mesh eases into the set-out
+exactly like the guard's miters did.
+
+Added an opt-in `hardenWingKink` flag threaded from
+`CreateDiamondAcuteFrogAssembly` through `CreateVeeFrogAssembly` into
+`CreateVeeWingRail`, which then runs the already-shipped
+`BuildHardKinkRenderCurve` over the finished wing. Only the diamond acute frog
+sets it. Every ordinary switch, the compound vee path, and the narrow-branch
+paths keep their existing accepted wing shape - `CreateVeeWingRail` is shared
+with all of them and must not change as a side effect. The 2.5-degree
+threshold leaves the wing's genuine spline samples smooth and hardens only the
+set-out. `[DiamondAcuteFrog]` now reports `wingHardKink=1`.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`3C5A9348E1E42CD21444C6F31106CCA3AE0406D0242CE3E23D18582CDB071F38`.
+This is the first deployed DLL containing both agents' work from this turn.
+
+If a rail still eases after this restart, the remaining candidates are all
+plain route-following pieces - `Fixed-N`, `Guard-N`, and the K point rails cut
+by `CreateFlangewayCutFrogRail` - which follow the actual segment centerline.
+`stockKink=10.244/10.268deg` against a 14.79-degree crossing angle indicates
+these routes are genuinely curved through the diamond, so a curved running
+rail there may be correct rather than a defect. Do not harden those blind.
+
+### [Claude] 2026-08-01 - Fix: BuildHardKinkRenderCurve was displacing whole rails
+
+Correction to the two entries above. The user restarted onto
+`3C5A9348...` (`00:21` log, `wingHardKink=1` present), confirmed the wing no
+longer eases through its bend, and reported that the whole rail is now
+laterally displaced and that the track there is NOT curved - so the
+"routes are genuinely curved" note in the previous entry is also wrong and
+should not be relied on.
+
+The displacement was a defect in `BuildHardKinkRenderCurve` as first written.
+It rebuilt EVERY station with a fresh `Quaternion.LookRotation(direction,
+Vector3.up)`. `TrackMeshBuilder.MakeRailOnlyProfile` offsets the rail profile
+by half a railhead along the frame's local +X, so a station's rotation
+determines which side of the curve the rail actually renders on, and
+`CorrectMeasuredRailRenderFrame`/`NormalizeRenderFrames` compensates for that
+per station. Synthesizing canonical frames discarded the compensation and slid
+the piece sideways by up to one railhead width - the same class of failure
+already recorded in `CreateVeeWingRail`'s comment for N178/vdlt.
+
+It did not show on the stock or the guard because
+`TryBuildContinuousDiamondStockRail` and `BuildRecenteredDiamondGuard` already
+build canonical `LookRotation` frames, so the rewrite happened to reproduce
+them. The wing arrives through `CorrectMeasuredRailRenderFrame` with
+compensated frames, so it moved.
+
+`BuildHardKinkRenderCurve` now only splits kinked stations and never
+synthesizes a frame. Non-kinked stations and both endpoints pass through
+byte-identical. Each split copy is re-headed off its own source rotation with
+`ReheadRenderFrame`, the minimal `FromToRotation` onto the span direction,
+which carries the frame's roll - and therefore the profile side - over
+unchanged. The stock's four render stations and the guard's eight are
+unaffected, since re-heading a canonical frame reproduces the canonical frame.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`5A183634E7778779A4315FE4643D783F984095FF01C11872A3B7B5C029CD9B91`.
+
+### [Claude] 2026-08-01 - Correction to the mechanism in the entry above
+
+The fix in the entry above is correct and stays. Its stated mechanism is not.
+
+`NeedsMeasuredRailFrameCorrection` matches only the four dual presets, so
+`CorrectMeasuredRailRenderFrame` is a NO-OP for `crossing.diamond`. Nothing in
+the diamond path is profile-center compensated, and the N178/vdlt comment in
+`CreateVeeWingRail` does not apply here.
+
+The real mechanism is simpler and the conclusion is unchanged. Because that
+call is a no-op, the wing curve reaching `BuildHardKinkRenderCurve` still
+carries the SOURCE rail's own spline frames, and the slice may have been
+reversed by `ReverseRailCurvePreservingProfileSide`, so those frames can face
+against traversal. `MakeRailOnlyProfile` offsets the profile half a railhead
+along local +X, so replacing them with canonical forward-facing
+`LookRotation` frames flipped which side of the curve the rail rendered on -
+one full railhead width. That is why the displacement appeared only after the
+acute-frog wing was hardened, and why the stock and guard, which synthesize
+canonical frames upstream anyway, did not move.
+
+Still open and NOT addressed: `TryBuildContinuousDiamondStockRail`,
+`BuildDiamondKinkedGuardRail` and `BuildRecenteredDiamondGuard` all synthesize
+canonical `LookRotation` frames rather than re-heading the source rail's
+frames. If the underlying wing/stock curves face against traversal, those
+three pieces sit a railhead width off the rail line they were derived from,
+independently of anything in this turn. `ReheadRenderFrame` is the tool for
+that, but it needs the source rotations threaded into
+`BuildRecenteredDiamondGuard`, which currently receives positions only. Do not
+attempt it in the same turn as another agent editing this file.
+
+### [Claude] 2026-08-01 - Guard sits one flangeway off the stock, not a full gauge
+
+The user identified the piece in the K close-up directly: "you got a gap
+between the stock rail and guard way too wide for the needed flange way." That
+resolves the ambiguity the previous turns were guessing at. The gap between
+this guard and the stock/knuckle rail IS the flangeway - the guard is not
+meant to sit across the gauge against the opposite running rail.
+
+`BuildDiamondKinkedGuardRail` was taking `Mathf.Max(GuardCenterOffset,
+Gauge.Standard.Inside - GuardCenterOffset)`, i.e. the far branch, putting the
+guard 1.309 m from the stock (1.259 m after Codex's 0.05 m pull-back). Changed
+to `parameters.GuardCenterOffset` = 0.126 m: 0.076 m railhead plus 0.050 m
+clear flangeway, center to center, toward crossing center.
+
+`DiamondKGuardStockShift` is set to 0. It was an empirical correction for a
+gap whose real cause was the wrong branch of that `Mathf.Max`; subtracting
+0.05 m from 0.126 m would leave 0.076 m, the bare railhead with no clear
+flangeway. Codex: this supersedes that shift rather than contradicting the
+observation behind it.
+
+This is a magnitude change only. `acrossGauge`, the mirrored center kink, the
+0.9 m extensions and both 0.35 m/10-degree wings are untouched, so the
+accepted orientation is preserved and this is the rigid translation
+`STATUS.md` permits. Both native guards move together, so
+`RecenterDiamondGuardShape`'s cross-pairing and its `guardShapeShift` follow
+automatically.
+
+Also retracts the 0.137 m analytic claim from earlier this turn. That
+calculation assumed the guard belonged against the opposite running rail; the
+user's instruction says it does not, so the number is not relevant.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`0065CFB5F5E30F956122B0A206A20974BF1A183A901BE46F7F9E6D43ADB79ACE`.
+Expect `guardOffset=0.126m guardStockShift=0.000m` in the next log.
+
+### [Claude] 2026-08-01 - Diamond K stock and guards inherit their source frames
+
+The user stopped the concurrent Codex session, so this is a single-editor turn
+and the frame defect flagged in the previous entry could be closed.
+
+All three K builders synthesized canonical `Quaternion.LookRotation(direction,
+Vector3.up)` frames. Because `MakeRailOnlyProfile` offsets the rail profile
+half a railhead along the frame's local +X, a synthesized frame renders the
+rail on whichever side that canonical frame happens to face, which is a
+railhead width off the curves the piece was derived from whenever those run
+against traversal. Fixed by re-heading the measured frames with
+`ReheadRenderFrame` instead:
+
+- `TryBuildContinuousDiamondStockRail`: start from `first.Head.Rotation`, the
+  knuckle from the stock piece's own center station, end from
+  `last.Tail.Rotation`.
+- `BuildDiamondKinkedGuardRail`: all five stations re-headed from the stock's
+  first/center/last frames. This is also what puts the guard's offset profile
+  on the same side as the stock's, which is what makes the 0.126 m center
+  spacing render as the intended 0.050 m clear flangeway instead of 0.202 m.
+- `BuildRecenteredDiamondGuard`: now takes `IReadOnlyList<LinePoint>` rather
+  than `IReadOnlyList<Vector3>` so the paired guard's rotations survive the
+  recentering and the kink correction, and re-heads each station from its own
+  source frame.
+
+No positions changed in this entry. Station counts, the mirrored kink, the
+0.9 m extensions, both 0.35 m/10-degree wings and the 0.126 m flangeway
+spacing from the previous entry are all unaffected; only which side of each
+curve the rail profile is extruded on.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`19DA758CE510C3329A7F0F9BA88A347D2F017C3017797FA1CBB16F28EB803806`.
+
+### [Claude] 2026-08-01 - K guard measured off the inner wings, not the outside stock
+
+The user answered the ambiguity directly: the guard sits one flangeway off the
+INNER wing rails - the two wing spans alongside the two point rails on the
+diamond side - and the two guards face in toward one another. The orientation
+accepted earlier was right; only the reference rail and distance were wrong.
+
+The K frog has two obtuse pieces and four wing spans.
+`TryBuildDiamondOutsideStockRail` takes the piece scoring highest on
+`DiamondFrogPieceSideScore` and joins it through the two wings nearest its own
+endpoints. Added `TryBuildDiamondInnerStockRail`, identical but taking the
+lowest-scoring piece; `TryBuildContinuousDiamondStockRail` then matches the
+inner wing pair without any extra selection because it matches wings to its
+piece's own endpoints.
+
+`BuildDiamondKinkedGuardRail` now takes that inner knuckle as its `sourceRail`
+and drops the mirror. The mirror existed to synthesize the inner knuckle's
+shape from the outer one by reflecting its kink across its own endpoint chord;
+taking the inner rail directly gives the same shape without it, and reflecting
+it now would give back the outside stock's sense. The 0.126 m translation
+toward crossing center stands, so the guard lands one flangeway off the rails
+it actually guards. Extensions, both 0.35 m/10-degree wings, the cross-pairing
+in `RecenterDiamondGuardShape` and the re-headed source frames are all
+unchanged.
+
+Both call sites now build the inner rail: the native-guard loop in the diamond
+render path and `CreateDiamondFlangewayFrogAssembly`, which falls back to the
+outside stock only if the inner rail cannot be assembled.
+
+`guardShapeShift` will move again - it is the distance between the two native
+guard centers and is derived, not set. The accepted 0.900 m belonged to the
+old full-gauge placement and is not a target under this reference.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`EBDED09B667B63710A4F14628DD8CC9B2B20E9C028F518B1E3249EC59FC43E1E`.
+
+### [Claude] 2026-08-01 - Spin both K guards a half turn
+
+User request: spin both guards 180 degrees. Added
+`SpinDiamondGuardHalfTurn`, applied to the rendered guard in
+`CreateDiamondFlangewayFrogAssembly` immediately before
+`BuildHardKinkRenderCurve`, so both K guards are turned regardless of whether
+the cross-paired or the native curve was selected.
+
+It yaws every station position and frame by 180 degrees about the guard's own
+center station. The center is the fixed point, so the guard does not move -
+only its facing reverses, taking the knuckle and both flared wings with it.
+Traversal order is left as-is; rotating the frames by the same half turn keeps
+them pointing along it, and rotating the frames rather than just the positions
+is what carries the offset rail profile round to the other side with the rail.
+
+Applied after cross-pairing and before the hard-kink pass, so
+`RecenterDiamondGuardShape` still sees the un-spun geometry and
+`guardShapeShift` is unaffected. `guardKink` is reported off the spun curve and
+keeps its magnitude; its sign is unchanged, since a half turn about the center
+maps the incoming and outgoing spans onto each other's reversed directions.
+`[DiamondFlangewayFrog]` now reports `guardHalfTurn=1`.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`0C1C079645372BE15D84280A44ACBBA9B5A77ACBE3811AC8A92A174131370A88`.
+
+### [Claude] 2026-08-01 - Lock the K guard to both point rails
+
+The user confirmed the guard is finally in the right place but its angle is not
+tight enough, and specified it: the guard must be locked to both frogs and sit
+exactly one railhead plus 0.050 m flangeway off. Two reference drawings of
+diamond/slip anatomy were supplied and agree with the implemented parts -
+obtuse check rails bracketing the diamond center, point rails, elbow rail,
+acute wing/splice rails.
+
+Root cause of the shallow angle: `BuildDiamondKinkedGuardRail` translated the
+inner knuckle rigidly and reused that rail's own mid-station as the vertex.
+That station is a sample of the compiled rail piece, not the rail-to-rail
+intersection, so both legs were chords rather than tangents and the bend came
+out at 10.24 degrees against a 14.79-degree crossing.
+
+Replaced with an exact construction. Each crossing rail's centerline is offset
+by `GuardCenterOffset` along ITS OWN perpendicular - side chosen by
+`GuardOffsetNormal` from the existing `acrossGauge` sense - and the guard's
+knuckle is taken where the two offset lines intersect. Both endpoints are then
+projected onto those same lines. Every point of each working face is therefore
+exactly one railhead plus one flangeway off the rail it guards, and the
+knuckle reproduces the true angle between the two rails. The rigid translation
+still supplies the endpoint extents, so guard length is unchanged.
+
+New helpers: `HorizontalRailDirection` (finite difference over the curve, not a
+station rotation, which can face against traversal and would flip the offset
+side), `GuardOffsetNormal`, `TryIntersectHorizontalLines`,
+`ProjectOntoHorizontalLine`, `HorizontalDistanceToLine`. If either rail
+direction or the line intersection degenerates, it falls back to the previous
+translate-and-reuse-mid-station result.
+
+`BuildDiamondKinkedGuardRail` now takes the `FrogCandidate`. Extensions, both
+0.35 m/10-degree wings, the half turn, the cross-pairing and the re-headed
+frames are unchanged. Expect `guardKink` to jump from about 10.2 to about
+14.8 degrees.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`4E9CD71A4959ED0D46F70AFD7F10C417403508CCDC3DF53284ED5AFAC44F0C0C`.
+
+### [Claude] 2026-08-01 - Lock the outside stock knuckle to the rail intersection
+
+User request, following the guard fix. `TryBuildContinuousDiamondStockRail` had
+the same diluted-vertex defect: it took `stockPoints[stockPoints.Length / 2]`
+as its knuckle, which is a sample of the compiled rail piece rather than the
+point where the two rails actually cross, so both legs were chords instead of
+tangents and the bend read 10.24 degrees against a 14.79-degree crossing.
+
+Both rails pass through `frog.Intersection.Position`, so unlike the guard - a
+pair of offset lines needing an intersection solve - the stock's vertex is that
+point directly. The two legs are each rail's tangent through it, and the
+measured wing endpoints are projected onto those tangents with
+`ProjectOntoHorizontalLine`, so the piece keeps its length. Falls back to the
+old mid-station result if either rail direction degenerates.
+
+`TryBuildContinuousDiamondStockRail` now takes the `FrogCandidate`. Both
+callers - `TryBuildDiamondOutsideStockRail` and
+`TryBuildDiamondInnerStockRail` - pass it through, so the inner knuckle the
+guard is derived from is locked the same way. The re-headed frames, the
+three-station straight-kink-straight shape and the four-station hard-kink
+render pass are unchanged.
+
+Expect `stockKink` to move from about 10.24 to about 14.79 degrees alongside
+`guardKink`, and `stockLength` to shift slightly as the endpoints slide onto
+the tangents.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`17E02FAE1E4A365A2A441CBFA739501330391CFF6297FD510AB99F4DE19DAE9E`.
+
+### [Codex] 2026-08-02 08:25 - Match acute V-frog gaps to base-game switches
+
+The user's current acute-frog close-up shows the two slots between the V point
+and its wing rails are wider than those on a native switch. Checked the actual
+base-game decompile rather than inferring the value from this mod's generic
+flangeway parameter. `Track/SwitchGeometry.cs` declares its switch-frog
+`FlangewayWidth` as 0.100 m and appends each frog-end curve station at exactly
+that lateral offset from the corresponding frog point. With the standard
+0.076 m railhead, that is a 0.100 m center separation and approximately 0.024 m
+visible edge clearance.
+
+The shared `CreateVeeFrogAssembly` path already defaulted to 0.100 m. The
+diamond acute wrapper alone passed 0.126 m (`RailHeadWidth + FlangewayWidth`),
+making its center separation 26 mm wider than the base game's. Added the named
+`BaseGameSwitchFrogRailSeparation = 0.1f` constant, used it for both shared
+defaults and the diamond call, and changed the acute diagnostic to report
+`wingSeparation=0.100 visibleFlangeway=0.024`. This changes only the rigid
+lateral endpoint set-out of each acute wing. It leaves the inward point
+orientation, +0.500-degree V opening, wing hard-kink frames, and every K-frog
+position and shape unchanged.
+
+`dotnet build .\NarrowGaugeMod.csproj /p:EnableModDeploy=true` succeeded with
+0 warnings and 0 errors. Output and deployed DLL SHA-256 hashes both equal
+`E5EA223758EE239BC3B2D9BD243699FA33AB5F62F9421DF26BA52A83D6D9A5BF`.
+A full restart and visual comparison with a base-game switch remain required.

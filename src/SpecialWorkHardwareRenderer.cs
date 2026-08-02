@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Core;
@@ -22,9 +22,16 @@ namespace NarrowGaugeMod
         private const float TieOverlapTolerance = 1.0f;
         private const float TieOwnershipMargin = 0.35f;
         private const float FrogPointNoseTaperLength = 0.38f;
+        private const float BaseGameSwitchFrogRailSeparation = 0.1f;
         private const float DiamondAcuteFrogAngleCorrectionDegrees = 0.5f;
         private const float DiamondKGuardWingLength = 0.35f;
         private const float DiamondKGuardWingAngleDegrees = 10f;
+        // Codex's empirical pull-back. It was closing a gap caused by the guard
+        // being set a full gauge from the stock rather than one flangeway;
+        // subtracting it from the 0.126 m flangeway spacing would leave 0.076 m,
+        // which is the bare railhead with no clear flangeway at all.
+        private const float DiamondKGuardStockShift = 0f;
+        private const float DiamondHardKinkThresholdDegrees = 2.5f;
         private const float BladeTipStubCullLength = 1.05f;
         private const float BladeStockLeadExtensionLength = 1.05f;
         private const float BladeFullWidthTailLength = 0.65f;
@@ -459,14 +466,15 @@ namespace NarrowGaugeMod
                 var nativeKGuards = new Dictionary<FrogCandidate, LineCurve>();
                 foreach (FrogCandidate obtuseFrog in obtuseFrogs)
                 {
-                    if (TryBuildDiamondOutsideStockRail(
+                    if (TryBuildDiamondInnerStockRail(
                         plan,
                         obtuseFrog,
                         crossingHome,
-                        out LineCurve nativeStock))
+                        out LineCurve nativeInnerStock))
                     {
                         nativeKGuards[obtuseFrog] = BuildDiamondKinkedGuardRail(
-                            nativeStock,
+                            nativeInnerStock,
+                            obtuseFrog,
                             crossingHome,
                             plan.Parameters);
                     }
@@ -634,8 +642,10 @@ namespace NarrowGaugeMod
             FrogCandidate inwardFrog = OrientDiamondAcuteFrog(frog, crossingHome);
             // These are explicit common crossings, not symmetric rail-on-rail
             // cuts: the vee/point belongs on the inside of the diamond and the
-            // two wing rails belong on the outside. Supplying the full center
-            // separation adds the configured wheel-flange slot between them.
+            // two wing rails belong on the outside. Match SwitchGeometry's
+            // 0.1 m frog-to-wing center separation exactly; using railhead plus
+            // the generic 0.05 m flangeway here opens the visible slot wider
+            // than a base-game switch.
             CreateVeeFrogAssembly(
                 builder,
                 root,
@@ -644,13 +654,16 @@ namespace NarrowGaugeMod
                 Array.Empty<SwitchBladePlan>(),
                 crossingHome,
                 name,
-                plan.Parameters.RailHeadWidth + plan.Parameters.FlangewayWidth,
-                DiamondAcuteFrogAngleCorrectionDegrees);
+                BaseGameSwitchFrogRailSeparation,
+                DiamondAcuteFrogAngleCorrectionDegrees,
+                hardenWingKink: true);
             Main.Log(
                 $"[DiamondAcuteFrog] name={name} direction=inward " +
                 $"wingSeparation=" +
-                $"{plan.Parameters.RailHeadWidth + plan.Parameters.FlangewayWidth:0.000} " +
-                $"flangeway={plan.Parameters.FlangewayWidth:0.000} " +
+                $"{BaseGameSwitchFrogRailSeparation:0.000} " +
+                $"visibleFlangeway=" +
+                $"{BaseGameSwitchFrogRailSeparation - plan.Parameters.RailHeadWidth:0.000} " +
+                $"wingHardKink=1 " +
                 $"angleCorrection={DiamondAcuteFrogAngleCorrectionDegrees:0.000}deg.");
         }
 
@@ -1845,8 +1858,9 @@ namespace NarrowGaugeMod
             IReadOnlyList<SwitchBladePlan> blades,
             Vector3 switchHome,
             string name,
-            float wingCenterSeparation = 0.1f,
-            float veeAngleAdjustmentDegrees = 0f)
+            float wingCenterSeparation = BaseGameSwitchFrogRailSeparation,
+            float veeAngleAdjustmentDegrees = 0f,
+            bool hardenWingKink = false)
         {
             Vector3 noseSide = DirectionTowardBlades(frog, blades);
             LinePoint heelA = HeelPoint(
@@ -1908,7 +1922,8 @@ namespace NarrowGaugeMod
                 blades,
                 switchHome,
                 name + "-WingA",
-                wingCenterSeparation);
+                wingCenterSeparation,
+                hardenWingKink);
             CreateVeeWingRail(
                 builder,
                 root,
@@ -1921,7 +1936,8 @@ namespace NarrowGaugeMod
                 blades,
                 switchHome,
                 name + "-WingB",
-                wingCenterSeparation);
+                wingCenterSeparation,
+                hardenWingKink);
         }
 
         internal static Vector3 OpenVeeFrogNoseByDegrees(
@@ -2012,7 +2028,8 @@ namespace NarrowGaugeMod
             IReadOnlyList<SwitchBladePlan> blades,
             Vector3 switchHome,
             string name,
-            float wingCenterSeparation = 0.1f)
+            float wingCenterSeparation = BaseGameSwitchFrogRailSeparation,
+            bool hardenWingKink = false)
         {
             Vector3 bladeDirection = DirectionTowardBlades(frog, blades);
             float beforeDistance = Mathf.Max(0f, intersectionDistance - frog.CutHalfLength);
@@ -2063,14 +2080,26 @@ namespace NarrowGaugeMod
                 ? Quaternion.LookRotation(kinkDirection.normalized, Vector3.up)
                 : oppositeHeel.Rotation;
             wing.Add(new LinePoint(kinkTarget, kinkRotation));
+            LineCurve renderWing = CorrectMeasuredRailRenderFrame(
+                analysis,
+                sourceRail.Id,
+                wing,
+                preserveProfileCenter: !IsDualBothDiverge(analysis));
+            if (hardenWingKink)
+            {
+                // Fixed diamond hardware only. The station before the appended
+                // kink still carries the source spline's tangent, so the wing
+                // eases into its set-out instead of breaking at it. Opt in from
+                // the diamond acute frog rather than globally: an ordinary
+                // switch's wing is a different accepted shape and must not
+                // change as a side effect of this.
+                renderWing = BuildHardKinkRenderCurve(renderWing);
+            }
+
             CreateRail(
                 builder,
                 root,
-                CorrectMeasuredRailRenderFrame(
-                    analysis,
-                    sourceRail.Id,
-                    wing,
-                    preserveProfileCenter: !IsDualBothDiverge(analysis)),
+                renderWing,
                 switchHome,
                 name,
                 _ => 1f);
@@ -2161,15 +2190,33 @@ namespace NarrowGaugeMod
                 name + "-ContinuousOutsideStock",
                 _ => 1f,
                 minimumLength: MinimumPieceLengthForDiamondHardware);
-            LineCurve nativeGuard = BuildDiamondKinkedGuardRail(
-                outsideStock,
+            LineCurve nativeGuard = TryBuildDiamondInnerStockRail(
+                plan,
+                frog,
                 crossingHome,
-                plan.Parameters);
-            LineCurve kinkedGuard = pairedGuard ?? nativeGuard;
+                out LineCurve innerStock)
+                ? BuildDiamondKinkedGuardRail(
+                    innerStock,
+                    frog,
+                    crossingHome,
+                    plan.Parameters)
+                : BuildDiamondKinkedGuardRail(
+                    outsideStock,
+                    frog,
+                    crossingHome,
+                    plan.Parameters);
+            LineCurve kinkedGuard = SpinDiamondGuardHalfTurn(
+                pairedGuard ?? nativeGuard);
+            // Render-frame only. The guard's positions - cross-paired, one
+            // flangeway off the inner wings, 0.9 m extensions, two
+            // 0.35 m/10-degree wings - are untouched; this hardens the two
+            // wing joints and the center knuckle so they break instead of
+            // easing, exactly as the outside stock already does.
+            LineCurve hardKinkGuard = BuildHardKinkRenderCurve(kinkedGuard);
             CreateRail(
                 builder,
                 root,
-                kinkedGuard,
+                hardKinkGuard,
                 Vector3.zero,
                 name + "-KinkedGuard",
                 _ => 1f,
@@ -2216,11 +2263,15 @@ namespace NarrowGaugeMod
                 $"hardKink=1 " +
                 $"kinkedGuard=1 " +
                 $"guardStations={kinkedGuard.Points.Count()} " +
+                $"guardRenderStations={hardKinkGuard.Points.Count()} " +
+                $"guardHardKink=1 " +
+                $"guardHalfTurn=1 " +
                 $"stockKink={HorizontalSignedKinkAngleDegrees(outsideStock):0.000}deg " +
                 $"guardKink={HorizontalSignedKinkAngleDegrees(kinkedGuard):0.000}deg " +
                 $"stockLength={outsideStock.Length:0.000}m " +
                 $"guardLength={kinkedGuard.Length:0.000}m " +
-                $"guardOffset={Gauge.Standard.Inside - plan.Parameters.GuardCenterOffset:0.000}m " +
+                $"guardOffset={plan.Parameters.GuardCenterOffset - DiamondKGuardStockShift:0.000}m " +
+                $"guardStockShift={DiamondKGuardStockShift:0.000}m " +
                 $"guardCrossPaired={(pairedGuard != null ? 1 : 0)} " +
                 $"guardShapeShift={guardShapeShift:0.000}m " +
                 $"guardExtensions={plan.Parameters.GuardLeadLength:0.000}/{plan.Parameters.GuardTrailLength:0.000}m " +
@@ -2272,7 +2323,60 @@ namespace NarrowGaugeMod
             return TryBuildContinuousDiamondStockRail(
                 outsideStockPiece,
                 wings,
+                frog,
                 out outsideStock);
+        }
+
+        // The K frog has two obtuse pieces and four wing spans. The outer pair
+        // joins into the continuous outside stock/knuckle rail above; this is
+        // the other one - the inner knuckle running alongside the two point
+        // rails on the diamond side. `TryBuildContinuousDiamondStockRail`
+        // matches wings to its piece's own endpoints, so it picks up the inner
+        // pair here without any extra selection.
+        private static bool TryBuildDiamondInnerStockRail(
+            SpecialWorkMeshPlan plan,
+            FrogCandidate frog,
+            Vector3 crossingHome,
+            out LineCurve innerStock)
+        {
+            innerStock = null!;
+            RailPiece[] obtusePieces = plan.FrogPieces
+                .Where(piece =>
+                    string.Equals(
+                        piece.SourcePlanId,
+                        frog.Id,
+                        StringComparison.OrdinalIgnoreCase)
+                    && IsObtuseFrogPiece(piece, frog))
+                .ToArray();
+            WingRailPlan[] wings = plan.WingRails
+                .Where(wing => string.Equals(
+                    wing.FrogId,
+                    frog.Id,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (obtusePieces.Length != 2 || wings.Length != 4)
+            {
+                return false;
+            }
+
+            Vector3 outward = frog.Intersection.Position - crossingHome;
+            outward.y = 0f;
+            if (outward.sqrMagnitude <= 0.0001f)
+            {
+                outward = frog.NoseDirection;
+            }
+            outward.Normalize();
+            RailPiece innerStockPiece = obtusePieces
+                .OrderBy(piece => DiamondFrogPieceSideScore(
+                    piece,
+                    frog.Intersection.Position,
+                    outward))
+                .First();
+            return TryBuildContinuousDiamondStockRail(
+                innerStockPiece,
+                wings,
+                frog,
+                out innerStock);
         }
 
         private static LineCurve RecenterDiamondGuardShape(
@@ -2292,8 +2396,10 @@ namespace NarrowGaugeMod
             Vector3 targetCenter = targetPoints[targetPoints.Length / 2].point;
             Vector3 centerOffset = targetCenter - sourceCenter;
             shapeShift = HorizontalDistance(Vector3.zero, centerOffset);
-            Vector3[] recentered = sourcePoints
-                .Select(point => point.point + centerOffset)
+            LinePoint[] recentered = sourcePoints
+                .Select(point => new LinePoint(
+                    point.point + centerOffset,
+                    point.Rotation))
                 .ToArray();
 
             // Retain the paired guard's inward-facing sign, but calibrate its
@@ -2320,12 +2426,12 @@ namespace NarrowGaugeMod
         }
 
         private static LineCurve BuildRecenteredDiamondGuard(
-            IReadOnlyList<Vector3> sourcePoints,
+            IReadOnlyList<LinePoint> sourcePoints,
             float kinkCorrectionDegrees,
             Hand hand)
         {
             int middle = sourcePoints.Count / 2;
-            Vector3 center = sourcePoints[middle];
+            Vector3 center = sourcePoints[middle].point;
             Quaternion firstRotation = Quaternion.Euler(
                 0f,
                 -kinkCorrectionDegrees * 0.5f,
@@ -2336,9 +2442,9 @@ namespace NarrowGaugeMod
                 0f);
             Vector3[] positions = sourcePoints
                 .Select((point, index) => index < middle
-                    ? center + firstRotation * (point - center)
+                    ? center + firstRotation * (point.point - center)
                     : index > middle
-                        ? center + secondRotation * (point - center)
+                        ? center + secondRotation * (point.point - center)
                         : center)
                 .ToArray();
             Vector3[] directions = new Vector3[positions.Length - 1];
@@ -2367,24 +2473,151 @@ namespace NarrowGaugeMod
                         directions[index - 1]
                         + directions[index]).normalized;
                 }
+                // Re-head the paired guard's own frame rather than synthesizing
+                // a canonical one, so its roll - and therefore which side of
+                // the curve the offset rail profile lands on - survives the
+                // recentering and the kink correction.
                 points[index] = new LinePoint(
                     positions[index],
-                    Quaternion.LookRotation(direction, Vector3.up));
+                    ReheadRenderFrame(sourcePoints[index].Rotation, direction));
             }
             return new LineCurve(points, hand);
         }
 
+        // Rail tangent at a station, taken as a finite difference over the
+        // curve rather than from a station rotation, which can face against
+        // traversal and would flip the offset side.
+        private static Vector3 HorizontalRailDirection(
+            RailCenterline rail,
+            float distance)
+        {
+            const float step = 0.5f;
+            float before = Mathf.Max(0f, distance - step);
+            float after = Mathf.Min(rail.Curve.Length, distance + step);
+            Vector3 direction = rail.Curve.LinePointAtDistance(after).point
+                - rail.Curve.LinePointAtDistance(before).point;
+            direction.y = 0f;
+            if (direction.sqrMagnitude <= 0.0000001f)
+            {
+                direction = rail.Curve.LinePointAtDistance(distance).Rotation
+                    * Vector3.forward;
+                direction.y = 0f;
+            }
+
+            return direction.sqrMagnitude <= 0.0000001f
+                ? Vector3.zero
+                : direction.normalized;
+        }
+
+        // The perpendicular of `direction` on the side `preferredSide` points
+        // to. Line offsets are sign-free otherwise, and the wrong sign would
+        // put the guard on the far side of the rail it guards.
+        private static Vector3 GuardOffsetNormal(
+            Vector3 direction,
+            Vector3 preferredSide)
+        {
+            Vector3 normal = Vector3.Cross(Vector3.up, direction);
+            normal.y = 0f;
+            if (normal.sqrMagnitude <= 0.0000001f)
+            {
+                return Vector3.zero;
+            }
+
+            normal.Normalize();
+            return Vector3.Dot(normal, preferredSide) < 0f ? -normal : normal;
+        }
+
+        private static bool TryIntersectHorizontalLines(
+            Vector3 firstOrigin,
+            Vector3 firstDirection,
+            Vector3 secondOrigin,
+            Vector3 secondDirection,
+            out Vector3 intersection)
+        {
+            float determinant = firstDirection.x * secondDirection.z
+                - firstDirection.z * secondDirection.x;
+            if (Mathf.Abs(determinant) <= 0.000001f)
+            {
+                intersection = Vector3.zero;
+                return false;
+            }
+
+            Vector3 delta = secondOrigin - firstOrigin;
+            float distance =
+                (delta.x * secondDirection.z - delta.z * secondDirection.x)
+                / determinant;
+            intersection = firstOrigin + firstDirection * distance;
+            return true;
+        }
+
+        private static Vector3 ProjectOntoHorizontalLine(
+            Vector3 point,
+            Vector3 origin,
+            Vector3 direction)
+        {
+            Vector3 offset = point - origin;
+            offset.y = 0f;
+            Vector3 projected = origin + direction * Vector3.Dot(offset, direction);
+            projected.y = point.y;
+            return projected;
+        }
+
+        private static float HorizontalDistanceToLine(
+            Vector3 point,
+            Vector3 origin,
+            Vector3 direction)
+        {
+            return HorizontalDistance(
+                point,
+                ProjectOntoHorizontalLine(point, origin, direction));
+        }
+
+        // Turn a guard end for end about its own center station: a 180-degree
+        // yaw applied to every station position and frame. The center station
+        // is the fixed point, so the guard stays where it is and only its
+        // facing reverses - the knuckle and both flared wings end up pointing
+        // the other way. Traversal order is left alone; rotating the frames by
+        // the same half turn keeps them pointing along it.
+        private static LineCurve SpinDiamondGuardHalfTurn(LineCurve guard)
+        {
+            LinePoint[] points = guard?.Points.ToArray() ?? Array.Empty<LinePoint>();
+            if (points.Length < 2)
+            {
+                return guard!;
+            }
+
+            Quaternion halfTurn = Quaternion.Euler(0f, 180f, 0f);
+            Vector3 center = points[points.Length / 2].point;
+            var spun = new LinePoint[points.Length];
+            for (int index = 0; index < points.Length; index++)
+            {
+                spun[index] = new LinePoint(
+                    center + halfTurn * (points[index].point - center),
+                    halfTurn * points[index].Rotation);
+            }
+
+            return new LineCurve(spun, guard!.hand);
+        }
+
+        // `sourceRail` is the INNER knuckle - the rail formed by the two wing
+        // spans alongside the two point rails, on the diamond side. The guard is
+        // one flangeway off that, per the user. It used to be derived from the
+        // outside stock and have its kink mirrored across its own endpoint
+        // chord, which synthesized the inner knuckle's shape indirectly; taking
+        // the inner rail directly gives the same shape without the mirror, and
+        // lands the guard against the rails it actually guards.
         private static LineCurve BuildDiamondKinkedGuardRail(
-            LineCurve outsideStock,
+            LineCurve sourceRail,
+            FrogCandidate frog,
             Vector3 crossingHome,
             SpecialWorkGeometryParameters parameters)
         {
-            LinePoint[] points = outsideStock.Points
+            LinePoint[] points = sourceRail.Points
                 .Select(point => new LinePoint(
                     point.point - crossingHome,
                     point.Rotation))
                 .ToArray();
-            LineCurve localStock = new LineCurve(points, outsideStock.hand);
+            LineCurve localStock = new LineCurve(points, sourceRail.hand);
             if (points.Length < 3)
             {
                 return localStock;
@@ -2399,13 +2632,72 @@ namespace NarrowGaugeMod
                 acrossGauge.y = 0f;
             }
             acrossGauge.Normalize();
-            float transverseOffset = Mathf.Max(
-                parameters.GuardCenterOffset,
-                Gauge.Standard.Inside - parameters.GuardCenterOffset);
+            // One flangeway off the inner wing rails: 0.076 m railhead plus
+            // 0.050 m clear = 0.126 m center to center, translated toward
+            // crossing center so the two guards end up facing each other.
+            float transverseOffset = parameters.GuardCenterOffset
+                - DiamondKGuardStockShift;
             Vector3 translation = acrossGauge * transverseOffset;
-            Vector3 start = points[0].point + translation;
-            Vector3 end = points[points.Length - 1].point + translation;
-            Vector3 sourceKink = stockKink + translation;
+            Vector3 translatedStart = points[0].point + translation;
+            Vector3 translatedEnd = points[points.Length - 1].point + translation;
+
+            // Lock the guard to both point rails. Offset each crossing rail's
+            // own centerline by exactly `transverseOffset` along ITS OWN
+            // perpendicular and take the knuckle where those two offset lines
+            // meet, then slide both endpoints onto those same lines. Every
+            // point of each working face is then exactly one railhead plus one
+            // flangeway off the rail it guards, and the knuckle reproduces the
+            // true angle between the two rails.
+            //
+            // The previous version translated the inner knuckle rigidly and
+            // reused its own mid-station as the vertex. That mid-station is a
+            // sample of the compiled rail piece, not the rail-to-rail
+            // intersection, so the two legs were chords rather than tangents
+            // and the bend came out shallow - 10.24 degrees against a
+            // 14.79-degree crossing. That is the angle the user reports as not
+            // tight enough.
+            Vector3 localIntersection = frog.Intersection.Position - crossingHome;
+            Vector3 railDirectionA = HorizontalRailDirection(
+                frog.Intersection.RailA,
+                frog.Intersection.DistanceA);
+            Vector3 railDirectionB = HorizontalRailDirection(
+                frog.Intersection.RailB,
+                frog.Intersection.DistanceB);
+            Vector3 start = translatedStart;
+            Vector3 end = translatedEnd;
+            Vector3 mirroredKink = stockKink + translation;
+            if (railDirectionA.sqrMagnitude > 0.0001f
+                && railDirectionB.sqrMagnitude > 0.0001f)
+            {
+                Vector3 offsetOriginA = localIntersection
+                    + GuardOffsetNormal(railDirectionA, acrossGauge) * transverseOffset;
+                Vector3 offsetOriginB = localIntersection
+                    + GuardOffsetNormal(railDirectionB, acrossGauge) * transverseOffset;
+                if (TryIntersectHorizontalLines(
+                    offsetOriginA,
+                    railDirectionA,
+                    offsetOriginB,
+                    railDirectionB,
+                    out Vector3 lockedKink))
+                {
+                    lockedKink.y = mirroredKink.y;
+                    bool startBelongsToA =
+                        HorizontalDistanceToLine(
+                            translatedStart, offsetOriginA, railDirectionA)
+                        <= HorizontalDistanceToLine(
+                            translatedStart, offsetOriginB, railDirectionB);
+                    start = ProjectOntoHorizontalLine(
+                        translatedStart,
+                        startBelongsToA ? offsetOriginA : offsetOriginB,
+                        startBelongsToA ? railDirectionA : railDirectionB);
+                    end = ProjectOntoHorizontalLine(
+                        translatedEnd,
+                        startBelongsToA ? offsetOriginB : offsetOriginA,
+                        startBelongsToA ? railDirectionB : railDirectionA);
+                    mirroredKink = lockedKink;
+                }
+            }
+
             Vector3 chord = end - start;
             chord.y = 0f;
             if (chord.sqrMagnitude <= 0.0001f)
@@ -2413,12 +2705,6 @@ namespace NarrowGaugeMod
                 return localStock;
             }
 
-            Vector3 kinkOffset = sourceKink - start;
-            kinkOffset.y = 0f;
-            Vector3 projectedKink = start
-                + chord * (Vector3.Dot(kinkOffset, chord) / chord.sqrMagnitude);
-            Vector3 mirroredKink = projectedKink * 2f - sourceKink;
-            mirroredKink.y = sourceKink.y;
             Vector3 incoming = mirroredKink - start;
             Vector3 outgoing = end - mirroredKink;
             incoming.y = 0f;
@@ -2487,6 +2773,15 @@ namespace NarrowGaugeMod
                 endMiterDirection = outgoing;
             }
 
+            // Inherit the stock rail's roll at each station. The guard is a
+            // rigid translation of the stock, so carrying its frames over is
+            // what puts both offset rail profiles on the same side - which is
+            // what makes the 0.126 m center spacing render as the intended
+            // 0.050 m clear flangeway rather than 0.202 m.
+            Quaternion startFrame = points[0].Rotation;
+            Quaternion kinkFrame = points[points.Length / 2].Rotation;
+            Quaternion endFrame = points[points.Length - 1].Rotation;
+
             // A K-frog check rail is a detached five-station rail: a flared
             // lead wing, a straight working face, one reverse knuckle, a
             // second straight working face, and a flared trail wing. Translate
@@ -2499,19 +2794,21 @@ namespace NarrowGaugeMod
                 {
                     new LinePoint(
                         startWingTip,
-                        Quaternion.LookRotation(startWingDirection, Vector3.up)),
+                        ReheadRenderFrame(startFrame, startWingDirection)),
                     new LinePoint(
                         startWorkingHeel,
-                        Quaternion.LookRotation(startMiterDirection, Vector3.up)),
-                    new LinePoint(mirroredKink, Quaternion.LookRotation(miterDirection, Vector3.up)),
+                        ReheadRenderFrame(startFrame, startMiterDirection)),
+                    new LinePoint(
+                        mirroredKink,
+                        ReheadRenderFrame(kinkFrame, miterDirection)),
                     new LinePoint(
                         endWorkingHeel,
-                        Quaternion.LookRotation(endMiterDirection, Vector3.up)),
+                        ReheadRenderFrame(endFrame, endMiterDirection)),
                     new LinePoint(
                         endWingTip,
-                        Quaternion.LookRotation(endWingDirection, Vector3.up))
+                        ReheadRenderFrame(endFrame, endWingDirection))
                 },
-                outsideStock.hand);
+                sourceRail.hand);
         }
 
         internal static float HorizontalSignedKinkAngleDegrees(LineCurve curve)
@@ -2547,42 +2844,105 @@ namespace NarrowGaugeMod
             return Vector3.Dot(offset, outward);
         }
 
+        // Fixed trackwork breaks at a knuckle; it does not ease into one.
+        // ExtrudePoints stamps each station's cross-section and shading normal
+        // from that station's single rotation, so an interior station carrying
+        // one averaged/mitered frame both pinches the railhead corner and
+        // interpolates its normals across the joint - the railhead then reads
+        // as a rail that curves into the bend instead of breaking at it. Split
+        // every real kink into two coincident stations, one holding the exact
+        // incoming direction and one the exact outgoing direction. The
+        // zero-length ring between them is the hard corner. Stations whose
+        // bend is below the threshold are spline samples of a genuinely curved
+        // running rail and keep their frame untouched.
+        //
+        // Never synthesize a frame here. `MakeRailOnlyProfile` offsets the rail
+        // profile by half a railhead along the frame's local +X, so a station's
+        // rotation decides which SIDE of the curve the rail renders on, and
+        // `CorrectMeasuredRailRenderFrame`/`NormalizeRenderFrames` compensates
+        // for that per station. Replacing a station with a fresh
+        // `LookRotation(direction, up)` discards that compensation and slides
+        // the whole piece sideways by up to a railhead width. Re-head each
+        // split copy off its own source rotation instead, which preserves roll
+        // and profile side exactly.
         private static LineCurve BuildHardKinkRenderCurve(LineCurve source)
         {
             LinePoint[] points = source.Points.ToArray();
-            if (points.Length != 3)
+            if (points.Length < 3)
             {
                 return source;
             }
 
-            Vector3 incoming = points[1].point - points[0].point;
-            Vector3 outgoing = points[2].point - points[1].point;
-            if (incoming.sqrMagnitude <= 0.0001f
-                || outgoing.sqrMagnitude <= 0.0001f)
+            var directions = new Vector3[points.Length - 1];
+            for (int index = 0; index < directions.Length; index++)
             {
-                return source;
-            }
-
-            Quaternion incomingRotation = Quaternion.LookRotation(
-                incoming.normalized,
-                Vector3.up);
-            Quaternion outgoingRotation = Quaternion.LookRotation(
-                outgoing.normalized,
-                Vector3.up);
-            return new LineCurve(
-                new[]
+                Vector3 span = points[index + 1].point - points[index].point;
+                if (span.sqrMagnitude <= 0.0001f)
                 {
-                    new LinePoint(points[0].point, incomingRotation),
-                    new LinePoint(points[1].point, incomingRotation),
-                    new LinePoint(points[1].point, outgoingRotation),
-                    new LinePoint(points[2].point, outgoingRotation)
-                },
-                source.hand);
+                    return source;
+                }
+
+                directions[index] = span.normalized;
+            }
+
+            var rendered = new List<LinePoint>(points.Length * 2);
+            rendered.Add(points[0]);
+            for (int index = 1; index < points.Length - 1; index++)
+            {
+                Vector3 incoming = directions[index - 1];
+                Vector3 outgoing = directions[index];
+                if (HorizontalBendDegrees(incoming, outgoing)
+                    < DiamondHardKinkThresholdDegrees)
+                {
+                    rendered.Add(points[index]);
+                    continue;
+                }
+
+                rendered.Add(new LinePoint(
+                    points[index].point,
+                    ReheadRenderFrame(points[index].Rotation, incoming)));
+                rendered.Add(new LinePoint(
+                    points[index].point,
+                    ReheadRenderFrame(points[index].Rotation, outgoing)));
+            }
+
+            rendered.Add(points[points.Length - 1]);
+            return new LineCurve(rendered.ToArray(), source.hand);
+        }
+
+        // Turn a station's frame to face `direction` using the smallest
+        // rotation that does it, so the frame's roll - and therefore which side
+        // of the curve the offset rail profile lands on - is carried over
+        // unchanged.
+        private static Quaternion ReheadRenderFrame(
+            Quaternion frame,
+            Vector3 direction)
+        {
+            Vector3 forward = frame * Vector3.forward;
+            if (direction.sqrMagnitude <= 0.0000001f
+                || forward.sqrMagnitude <= 0.0000001f)
+            {
+                return frame;
+            }
+
+            return Quaternion.FromToRotation(forward.normalized, direction.normalized)
+                * frame;
+        }
+
+        private static float HorizontalBendDegrees(Vector3 incoming, Vector3 outgoing)
+        {
+            incoming.y = 0f;
+            outgoing.y = 0f;
+            return incoming.sqrMagnitude <= 0.0000001f
+                || outgoing.sqrMagnitude <= 0.0000001f
+                    ? 0f
+                    : Vector3.Angle(incoming, outgoing);
         }
 
         private static bool TryBuildContinuousDiamondStockRail(
             RailPiece stockPiece,
             IReadOnlyList<WingRailPlan> wings,
+            FrogCandidate frog,
             out LineCurve continuous)
         {
             continuous = null!;
@@ -2626,6 +2986,41 @@ namespace NarrowGaugeMod
             Vector3 start = first.Head.point;
             Vector3 kink = stockPoints[stockPoints.Length / 2].point;
             Vector3 end = last.Tail.point;
+
+            // Lock the knuckle to the rail-to-rail intersection, the same way
+            // the K guard is locked to its two offset lines. The mid-station
+            // above is a sample of the compiled rail piece, not the point where
+            // the rails actually cross, so both legs were chords rather than
+            // tangents and the bend came out shallow - 10.24 degrees against a
+            // 14.79-degree crossing. Both rails pass through the intersection,
+            // so the vertex is that point directly and the legs are each rail's
+            // tangent through it; the measured endpoints slide onto those
+            // tangents and the piece keeps its length.
+            Vector3 railDirectionA = HorizontalRailDirection(
+                frog.Intersection.RailA,
+                frog.Intersection.DistanceA);
+            Vector3 railDirectionB = HorizontalRailDirection(
+                frog.Intersection.RailB,
+                frog.Intersection.DistanceB);
+            if (railDirectionA.sqrMagnitude > 0.0001f
+                && railDirectionB.sqrMagnitude > 0.0001f)
+            {
+                Vector3 vertex = frog.Intersection.Position;
+                vertex.y = kink.y;
+                bool startBelongsToA =
+                    HorizontalDistanceToLine(start, vertex, railDirectionA)
+                    <= HorizontalDistanceToLine(start, vertex, railDirectionB);
+                start = ProjectOntoHorizontalLine(
+                    start,
+                    vertex,
+                    startBelongsToA ? railDirectionA : railDirectionB);
+                end = ProjectOntoHorizontalLine(
+                    end,
+                    vertex,
+                    startBelongsToA ? railDirectionB : railDirectionA);
+                kink = vertex;
+            }
+
             Vector3 incoming = kink - start;
             Vector3 outgoing = end - kink;
             incoming.y = 0f;
@@ -2647,12 +3042,28 @@ namespace NarrowGaugeMod
             // A fixed K crossing uses a knuckle, not a spline. Keep only the
             // two measured outer endpoints and the compiler's frog-center
             // point so the mesh is straight -> one kink -> straight.
+            //
+            // Re-head the measured frames rather than synthesizing canonical
+            // ones. `MakeRailOnlyProfile` offsets the rail profile half a
+            // railhead along the frame's local +X, so a fresh
+            // `LookRotation(direction, up)` puts the rail on whichever side that
+            // frame happens to face - a railhead width off the wing and stock
+            // curves this rail is assembled from whenever they run against
+            // traversal.
             continuous = new LineCurve(
                 new[]
                 {
-                    new LinePoint(start, Quaternion.LookRotation(incoming, Vector3.up)),
-                    new LinePoint(kink, Quaternion.LookRotation(miterDirection, Vector3.up)),
-                    new LinePoint(end, Quaternion.LookRotation(outgoing, Vector3.up))
+                    new LinePoint(
+                        start,
+                        ReheadRenderFrame(first.Head.Rotation, incoming)),
+                    new LinePoint(
+                        kink,
+                        ReheadRenderFrame(
+                            stockPoints[stockPoints.Length / 2].Rotation,
+                            miterDirection)),
+                    new LinePoint(
+                        end,
+                        ReheadRenderFrame(last.Tail.Rotation, outgoing))
                 },
                 first.hand);
             return continuous.Length >= MinimumPieceLengthForDiamondHardware;

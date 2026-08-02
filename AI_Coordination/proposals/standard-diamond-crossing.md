@@ -61,8 +61,10 @@ map needs to opt into or out of a geometrically ambiguous case.
 6. Classify the four physical intersections by their radius from the crossing
    center: the distant pair are inward-facing acute V-frogs and the near pair
    are obtuse/K frogs. At each acute frog, put the point rail on the diamond
-   side and the wing rails on the approach side, separated by one railhead plus
-   the configured flangeway. Open the rendered acute V by 0.5 degrees relative
+   side and the wing rails on the approach side, separated by the base game's
+   0.100 m switch-frog center offset. With the 0.076 m standard railhead this
+   leaves the same approximately 0.024 m visible slot as a native switch. Open
+   the rendered acute V by 0.5 degrees relative
    to its theoretical heel-to-intersection chords by setting the nose back on
    the V bisector; keep both measured heel connections fixed. Build each K frog
    from two opposing point rails
@@ -158,10 +160,10 @@ four selected check rails.
 The `22:38:46` close-up then identifies the remaining acute error exactly: the
 point rail is on the approach side and the wings are on the diamond side. Both
 ends must be rotated 180 degrees, so the two acute noses face inward and the
-wings face outward. The close-up and the supplied railway diagram also show
-that the former 0.10 m wing offset allowed the railheads to touch; it did not
-include the 0.05 m wheel-flange slot. The corrected acute renderer uses the
-measured `RailHeadWidth + FlangewayWidth` separation.
+wings face outward. The first correction also widened the center offset from
+0.100 m to `RailHeadWidth + FlangewayWidth` = 0.126 m. Later direct comparison
+with a native switch and the decompiled base-game construction proves that
+widening was incorrect; the base game itself uses 0.100 m.
 
 ## Third custom-render evidence
 
@@ -202,6 +204,24 @@ coordinates achieved only +0.482/+0.486 degrees because the large map
 coordinates exhausted float precision. The current implementation subtracts
 crossing home before solving and building the V mesh, preserving the requested
 exact +0.500-degree delta in a small local coordinate frame.
+
+## Base-game acute-frog flangeway calibration
+
+The user's current close-up shows the clearance between each acute V point and
+its wing rail is visibly wider than on a base-game switch. The decompiled
+`Track/SwitchGeometry.cs` supplies the authoritative dimension: its
+`FlangewayWidth` constant is 0.100 m, and each switch wing/point curve appends
+its frog-end station exactly 0.100 m laterally from the corresponding frog
+point. This is a rail-center separation, not a 0.100 m clear opening.
+
+`CreateVeeFrogAssembly` was already modeled on that algorithm and defaults to
+0.100 m. Only `CreateDiamondAcuteFrogAssembly` overrode it with 0.126 m
+(`RailHeadWidth + FlangewayWidth`). The diamond now passes the same explicit
+0.100 m center separation as `SwitchGeometry`. With the standard 0.076 m
+railhead, the expected visible edge clearance is approximately 0.024 m. Frog
+orientation, the exact +0.500-degree V opening, wing hard-kink frames, and all
+K-frog geometry remain unchanged. `[DiamondAcuteFrog]` reports
+`wingSeparation=0.100 visibleFlangeway=0.024` for restart verification.
 
 ## Paired K-guard evidence
 
