@@ -223,6 +223,33 @@ orientation, the exact +0.500-degree V opening, wing hard-kink frames, and all
 K-frog geometry remain unchanged. `[DiamondAcuteFrog]` reports
 `wingSeparation=0.100 visibleFlangeway=0.024` for restart verification.
 
+## Acute V-frog heel seam diagnosis
+
+The user's post-restart `08:43/08:44` close-ups show a very small lateral step
+where the V-frog casting meets its adjoining ordinary rail. This is not the
+wing flangeway and is not a center-point gap. Both pieces take their endpoint
+position from the same source rail at `intersectionDistance +/-
+frog.CutHalfLength`.
+
+The mismatch is in the mesh frame at that shared position. Decompiled
+`TrackMeshBuilder.BuildFrogMesh` ignores the supplied heel `LinePoint.Rotation`
+and reconstructs it with `LookRotation(renderNose - heel)`. The adjoining
+`BuildStockRailMesh` instead extrudes with the measured source-curve rotation.
+The diamond also moves `renderNose` to open the V by 0.500 degrees, so its
+heel-to-nose chord is intentionally not identical to the original rail tangent.
+`MakeRailOnlyProfile` offsets the asymmetric rail profile by half the 0.076 m
+railhead along each frame's local X. Therefore even coincident center points
+render slightly different railhead centers when those two frames differ,
+producing the photographed step.
+
+Changing the supplied frog heel rotations cannot fix this because
+`BuildFrogMesh` discards them. A future fix should compensate the two frog heel
+positions by the difference between the adjoining rail's rendered profile
+center and the profile center implied by the frog's reconstructed chord frame,
+or use a custom frog mesh builder that preserves explicit heel frames. It must
+leave the 0.100 m wing set-out, +0.500-degree V opening, and shared centerline
+endpoints unchanged.
+
 ## Paired K-guard evidence
 
 The user's `23:22:26` full-restart screenshot proves the five-station guards,

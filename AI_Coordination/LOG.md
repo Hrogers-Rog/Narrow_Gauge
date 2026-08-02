@@ -4410,3 +4410,27 @@ Further verification is now externally blocked on the user relaunching the
 game and loading the EF&A map. The next run must produce
 `wingSeparation=0.100 visibleFlangeway=0.024` before the V-frog gap objective
 can be marked complete.
+
+### [Codex] 2026-08-02 08:48 - Diagnose the slight V-frog heel step
+
+The user's restarted-build close-ups show a very small lateral step where the
+V-frog casting meets the adjoining ordinary rail. The current process started
+at 08:40:36, after the corrected DLL deployment at 08:25:09, so the new images
+are from the base-game-gap build rather than the previous assembly.
+
+Source and decompile comparison identify the mechanism. Both pieces use the
+same source-rail position at the frog boundary, but not the same extrusion
+frame. `TrackMeshBuilder.BuildFrogMesh` ignores the supplied heel rotations
+and rebuilds them from each heel-to-nose chord. `BuildStockRailMesh` retains
+the adjoining measured rail's own frame. Because the diamond moves the nose to
+open the V by exactly 0.500 degrees, the rendered frog chord and source rail
+tangent differ slightly. `MakeRailOnlyProfile` places the asymmetric profile
+0.038 m to the frame's local-X side, so that direction difference appears as a
+small railhead-center step even though the center points coincide.
+
+No implementation was authorized or made. Changing the existing heel
+rotations alone would be ineffective because `BuildFrogMesh` discards them. A
+future fix should either compensate the two frog heel positions to preserve
+the adjoining rail's rendered profile center or use a custom frog extrusion
+that accepts explicit heel frames, without altering the accepted 0.100 m wing
+separation or +0.500-degree V opening.
