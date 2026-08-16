@@ -1,6 +1,6 @@
 Implemented and committed the turn as `2330890 [Codex] verify both-diverge guards live`.
 
-Changed [src/SectionedSpecialWorkBuilder.cs](C:/Hrogers_Railroader_mods_Projects/Narrow_Gauge/src/SectionedSpecialWorkBuilder.cs:2574): supplemental guard insertion now skips geometric endpoint duplicates after flare, fixing the remaining exact stacked guards.
+Changed [src/SectionedSpecialWorkBuilder.cs](<projects>/Narrow_Gauge/src/SectionedSpecialWorkBuilder.cs:2574): supplemental guard insertion now skips geometric endpoint duplicates after flare, fixing the remaining exact stacked guards.
 
 Live verification:
 - Build/deploy: 0 warnings, 0 errors.

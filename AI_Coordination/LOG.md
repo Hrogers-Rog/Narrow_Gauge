@@ -34,7 +34,7 @@ since `Fuse_geometry_engine` won't be ready in time — this repo needs direct
 fixes, not a migration.
 
 Read the user's live `Player.log` and `NarrowGauge/SpecialWorkPlans/*.txt` at
-`C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader` (both get
+`%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader` (both get
 overwritten next session, so I copied the relevant evidence into
 `reviews/switch-validation-failures-2026-07-05.md` rather than leaving it
 only in those external files). Confirmed `Special-work analysis: objects=14,
@@ -647,7 +647,7 @@ than anything patched this session so far.
 
 Built and deployed the sibling repo's `FUSE.TestBridge` into the live
 Railroader install from
-`C:\Hrogers_Railroader_mods_Projects\FUSE\FUSE.TestBridge`:
+`<projects>\FUSE\FUSE.TestBridge`:
 `dotnet build FUSE.TestBridge.csproj -p:EnableTestBridgeDeploy=true -p:GameDir="C:\Steam\steamapps\common\Railroader"`.
 Build succeeded with 0 warnings and 0 errors. Confirmed from `Main.cs` and
 the deployed `Info.json` that the runtime gate is either
@@ -670,7 +670,7 @@ to `"Enabled": true`, launch `Railroader.exe` normally, then restore it to
 `"Enabled": false` after shutdown. That produced a fresh connected heartbeat
 from live PID `27828`. `FUSE.TestCli` could not be used from this sandbox
 because `dotnet run` failed reading
-`C:\Users\roger\AppData\Roaming\NuGet\NuGet.Config` with access denied, so I
+`%USERPROFILE%\AppData\Roaming\NuGet\NuGet.Config` with access denied, so I
 used the documented file protocol directly (`test_request_<id>.json` /
 `test_result_<id>.json`) and deleted result files after reading them.
 
@@ -685,7 +685,7 @@ elapsedMs=34074.` A `console` request running `/fuse.report json` returned
 `FUSE: 20 loaded | faults 1 | conflicts 0 | assets 29 | graph 2 | transfers 0 | suppressions 130 | orphans 0 | /fuse.report`.
 `umm close` returned `UMM window closed.` `screenshot` returned `Ok=true` and
 artifact
-`C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\narrow-gauge-harness-20260706-0903.png`
+`%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\narrow-gauge-harness-20260706-0903.png`
 (3,686,542 bytes). I opened it: it captures the current in-game camera
 exactly as-is, a trackside view with world labels and the top HUD; the
 protocol has no camera-position argument. `cleanup` returned `Ok=true` /
@@ -902,19 +902,19 @@ Successful full loop in PID `41988`:
   `{"ok": true, "message": "Jumped to 'Nove' at (1747.79, 589.26, 1369.73)."}`
 - Sent FUSE `screenshot` request with `arg:"nove-goto"`.
   Result was `Ok=true`, artifact
-  `C:/Users/roger/AppData/LocalLow/Giraffe Lab LLC/Railroader\FUSE-test-shots\nove-goto.png`,
+  `%USERPROFILE%/AppData/LocalLow/Giraffe Lab LLC/Railroader\FUSE-test-shots\nove-goto.png`,
   size `3237441` bytes. Opened it directly; it was a real Nove-area frame but
   the Unity Mod Manager window covered the switch geometry, so I did not use
   it for the visual verdict.
 - Sent FUSE `umm close`; result `Ok=true`, text `UMM window closed.`
 - Sent second FUSE `screenshot` request with `arg:"nove-goto-clear"`.
   Result was `Ok=true`, artifact
-  `C:/Users/roger/AppData/LocalLow/Giraffe Lab LLC/Railroader\FUSE-test-shots\nove-goto-clear.png`,
+  `%USERPROFILE%/AppData/LocalLow/Giraffe Lab LLC/Railroader\FUSE-test-shots\nove-goto-clear.png`,
   size `4749731` bytes. Opened it directly.
 - Made crops for inspection:
   `nove-overall-switch-crop.png`, `nove-lower-stand-crop.png`,
   `nove-upper-points-crop.png` beside the screenshot in
-  `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots`.
+  `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots`.
 
 Visual finding from the clear screenshot:
 
@@ -1257,7 +1257,7 @@ Live pipeline used:
   `Jumped to 'NCustom_p997' at (302.72, 588.45, 292.87).`
 - Waited 6 seconds and captured screenshot with FUSE `screenshot` arg
   `codex_p997`; result artifact:
-  `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex_p997.png`.
+  `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex_p997.png`.
   Viewed it directly. It is a real p997-area screenshot, but still
   medium/wide rather than a close-up capable of proving any visual fix.
 
@@ -1513,10 +1513,10 @@ temporary `steam_appid.txt=1683150`, launched `Railroader.exe /editor`
 directly with `NARROWGAUGE_TEST_BRIDGE=1`, loaded save `2026-06-25`, and
 forced a fresh `exportPlans` through `NarrowGaugeTestBridge`. Fresh plans
 were written at `2026-07-06 16:30:58` local time under
-`C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans`.
+`%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans`.
 Captured close-up screenshots for `NCustom_p997`, `NCustom_ltci`,
 `NCustom_u6n0`, and `NDeHartPassing_wqbb` under
-`C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots`.
+`%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots`.
 
 Confirmed duplicate guard endpoint groups in the fresh plan exports:
 
@@ -1861,9 +1861,9 @@ exact duplicate guard endpoint groups:
 `NCustom_fc97 guards=9`, `NCustom_l4a4 guards=7`, and `Npv2 guards=7`.
 Captured and opened close-up screenshots after closing UMM:
 
-- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_p997-20260707-postfix.png`
-- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_ltci-20260707-postfix.png`
-- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NDeHartPassing_wqbb-20260707-postfix-offset180.png`
+- `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_p997-20260707-postfix.png`
+- `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_ltci-20260707-postfix.png`
+- `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NDeHartPassing_wqbb-20260707-postfix-offset180.png`
 
 The screenshots are aimed at the requested switchwork and no longer show the
 old exact stacked guard line. This verifies the exact duplicate guard

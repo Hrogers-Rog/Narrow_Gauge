@@ -117,7 +117,7 @@ pipeline interruptions happened this turn:
 
 The freshest available plan exports for these 4 nodes are Codex's second
 export this session, on disk at
-`C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans\special-work_<id>.txt`,
+`%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans\special-work_<id>.txt`,
 timestamped `2026-07-07 16:46:04`, built from commit `2330890` (current
 HEAD at the time, includes both Codex's fallback one-blade fix `8802240` and
 Claude's gap fix `f5ad56b`). Read directly (not from the Player.log

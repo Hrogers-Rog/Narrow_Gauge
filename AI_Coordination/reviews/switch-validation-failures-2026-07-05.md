@@ -2,7 +2,7 @@
 
 Ground-truthed from a live in-game session's `Player.log` and
 `NarrowGauge/SpecialWorkPlans/*.txt` at
-`C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader` (both get
+`%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader` (both get
 overwritten on the next play session — this file is the durable snapshot of
 that evidence). User-reported symptom: a short, disconnected vertical rail
 stub floating above otherwise-normal-looking dual-gauge track (two
