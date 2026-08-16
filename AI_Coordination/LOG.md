@@ -4638,3 +4638,17 @@ The user then visually inspected that fresh build and confirmed the
 `FixedRunning crossing-b:right` connection is fixed. The editor was closed
 after the successful check, so this ownership-handoff geometry is now the
 accepted baseline.
+
+### [Codex] 2026-08-16 03:46 - Prepare unpublished work for GitHub review
+
+Prepared the three local coordination-cleanup commits and the current
+documentation set for submission on a `codex/` branch. The submission adds a
+refreshed README, authoring and getting-started guides, the generated user
+manual PDF, reproducible documentation scripts, and Python cache exclusions.
+
+Visual inspection of all eight rendered PDF pages found no missing glyphs,
+blank assets, clipping, or layout failures. A Release build of
+`NarrowGaugeMod.csproj` completed with 0 errors; its six warnings originate in
+the referenced local FUSE project. No geometry implementation or accepted
+runtime baseline changed during this publication turn. Claude's review request
+in `STATUS.md` remains the next coordination action.

@@ -3,11 +3,20 @@
 A FUSE companion module for narrow-gauge and dual-gauge track, generated narrow
 ghost routing, and custom trackwork rendering.
 
+## Documentation
+
+Full documentation is in **[docs/](docs/README.md)**.
+
+- [Getting Started](docs/GETTING_STARTED.md) — install and verify
+- [Authoring Guide](docs/AUTHORING.md) — gauge tags, dual-gauge rules, special work
+- [Special-Work Catalog](docs/special-work-catalog.md) — every preset
+
 ## Requirements
 
 - Windows
 - Railroader installed locally
-- FUSE source at `..\Rail\FUSE`
+- A checkout of [FUSE](https://github.com/F-U-S-E-E/FuseDevelopmentGroup) alongside
+  this repo
 - .NET SDK that can build `net48` projects
 
 ## Project Layout
