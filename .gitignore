@@ -6,7 +6,6 @@ obj/
 .vs/
 .vscode/
 .idea/
-.claude/
 .dotnet-home/
 .appdata/
 .nuget/

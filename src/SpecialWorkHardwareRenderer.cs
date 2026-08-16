@@ -26,7 +26,7 @@ namespace NarrowGaugeMod
         private const float DiamondAcuteFrogAngleCorrectionDegrees = 0.5f;
         private const float DiamondKGuardWingLength = 0.35f;
         private const float DiamondKGuardWingAngleDegrees = 10f;
-        // Codex's empirical pull-back. It was closing a gap caused by the guard
+        // An earlier empirical pull-back. It was closing a gap caused by the guard
         // being set a full gauge from the stock rather than one flangeway;
         // subtracting it from the 0.126 m flangeway spacing would leave 0.076 m,
         // which is the bare railhead with no clear flangeway at all.
