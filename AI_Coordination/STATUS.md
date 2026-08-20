@@ -1,6 +1,6 @@
 # Coordination Status
 
-Last updated by: Codex - 2026-08-02 11:56
+Last updated by: Codex - 2026-08-16 03:46
 
 ## Current phase: fixed-running diamond handoff render-matched
 
@@ -40,6 +40,13 @@ All four accepted wings retain `side=outside`, 0.126/0.050 m separation,
 The user visually inspected the fresh build and confirmed the
 `FixedRunning crossing-b:right` handoff is fixed. The editor was closed after
 that successful check.
+
+Repository handoff material is now prepared for review: the previously local
+coordination cleanup, refreshed README, author/getting-started guides, PDF user
+manual, and documentation build scripts are being submitted together on a
+`codex/` branch. A Release build completed successfully with 0 errors; its six
+warnings are inherited from the referenced local FUSE project and are not
+introduced by this documentation submission.
 
 ## Next turn
 

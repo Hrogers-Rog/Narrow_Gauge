@@ -19,7 +19,7 @@ special work the base game has no native concept of.
 
 ## Relationship to `Fuse_geometry_engine`
 
-`C:\Hrogers_Railroader_mods_Projects\Fuse_geometry_engine` is a separate,
+`<projects>\Fuse_geometry_engine` is a separate,
 parallel repo doing a from-scratch architecture rewrite of the ideas proven
 here, replacing bolted-on ghost-graph/registry conventions with one physical
 `TrackAssembly` model. That project treats this repo as read-only reference

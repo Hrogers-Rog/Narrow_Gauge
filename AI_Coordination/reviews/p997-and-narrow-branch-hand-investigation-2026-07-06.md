@@ -40,7 +40,7 @@ work rebuild:
 Screenshot request succeeded:
 
 ```text
-C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex_p997.png
+%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex_p997.png
 ```
 
 The screenshot is not close enough to prove or disprove the user's close-up

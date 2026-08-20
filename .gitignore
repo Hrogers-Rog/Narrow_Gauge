@@ -10,6 +10,8 @@ obj/
 .dotnet-home/
 .appdata/
 .nuget/
+__pycache__/
+*.py[cod]
 *.user
 *.suo
 

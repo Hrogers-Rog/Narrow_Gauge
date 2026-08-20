@@ -17,13 +17,13 @@ No source or truth-table files were edited.
   `NARROWGAUGE_TEST_BRIDGE=1`, loaded save `2026-06-25`, and forced a
   fresh `exportPlans` request through `NarrowGaugeTestBridge`.
 - Fresh measured plans were written under
-  `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans`
+  `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans`
   at `2026-07-06 16:30:58` local time.
 - Close-up screenshots were captured for the higher-priority switches:
-  - `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\both-diverge-NCustom_p997-20260706.png`
-  - `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\both-diverge-NCustom_ltci-20260706.png`
-  - `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\both-diverge-NCustom_u6n0-20260706.png`
-  - `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\both-diverge-NDeHartPassing_wqbb-20260706.png`
+  - `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\both-diverge-NCustom_p997-20260706.png`
+  - `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\both-diverge-NCustom_ltci-20260706.png`
+  - `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\both-diverge-NCustom_u6n0-20260706.png`
+  - `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\both-diverge-NDeHartPassing_wqbb-20260706.png`
 - Cleanup was verified after the run:
   - no `Railroader` process remained,
   - `Mods.fuseGEo\FUSE.TestBridge\Info.json` had `"Enabled": false`,
@@ -475,7 +475,7 @@ Process notes:
   install state.
 - Fresh post-patch measured plans were exported at `2026-07-07 16:46:04`
   under
-  `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans`.
+  `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans`.
 - Cleanup was verified directly: `tasklist` reported no `Railroader.exe`,
   `Mods\FUSE.TestBridge\Info.json` read back `"Enabled": false`,
   `steam_appid.txt` was absent, no `test_request_*.json` /
@@ -513,9 +513,9 @@ Post-patch fresh export scan:
 
 Screenshots captured after closing UMM:
 
-- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_p997-20260707-postfix.png`
-- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_ltci-20260707-postfix.png`
-- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NDeHartPassing_wqbb-20260707-postfix-offset180.png`
+- `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_p997-20260707-postfix.png`
+- `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NCustom_ltci-20260707-postfix.png`
+- `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\FUSE-test-shots\codex-bothdiverge-NDeHartPassing_wqbb-20260707-postfix-offset180.png`
 
 Visual check from those frames: the old exact stacked guard line is no
 longer visible at `p997` or `ltci`; the useful `wqbb` frame is the

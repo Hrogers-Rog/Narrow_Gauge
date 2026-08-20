@@ -55,13 +55,13 @@ data model or generated-ID contract.
 The findings below are based on:
 
 - Base game decompile:
-  `C:\Hrogers_Railroader_mods_Projects\Decompiled dlls base game`
+  `<projects>\Decompiled dlls base game`
 - DKW reference:
-  `C:\Hrogers_Railroader_mods_Projects\Decompiled DLLs Not BASE GAME\C_L_B.DKW`
+  `<projects>\Decompiled DLLs Not BASE GAME\C_L_B.DKW`
 - Fuse source:
-  `C:\Hrogers_Railroader_mods_Projects\Rail\FUSE`
+  `<projects>\Rail\FUSE`
 - Current narrow-gauge experiment:
-  `C:\Hrogers_Railroader_mods_Projects\Narrow_Gauge\src`
+  `<projects>\Narrow_Gauge\src`
 
 DKW uses StrangeCustoms because that is how the reference mod was built. The
 proposed architecture does not use StrangeCustoms. DKW's useful patterns are

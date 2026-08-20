@@ -6,7 +6,7 @@ copy them in.
 
 ## This repo
 
-`C:\Hrogers_Railroader_mods_Projects\Narrow_Gauge`
+`<projects>\Narrow_Gauge`
 
 - `src/` — mod source. See root `README.md`'s "Project Layout" section for
   the current file-by-file breakdown (ghost graph sync, shared-rail
@@ -21,7 +21,7 @@ copy them in.
 
 ## FUSE (dependency framework this mod builds on)
 
-`C:\Hrogers_Railroader_mods_Projects\FUSE`
+`<projects>\FUSE`
 
 - `FUSE.Core/Model/FuseTrackDefinition.cs` — the authoring-time node/segment/
   span/area graph this mod's `gauge` tags attach to. `Gauge` on `FuseSegment`
@@ -35,7 +35,7 @@ copy them in.
 
 ## Base game decompiled source (read-only reference — never edit)
 
-`C:\Hrogers_Railroader_mods_Projects\Decompiled dlls base game`
+`<projects>\Decompiled dlls base game`
 
 - `SimpleGraph.Runtime/` (`Node.cs`, `Edge.cs`, `SimpleGraph.cs`) and
   `Assembly-CSharp/Track/Graph.cs`, `TrackNode.cs`, `TrackSegment.cs` — the
@@ -51,10 +51,10 @@ copy them in.
   already used in `src/NarrowGaugeTrackBuilder.cs`.
 
 A second decompile exists at
-`C:\Hrogers_Railroader_mods_Projects\Decompiled DLLs Not BASE GAME` — unclear
+`<projects>\Decompiled DLLs Not BASE GAME` — unclear
 vintage/purpose, verify before relying on it for anything.
 
-- `C:\Hrogers_Railroader_mods_Projects\Decompiled DLLs Not BASE GAME\C_L_B.DKW\C_L_B.DKW\DKW\KRESpliney.cs`
+- `<projects>\Decompiled DLLs Not BASE GAME\C_L_B.DKW\C_L_B.DKW\DKW\KRESpliney.cs`
   and `DKW_Util.cs` - verified reference for C_L_B.DKW's KRE fixed-crossing
   implementation. It explicitly binds two native segments, detects their
   centerline and four rail intersections, substitutes split render proxies,
@@ -63,7 +63,7 @@ vintage/purpose, verify before relying on it for anything.
 
 ## Parallel rewrite effort (reference only, not authoritative for this repo)
 
-`C:\Hrogers_Railroader_mods_Projects\Fuse_geometry_engine`
+`<projects>\Fuse_geometry_engine`
 
 A separate project rewriting the ideas in this repo into one physical
 `TrackAssembly` model. Its own `AI_Coordination/REFERENCES.md` contains a

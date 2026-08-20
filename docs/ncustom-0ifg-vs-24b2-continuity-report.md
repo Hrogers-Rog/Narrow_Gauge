@@ -5,8 +5,8 @@ Date: 2026-06-10
 Sources:
 
 - `C:\Steam\steamapps\common\Railroader\Mods\narrow_gauge test\game-graph.json`
-- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans\special-work_NCustom_0ifg.txt`
-- `C:\Users\roger\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans\special-work_NCustom_24b2.txt`
+- `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans\special-work_NCustom_0ifg.txt`
+- `%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\NarrowGauge\SpecialWorkPlans\special-work_NCustom_24b2.txt`
 - Current code in `src/SpecialWorkRuntimeDiscovery.cs`, `src/SpecialWorkGeometryAnalyzer.cs`, and `src/SpecialWorkGeometryBuilder.cs`
 
 ## Summary
